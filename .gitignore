@@ -180,10 +180,16 @@ __marimo__/
 
 # Input files
 00.first_analysis_module/00_inputs/bsc_raw_dinov2_biochem.parquet
+00.first_analysis_module/00_inputs/*
 
 # Processed data
 00.first_analysis_module/02_processed_data/
 
+# Results
+00.first_analysis_module/03_tables
+00.first_analysis_module/04_figures
+
 # Nextflow process
 00.first_analysis_module/work
 00.first_analysis_module/.nextflow
+.nextflow.log*
