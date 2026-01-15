@@ -190,6 +190,7 @@ __marimo__/
 00.first_analysis_module/04_figures
 
 # Nextflow process
+nextflow.config
 00.first_analysis_module/work
 00.first_analysis_module/.nextflow
 .nextflow.log.1
