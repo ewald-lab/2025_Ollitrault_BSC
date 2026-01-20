@@ -193,6 +193,7 @@ __marimo__/
 00.first_analysis_module/nextflow.config
 00.first_analysis_module/work
 00.first_analysis_module/.nextflow
+*/.nextflow.log*
 00.first_analysis_module/.nextflow.log.1
 00.first_analysis_module/.nextflow.log.2
 00.first_analysis_module/.nextflow.log.3
