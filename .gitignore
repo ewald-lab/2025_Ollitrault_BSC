@@ -192,8 +192,8 @@ __marimo__/
 # Nextflow process
 00.first_analysis_module/nextflow.config
 00.first_analysis_module/work
-00.first_analysis_module/.nextflow
-*/.nextflow.log*
+**/.nextflow/
+00.first_analysis_module/.nextflow.log.*
 00.first_analysis_module/.nextflow.log.1
 00.first_analysis_module/.nextflow.log.2
 00.first_analysis_module/.nextflow.log.3
