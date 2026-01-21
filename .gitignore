@@ -204,3 +204,9 @@ __marimo__/
 00.first_analysis_module/.nextflow.log.7
 00.first_analysis_module/.nextflow.log.8
 00.first_analysis_module/.nextflow.log.9
+
+# Slurm
+00.first_analysis_module/output.out
+00.first_analysis_module/output.log
+00.first_analysis_module/output.err
+00.first_analysis_module/launch_nextflow.bashrc
