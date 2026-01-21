@@ -188,6 +188,7 @@ __marimo__/
 # Results
 00.first_analysis_module/03_tables
 00.first_analysis_module/04_figures
+00.first_analysis_module/06_analysis_reports
 
 # Nextflow process
 00.first_analysis_module/nextflow.config
