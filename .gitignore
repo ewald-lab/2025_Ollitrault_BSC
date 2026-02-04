@@ -189,6 +189,8 @@ __marimo__/
 00.first_analysis_module/03_tables
 00.first_analysis_module/04_figures
 00.first_analysis_module/06_analysis_reports
+*/outputs/*
+*/inputs/*
 
 # Nextflow process
 00.first_analysis_module/nextflow.config
@@ -204,9 +206,15 @@ __marimo__/
 00.first_analysis_module/.nextflow.log.7
 00.first_analysis_module/.nextflow.log.8
 00.first_analysis_module/.nextflow.log.9
+*.nextflow.log.*
+work
 
 # Slurm
 00.first_analysis_module/output.out
 00.first_analysis_module/output.log
 00.first_analysis_module/output.err
 00.first_analysis_module/launch_nextflow.bashrc
+output.out
+output.log
+output.err
+launch_nextflow.bashrc

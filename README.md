@@ -27,3 +27,29 @@ install.packages(
   repos = "https://cloud.r-project.org",
   lib = "/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5"
 )
+
+# replace all instances of 'mod-00-env' with the name of your environment
+uv venv mod-00-env --python=python3.11
+source mod-00-env/bin/activate
+uv pip install -r requirements.txt
+python -m ipykernel install --user --name=mod-00-env --display-name "Python (mod-00-env)"
+
+echo "To activate later: source mod-00-env/bin/activate"
+echo "To install a package: uv pip install pkg-name"
+echo "To update requirements.txt after installing packages: uv pip freeze > requirements.txt"
+
+
+# Python Base Environment
+
+Contains core dependencies shared by all analysis modules.
+Python 3.11
+
+# [If necessary] Python ML Environment
+
+Extension of python-base for ML-heavy modules.
+Includes packages like xgboost, lightgbm, tensorflow, torch.
+
+# R Base Environment
+
+Used for R scripts in concentration response and plots.
+Includes tidyverse, ggplot2, dplyr, data.table.

@@ -1,0 +1,26 @@
+{
+    "input_path": "modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet",
+    "metadata_path": null,
+    "input_name": "bsc",
+    "features": "dino",
+    "post_processing": {"script": "postprocessing_bsc.py",
+                        "bsc_annotation": "modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv"},
+    "categories": ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"],
+    "treatment": "Metadata_perturbation",
+    "compound": "Metadata_compound",
+    "concentration": "Metadata_concentration",
+    "batch": null,
+    "cell_line": null,
+    "timepoint": null,
+    "control": "s0617825",
+    "feature_selection":  ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"],
+    "concentration_response": {
+            "distances_R": ["gmd", "cmd"],
+            "distances_python": null,
+            "transform": "none",
+            "cover_var": 0.95,
+            "num_sds": 2,
+            "dmso_mode": "closest",
+            "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"]
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "input_path": "../../2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/plates",
+    "metadata_path": "../../2024_09_09_Axiom_OASIS/1_snakemake/inputs/metadata/metadata.parquet",
+    "input_name": "axiom",
+    "features": "dino",
+    "post_processing": null,
+    "categories": ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"],
+    "treatment": "Metadata_perturbation",
+    "compound": "Metadata_compound",
+    "concentration": "Metadata_concentration",
+    "batch": "Metadata_batch",
+    "cell_line": "Metadata_cellLine",
+    "timepoint": "Metadata_timepoint",
+    "control": "DMSO",
+    "feature_selection": true,
+    "concentration_response": {
+            "distances_R": ["gmd", "cmd"],
+            "distances_python": null,
+            "transform": "none",
+            "cover_var": 0.95,
+            "num_sds": 2,
+            "dmso_mode": "plate",
+            "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized", "Metadata_Count_Cells"]
+    }
+}
+
