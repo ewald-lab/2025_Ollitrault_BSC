@@ -8,7 +8,8 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     import argparse
-    return argparse, mo
+    import sys
+    return argparse, mo, sys
 
 
 @app.cell
@@ -16,7 +17,8 @@ def _():
     import pandas as pd
     import numpy as np
     from rdkit import Chem
-    return Chem, np, pd
+    import matplotlib.pyplot as plt
+    return np, pd, plt
 
 
 @app.cell
@@ -29,6 +31,10 @@ def _(mo):
 def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
+    parser.add_argument("--name", type=str, default="Default")
+    parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_filtered.parquet") # TODO : adapt for level6
+    parser.add_argument("--input_pods_cp_all", type=str, default=
+        "modules/06_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
         "modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
@@ -45,7 +51,7 @@ def _(argparse, mo, sys):
 
     # Use the parsed values in your notebook
     mo.md(f"# Report for {args.name}")
-    mo.md(f"Input path of data cp pods : {args.input_pods_cp}; metadata pods : {args.input_pods_metadata}")
+    mo.md(f"Input path for {args.name} of data cp pods : {args.input_pods_cp}; metadata pods : {args.input_pods_metadata}")
     return (args,)
 
 
@@ -57,6 +63,22 @@ def _(mo):
 
 @app.cell
 def _(args, pd):
+    # TODO Add df_level6 at the compound level
+    df_level = pd.read_parquet(args.input)
+    len_compounds = df_level[df_level["Metadata_compound"] != args.control]["Metadata_compound"].nunique()
+    len_compounds
+    return (len_compounds,)
+
+
+@app.cell
+def _(args, pd):
+    df_cp_pods_all = pd.read_parquet(args.input_pods_cp_all)
+    df_cp_pods_all
+    return (df_cp_pods_all,)
+
+
+@app.cell
+def _(args, pd):
     df_cp_pods = pd.read_parquet(args.input_pods_cp)
     df_cp_pods
     return (df_cp_pods,)
@@ -64,41 +86,41 @@ def _(args, pd):
 
 @app.cell
 def _(args, pd):
-
     # Load all files into a dictionary: {filename_base: DataFrame}
-    df_meta_pods = {pf.split('/')[-1].replace('.parquet',''): pd.read_parquet(pf) for pf in args.input_pods_metadata}
-
-    # Example access
-    for name, df in df_meta_pods.items():
-        print(f"{name}: {df.shape} rows x columns")
-
-    return (df_meta_pods,)
+    dict_df_meta_pods = {pf.split('/')[-1].replace('.parquet',''): pd.read_parquet(pf) for pf in args.input_pods_metadata}
+    return (dict_df_meta_pods,)
 
 
 @app.cell
-def _(df_meta_pods):
-    df_meta_pods
+def _(dict_df_meta_pods):
+    dict_df_meta_pods
     return
 
 
 @app.cell
-def _(df_cp_pods, df_meta_pods, pd):
-    all_dfs_pods = {'CP_pods': df_cp_pods, **df_meta_pods}
+def _(mo):
+    mo.md(r"""# Table number of active""")
+    return
+
+
+@app.cell
+def _(df_cp_pods, dict_df_meta_pods, pd):
+    dict_all_dfs_pods = {'CP_pods': df_cp_pods, **dict_df_meta_pods}
 
     # Prepare summary table
     _summary_rows = []
 
-    for _name, _df in all_dfs_pods.items():
+    for _name, _df in dict_all_dfs_pods.items():
         _n_rows = len(_df)
         _n_all_pass = _df['all.pass'].sum()
-    
+
         # check if 'adv.incr' exists in the df
         if 'adv.incr' in _df.columns:
             # Count all.pass & adv.incr == True
             _n_allpass_adv_true = _df[_df['all.pass'] & (_df['adv.incr'] == True)].shape[0]
             # Count all.pass & adv.incr == False
             _n_allpass_adv_false = _df[_df['all.pass'] & (_df['adv.incr'] == False)].shape[0]
-    
+
         _summary_rows.append({
             'dataset': _name,
             'n_rows': _n_rows,
@@ -109,7 +131,7 @@ def _(df_cp_pods, df_meta_pods, pd):
 
     summary_table_pods = pd.DataFrame(_summary_rows)
     summary_table_pods
-    return
+    return (dict_all_dfs_pods,)
 
 
 @app.cell
@@ -119,7 +141,40 @@ def _(mo):
 
 
 @app.cell
-def _():
+def _(dict_all_dfs_pods, len_compounds, plt):
+    labels = []
+    counts = []
+    percentages = []
+
+    for _name, _df in dict_all_dfs_pods.items():
+        _n_pass = _df[_df['all.pass'] == True].shape[0]
+        labels.append(_name)
+        counts.append(_n_pass)
+        percentages.append(100 * _n_pass / len_compounds)
+
+    # Plot
+    plt.figure(figsize=(6, 8))
+    bars = plt.bar(labels, counts)
+
+    plt.ylabel("Number of active compounds (all.pass = True)")
+    plt.xlabel("POD type")
+    plt.title("Passing compounds per POD")
+    plt.xticks(rotation=45, ha='right')
+
+    # Add % on top of bars
+    for bar, pct in zip(bars, percentages):
+        height = bar.get_height()
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            height,
+            f"{pct:.1f}% ({bar.get_height()} Actives)",
+            ha='center',
+            va='bottom'
+        )
+
+    plt.tight_layout()
+    plt.show()
+
     return
 
 
@@ -130,603 +185,147 @@ def _(mo):
 
 
 @app.cell
-def _(pd):
-
-    df_meta_pod_mtt_ = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
-    df_meta_pod_ldh_ = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
-    return df_meta_pod_ldh_, df_meta_pod_mtt_
-
-
-@app.cell
-def _(df_cp_pod_):
-    df_cp_pod_
-    return
-
-
-@app.cell
-def _(df_meta_pod_mtt_):
-    df_meta_pod_mtt_
-    return
-
-
-@app.cell
-def _(df_meta_pod_ldh_):
-    df_meta_pod_ldh_
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""# OLD --""")
-    return
-
-
-@app.cell
-def _(pd):
-    df_annotations_composition = pd.read_csv("00_inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
-    return (df_annotations_composition,)
-
-
-@app.cell
-def _(df_annotations_composition):
-    df_annotations_composition.head()
-    return
-
-
-@app.cell
-def _(pd):
-    df_level4b = pd.read_parquet("02_processed_data/level4b_bsc.parquet")
-    meta_compound_cols = [c for c in df_level4b.columns if c.startswith("Metadata_compound")]
-    df_metadata = df_level4b[meta_compound_cols].drop_duplicates()
-    return (df_metadata,)
-
-
-@app.cell
-def _(df_metadata):
-    df_metadata.shape
-    return
-
-
-@app.cell
-def _(df_metadata):
-    df_metadata.head()
-    return
-
-
-@app.cell
-def _(df_annotations_composition):
-    df_annotations_composition.head()
-    return
-
-
-@app.cell
-def _(pd):
-    df_cp_pod = pd.read_parquet("03_tables/pods_bsc_cp_original_conc.parquet")
-    #df_meta_pod_mtt = pd.read_parquet("03_tables/meta_pods_Metadata_mtt_normalized.parquet")
-    df_meta_pod_mtt = pd.read_parquet("03_tables/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
-    #df_meta_pod_ldh = pd.read_parquet("03_tables/meta_pods_Metadata_ldh_normalized.parquet")
-    df_meta_pod_ldh = pd.read_parquet("03_tables/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
-    return df_cp_pod, df_meta_pod_ldh, df_meta_pod_mtt
-
-
-@app.cell
-def _(df_cp_pod):
-    df_cp_pod
-    return
-
-
-@app.cell
-def _(df_meta_pod_mtt):
-    df_meta_pod_mtt
-    return
-
-
-@app.cell
-def _(df_meta_pod_ldh):
-    df_meta_pod_ldh
-    return
-
-
-@app.cell
-def _(df_cp_pod, df_meta_pod_ldh, df_meta_pod_mtt):
-    print("Shape CP:", df_cp_pod.shape)
-    print("Shape mtt:", df_meta_pod_mtt.shape)
-    print("Shape ldh:", df_meta_pod_ldh.shape)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""# Analysis Cell Painting POD VS Metadata POD""")
-    return
-
-
-@app.cell
-def _():
-    # Boxplot
-    return
-
-
-@app.cell
-def _(df_cp_pod, df_meta_pod_ldh, df_meta_pod_mtt, pd):
-    import matplotlib.pyplot as plt
-
-    _data = [
-        df_cp_pod["cp_POD_um"].dropna(),
-        df_meta_pod_mtt["Metadata_mtt_normalized_POD_um"].replace(9999, pd.NA).dropna(),
-        df_meta_pod_ldh["Metadata_ldh_normalized_POD_um"].replace(9999, pd.NA).dropna()
-    ]
-
-    _labels_x = ["CP", "MTT", "LDH"]
-
-    plt.figure(figsize=(7, 5))
-
-    plt.boxplot(
-        _data,
-        labels=_labels_x,
-        showfliers=True,
-        widths=0.6
-    )
-    plt.yscale("log")
-    plt.ylim(0.01, 10000000000000000000)
-    plt.ylabel("Value")
-    plt.title("Comparison of POD Metrics (all)")
-
-    plt.tight_layout()
-    plt.show()
-    for _label, _d in zip(_labels_x, _data):
-        print(f"{_label}: n = {len(_d)}")
-    return (plt,)
-
-
-@app.cell
-def _(df_cp_pod, df_meta_pod_ldh, df_meta_pod_mtt, pd, plt):
-    _data = [
-        df_cp_pod.loc[df_cp_pod["all.pass"] == True, "cp_POD_um"].dropna(),
-        df_meta_pod_mtt.loc[df_meta_pod_mtt["all.pass"] == True, "Metadata_mtt_normalized_POD_um"]
-            .replace(9999, pd.NA)
-            .dropna(),
-        df_meta_pod_ldh.loc[df_meta_pod_ldh["all.pass"] == True, "Metadata_ldh_normalized_POD_um"]
-            .replace(9999, pd.NA)
-            .dropna()
-    ]
-
-    _labels_x = ["CP", "MTT", "LDH"]
-
-    plt.figure(figsize=(7, 5))
-
-    plt.boxplot(
-        _data,
-        labels=_labels_x,
-        showfliers=True,
-        widths=0.6
-    )
-    plt.yscale("log")
-    plt.ylim(0.01, 1500)
-    plt.ylabel("Value")
-    plt.title("Comparison of POD Metrics (filter all.pass)")
-
-    plt.tight_layout()
-    plt.show()
-    for _label, _d in zip(_labels_x, _data):
-        print(f"{_label}: n = {len(_d)}")
-    return
-
-
-@app.cell
-def _(df_cp_pod, df_meta_pod_ldh, df_meta_pod_mtt, pd, plt):
-    _data = [
-        df_cp_pod.loc[
-            (df_cp_pod["all.pass"] == True) & (df_cp_pod["adv.incr"] == True),
-            "cp_POD_um"
-        ].dropna(),
-
-        df_meta_pod_mtt.loc[
-            (df_meta_pod_mtt["all.pass"] == True) & (df_meta_pod_mtt["adv.incr"] == False),
-            "Metadata_mtt_normalized_POD_um"
-        ]
-        .replace(9999, pd.NA)
-        .dropna(),
-
-        df_meta_pod_ldh.loc[
-            (df_meta_pod_ldh["all.pass"] == True) & (df_meta_pod_ldh["adv.incr"] == True),
-            "Metadata_ldh_normalized_POD_um"
-        ]
-        .replace(9999, pd.NA)
-        .dropna()
-    ]
-
-    _labels_x = ["CP", "MTT", "LDH"]
-
-    plt.figure(figsize=(7, 5))
-
-    plt.boxplot(
-        _data,
-        labels=_labels_x,
-        showfliers=True,
-        widths=0.6
-    )
-    plt.yscale("log")
-    plt.ylim(0.01, 1500)
-    plt.ylabel("Value")
-    plt.title("Comparison of POD Metrics (filter all.pass and adv.incr)")
-
-    plt.tight_layout()
-    plt.show()
-    for _label, _d in zip(_labels_x, _data):
-        print(f"{_label}: n = {len(_d)}")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""# Analysis Cell Painting POD BSC VS chemicals""")
-    return
-
-
-@app.cell
-def _():
-    import umap.umap_ as umap
-    from rdkit.Chem import AllChem
-    import sys
-    sys.path.append("/Users/ollitrault/Documents/projects/utils")
-    from util_standardizer import StandardizeMolecule
-    return AllChem, StandardizeMolecule, sys, umap
-
-
-@app.cell
-def _(AllChem, Chem, np):
-    def smiles_to_morgan(smiles, radius=2, n_bits=2048):
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            return None
-        fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
-        return np.array(fp)
-    return (smiles_to_morgan,)
-
-
-@app.cell
-def _(df_annotations_composition_standardized_nona):
-    df_annotations_composition_standardized_nona["Scode"].unique()
-    return
-
-
-@app.cell
-def _(StandardizeMolecule, df_annotations_composition, df_metadata):
-    df_metadata_standardized = StandardizeMolecule(df_metadata, input_column="Metadata_compound_smiles").run()
-    df_annotations_composition_standardized = StandardizeMolecule(df_annotations_composition, input_column="Canonical SMILES").run()
-    # drop na
-    df_metadata_standardized_nona = df_metadata_standardized[
-        df_metadata_standardized["SMILES_standardized_nonisomeric"].notna()
-    ]
-    df_annotations_composition_standardized_nona = (
-        df_annotations_composition_standardized[
-            df_annotations_composition_standardized["SMILES_standardized_nonisomeric"].notna()
-        ]
-    )
-    return (
-        df_annotations_composition_standardized_nona,
-        df_metadata_standardized_nona,
-    )
-
-
-@app.cell
-def _(df_annotations_composition):
-    df_annotations_composition
-    return
-
-
-@app.cell
-def _(
-    df_annotations_composition_standardized_nona,
-    df_metadata_standardized_nona,
-):
-    df_metadata_annotations_composition = df_metadata_standardized_nona.merge(
-        df_annotations_composition_standardized_nona,
-        on="SMILES_standardized_nonisomeric",
-        how="left"
-    )
-    return (df_metadata_annotations_composition,)
-
-
-@app.cell
-def _(df_metadata_annotations_composition):
-    df_metadata_annotations_composition
-    return
-
-
-@app.cell
-def _(
-    df_cp_pod,
-    df_meta_pod_ldh,
-    df_meta_pod_mtt,
-    df_metadata_annotations_composition,
-):
-    # 1. Join BMD
-    df_metadata_annotations_composition_cp = df_metadata_annotations_composition.merge(
-        df_cp_pod[["Metadata_compound", "cp_POD", "cp_POD_um"]],
-        on="Metadata_compound",
-        how="left"
-    )
-
-    # 2. Join MTT POD
-    df_metadata_annotations_composition_cp_mtt = df_metadata_annotations_composition_cp.merge(
-        df_meta_pod_mtt[
-            ["Metadata_compound", "Metadata_mtt_normalized_POD", "Metadata_mtt_normalized_POD_um"]
+def _(args, dict_all_dfs_pods, pd):
+    df_all_pods = pd.concat(
+        [
+            df.assign(source=name)
+            for name, df in dict_all_dfs_pods.items()
         ],
-        on="Metadata_compound",
-        how="left"
+        ignore_index=True
     )
+    df_all_pods_allpass = df_all_pods[df_all_pods['all.pass'] == True]
+    pod_columns = ['cp_POD_um'] + [
+        f"{m}_POD_um"
+        for m in args.metadata_cell_viability
+        if f"{m}_POD_um" in df_all_pods_allpass.columns
+    ]
+    df_plot_all_pods_allpass = df_all_pods_allpass[pod_columns].dropna(how='all')
 
-    # 3. Join LDH POD
-    df_metadata_annotations_composition_cp_mtt_ldh = df_metadata_annotations_composition_cp_mtt.merge(
-        df_meta_pod_ldh[
-            ["Metadata_compound", "Metadata_ldh_normalized_POD", "Metadata_ldh_normalized_POD_um"]
-        ],
-        on="Metadata_compound",
-        how="left"
-    )
-    return (df_metadata_annotations_composition_cp_mtt_ldh,)
-
-
-@app.cell
-def _(
-    df_annotations_composition,
-    df_metadata,
-    df_metadata_annotations_composition_cp_mtt_ldh,
-):
-    print("df_metadata:", len(df_metadata))
-    print("df_annotations_composition:", len(df_annotations_composition))
-    print("df_merged:", len(df_metadata_annotations_composition_cp_mtt_ldh))
-    return
+    return df_plot_all_pods_allpass, pod_columns
 
 
 @app.cell
-def _():
-    # UMAP
-    return
+def _(df_plot_all_pods_allpass, np, plt, pod_columns):
+    plt.figure(figsize=(10, 5))
 
-
-@app.cell
-def _(df_metadata_annotations_composition_cp_mtt_ldh):
-    df_metadata_annotations_composition_cp_mtt_ldh
-    return
-
-
-@app.cell
-def _(df_metadata_annotations_composition_cp_mtt_ldh, np, smiles_to_morgan):
-    # Convert SMILES to fingerprints
-    fps_series = df_metadata_annotations_composition_cp_mtt_ldh["SMILES_standardized_nonisomeric"].apply(smiles_to_morgan)
-
-    # Drop invalid SMILES
-    mask = fps_series.notna()
-    fps = np.vstack(fps_series[mask])
-    bmd = df_metadata_annotations_composition_cp_mtt_ldh.loc[mask, "bmd"]
-    return bmd, fps
-
-
-@app.cell
-def _(fps, umap):
-    reducer = umap.UMAP(
-        n_neighbors=25,        # larger = smoother chemical space
-        min_dist=0.05,         # tighter clusters
-        n_components=2,
-        metric="jaccard",      # IMPORTANT for binary fingerprints
-        random_state=42
-    )
-
-    embedding = reducer.fit_transform(fps)
-    return (embedding,)
-
-
-@app.cell
-def _(bmd, embedding, plt):
-    plt.figure(figsize=(8, 7))
-
-    sc = plt.scatter(
-        embedding[:, 0],
-        embedding[:, 1],
-        c=bmd,
-        cmap="viridis",
-        s=25,
-        alpha=0.8
-    )
-
-    plt.xlabel("UMAP-1")
-    plt.ylabel("UMAP-2")
-    plt.title("UMAP of Morgan Fingerprints colored by BMD")
-
-    cbar = plt.colorbar(sc)
-    cbar.set_label("BMD")
-
-    plt.tight_layout()
-    plt.show()
-    return
-
-
-@app.cell
-def _():
-    # Boxplot
-    return
-
-
-@app.cell
-def _(df_metadata_annotations_composition_cp_mtt_ldh):
-    df_metadata_annotations_composition_cp_mtt_ldh_box_plot = df_metadata_annotations_composition_cp_mtt_ldh[
-        ["Plant name", "bmd"]
-    ].dropna()
-    return (df_metadata_annotations_composition_cp_mtt_ldh_box_plot,)
-
-
-@app.cell
-def _(df_metadata_annotations_composition_cp_mtt_ldh_box_plot, np, plt):
-    df_ = df_metadata_annotations_composition_cp_mtt_ldh_box_plot.copy()
+    data_plot_all_pods_allpass = [df_plot_all_pods_allpass[col].dropna() for col in pod_columns]
+    labels_plot_all_pods_allpass = [
+        f"{col}\n(n={df_plot_all_pods_allpass[col].notna().sum()})"
+        for col in pod_columns
+    ]
 
     plt.figure(figsize=(10, 5))
 
-    ax = df_.boxplot(
-        column="bmd",
-        by="Plant name",
-        grid=False,
-        rot=45
-    )
-
-    # 🔑 Use the x-tick labels (true box order)
-    plants = [tick.get_text() for tick in ax.get_xticklabels()]
-
-    for i, plant in enumerate(plants, start=1):
-        y = df_.loc[df_["Plant name"] == plant, "bmd"]
-        x = np.random.normal(i, 0.04, size=len(y))
-        plt.plot(x, y, "k.", alpha=0.4)
-
-    plt.ylabel("POD")
-    plt.xlabel("Plant name")
-    plt.title("POD distribution grouped by Plant name")
-    plt.suptitle("")
-
-    plt.tight_layout()
-    plt.show()
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    # boxplot bsc vs all actives
-    return
-
-
-@app.cell
-def _(
-    df_annotations_composition,
-    df_cp_pod,
-    df_meta_pod_ldh,
-    df_meta_pod_mtt,
-    df_metadata,
-):
-    # 1. Join BMD
-    df_metadata_cp = df_metadata.merge(
-        df_cp_pod[["Metadata_compound", "bmd"]],
-        on="Metadata_compound",
-        how="left"
-    )
-
-    # 2. Join MTT POD
-    df_metadata_cp_mtt = df_metadata_cp.merge(
-        df_meta_pod_mtt[
-            ["Metadata_compound", "Metadata_mtt_normalized_POD"]
-        ],
-        on="Metadata_compound",
-        how="left"
-    )
-
-    # 3. Join LDH POD
-    df_metadata_cp_mtt_ldh = df_metadata_cp_mtt.merge(
-        df_meta_pod_ldh[
-            ["Metadata_compound", "Metadata_ldh_normalized_POD"]
-        ],
-        on="Metadata_compound",
-        how="left"
-    )
-    # 3. Join BSC annotations plants
-    df_annotations_unique = (
-        df_annotations_composition[["Scode", "Plant name"]]
-        .drop_duplicates(subset=["Scode"])
-    )
-    df_metadata_cp_mtt_ldh_annotated = df_metadata_cp_mtt_ldh.merge(
-        df_annotations_unique[
-            ["Plant name", "Scode"]
-        ],
-        left_on="Metadata_compound",
-        right_on="Scode",
-        how="left"
-    )
-    return (df_metadata_cp_mtt_ldh_annotated,)
-
-
-@app.cell
-def _(df_metadata_cp_mtt_ldh_annotated):
-    df_metadata_cp_mtt_ldh_annotated
-    return
-
-
-@app.cell
-def _(df_annotations_composition, df_metadata_cp_mtt_ldh_annotated, np):
-    # Set of Scodes
-    scode_set = set(
-        df_annotations_composition["Scode"]
-        .dropna()
-        .unique()
-    )
-
-    # Create binary grouping
-    df_metadata_cp_mtt_ldh_annotated["Group"] = np.where(
-        df_metadata_cp_mtt_ldh_annotated["Metadata_compound"].isin(scode_set),
-        "Plant",
-        "Constituent components"
-    )
-    return (scode_set,)
-
-
-@app.cell
-def _(scode_set):
-    scode_set
-    return
-
-
-@app.cell
-def _(df_metadata_cp_mtt_ldh_annotated, np, pd, plt):
-    plt.figure(figsize=(6, 5))
-
-    ax_ = df_metadata_cp_mtt_ldh_annotated.boxplot(
-        column="bmd",
-        by="Group",
-        grid=False,
+    # Boxplot
+    plt.boxplot(
+        data_plot_all_pods_allpass,
+        labels=labels_plot_all_pods_allpass,
         showfliers=False
     )
 
-    # True box order
-    groups_ = [tick.get_text() for tick in ax_.get_xticklabels()]
+    # Jitter overlay
+    for _i, values in enumerate(data_plot_all_pods_allpass, start=1):
+        x_jitter = np.random.normal(loc=_i, scale=0.04, size=len(values))
+        plt.scatter(
+            x_jitter,
+            values,
+            alpha=0.4,
+            s=15
+        )
 
-    for i_, group_ in enumerate(groups_, start=1):
-
-        df_sub = df_metadata_cp_mtt_ldh_annotated[
-            df_metadata_cp_mtt_ldh_annotated["Group"] == group_
-        ]
-
-        # Generate jitter ONCE per row
-        x_ = np.random.normal(i_, 0.04, size=len(df_sub))
-
-        # Plot points
-        plt.plot(x_, df_sub["bmd"], "k.", alpha=0.4)
-
-        # Add plant names next to points (when available)
-        for xi, yi, plant_ in zip(
-            x_,
-            df_sub["bmd"],
-            df_sub["Plant name"]
-        ):
-            if pd.notna(plant_) and plant_ != "NA":
-                plt.text(
-                    xi + 0.01,
-                    yi,
-                    plant_,
-                    fontsize=7,
-                    alpha=0.7,
-                    verticalalignment="center"
-                )
-
-    plt.ylabel("POD")
-    plt.xlabel("")
-    plt.title("POD distribution: Plant vs Active chemicals")
-    plt.suptitle("")
+    plt.ylabel("POD (µM)")
+    plt.title("POD distributions (all.pass = True)")
+    plt.xticks(rotation=45, ha='right')
+    plt.yscale("log")   # strongly recommended for PODs
 
     plt.tight_layout()
     plt.show()
+
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Table number of active grouped by channels""")
+    return
+
+
+@app.cell
+def _(df_cp_pods_all, pd):
+    _summary_rows = []
+
+    for gene, _df in df_cp_pods_all.groupby("gene.id"):
+
+        _n_rows = len(_df)
+        _n_all_pass = _df["all.pass"].sum()
+
+        if "adv.incr" in _df.columns:
+            _n_allpass_adv_true = _df[
+                (_df["all.pass"]) & (_df["adv.incr"] == True)
+            ].shape[0]
+
+            _n_allpass_adv_false = _df[
+                (_df["all.pass"]) & (_df["adv.incr"] == False)
+            ].shape[0]
+        else:
+            _n_allpass_adv_true = None
+            _n_allpass_adv_false = None
+
+        _summary_rows.append({
+            "dataset": gene,
+            "n_rows": _n_rows,
+            "n_all_pass": _n_all_pass,
+            "n_allpass_adv_true": _n_allpass_adv_true,
+            "n_allpass_adv_false": _n_allpass_adv_false
+        })
+
+    summary_table_pods_channels = pd.DataFrame(_summary_rows)
+    summary_table_pods_channels
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Boxplot PODs by channels""")
+    return
+
+
+@app.cell
+def _(df_cp_pods_all, np, plt):
+    # Filter your data: keep all.pass True and finite POD values > 0
+    df_plot_cp_pods_all = df_cp_pods_all[
+        (df_cp_pods_all["all.pass"] == True) &
+        (np.isfinite(df_cp_pods_all["cp_all_POD_um"])) &
+        (df_cp_pods_all["cp_all_POD_um"] < 100000000) &
+        (df_cp_pods_all["cp_all_POD_um"] > 0)  # log scale requires > 0
+    ]
+
+    # Group by gene.id
+    _groups = df_plot_cp_pods_all.groupby("gene.id")
+
+    data_plot = [g["cp_all_POD_um"].values for _, g in _groups]
+    _labels = [name for name, _ in _groups]
+
+    plt.figure(figsize=(max(6, len(_labels) * 0.8), 6))
+
+    # Boxplot
+    plt.boxplot(data_plot, labels=_labels, showfliers=False)
+
+    # Jitter points
+    for _i, _values in enumerate(data_plot, start=1):
+        if len(_values) == 0:
+            continue  # skip empty groups
+        _x_jitter = np.random.normal(_i, 0.04, size=len(_values))
+        plt.scatter(_x_jitter, _values, alpha=0.5)
+
+    plt.ylabel("POD (µM)")
+    plt.title("CP POD distributions by gene (all.pass = True)")
+    plt.yscale("log")
+    plt.xticks(rotation=45, ha="right")
+
+    plt.tight_layout()
+    plt.show()
+
     return
 
 
@@ -736,14 +335,7 @@ def _():
 
 
 @app.cell
-def _(df_metadata_cp_mtt_ldh_annotated):
-    df_metadata_cp_mtt_ldh_annotated
-    return
-
-
-@app.cell
 def _():
-    # UMAP on CP features
     return
 
 

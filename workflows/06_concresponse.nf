@@ -35,7 +35,7 @@ workflow concresponse_workflow {
         transform_input_channel = path_data_5c
             .combine(input_data_level5)
             .map { pods_path, metadata_path ->
-                tuple("bmd", pods_path, metadata_path, true)
+                tuple("cp_all", pods_path, metadata_path, true)
             }
             .mix(
                 path_data_5d
@@ -100,6 +100,9 @@ workflow concresponse_workflow {
                 }
         // Final plot runs ONCE
         path_data_5h = plot_cp_curve_fits(final_plot_input)
+
+        // Analysis concreponse report
+        analysis_concresponse_report(input_data_level5, transform_input_channel)
 }
 
 // ---------------------------------------------------------------------------
