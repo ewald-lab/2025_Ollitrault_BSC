@@ -102,7 +102,29 @@ workflow concresponse_workflow {
         path_data_5h = plot_cp_curve_fits(final_plot_input)
 
         // Analysis concreponse report
-        analysis_concresponse_report(input_data_level5, transform_input_channel)
+
+        // all_pods_files is a channel of all files
+        all_pods_files = path_data_transformed.collect()
+
+        // Split the files into separate channels by pattern
+        input_pods_cp_all_ch = all_pods_files.map { files ->
+            files.findAll { it.name.contains("cp_all") }
+        }.flatten()
+
+        input_pods_cp_ch = all_pods_files.map { files ->
+            files.findAll { it.name.contains("cp_original") }
+        }.flatten()
+
+        input_pods_metadata_ch = all_pods_files.map { files ->
+            files.findAll { it.name.contains("Metadata") }
+        }.collect()
+
+        analysis_concresponse_report(
+                    input_data_level5,
+                    input_pods_cp_all_ch,
+                    input_pods_cp_ch,
+                    input_pods_metadata_ch
+                )
 }
 
 // ---------------------------------------------------------------------------
@@ -379,5 +401,37 @@ process plot_cp_curve_fits {
         "plots_pods_cp_${params.input_name}.pdf" \
         '${meta_nm.join(",")}' \
         ${params.control}
+    """
+}
+
+
+process analysis_concresponse_report {
+    tag { "${params.input_name}" }
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
+
+    input:
+    path input_data_level5            // your level5 parquet
+    path input_pods_cp_all            // the CP_all parquet
+    path input_pods_cp                // the CP parquet
+    path input_pods_metadata          // list of metadata parquet files
+
+    output:
+    path "*.html"                     // output Marimo report
+
+    script:
+    """
+    echo ${params.concentration_response.compute_meta_pods.join(' ')}
+    echo ${input_pods_metadata.join(' ')}
+    marimo export html \
+    ${projectDir}/modules/08_reporting/notebooks/5_analysis_concresponse.marimo.py \
+    -o 5_analysis_concresponse_marimo_${params.input_name}.html \
+    -- \
+        --name ${params.input_name} \\
+        --input ${input_data_level5} \\
+        --input_pods_cp_all ${input_pods_cp_all} \\
+        --input_pods_cp ${input_pods_cp} \\
+        --input_pods_metadata ${input_pods_metadata.join(' ')} \\
+        --control ${params.control} \\
+        --metadata_cell_viability ${params.concentration_response.compute_meta_pods.join(' ')}
     """
 }
