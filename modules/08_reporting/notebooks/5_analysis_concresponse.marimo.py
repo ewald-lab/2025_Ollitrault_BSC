@@ -7,7 +7,8 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
-    return (mo,)
+    import argparse
+    return argparse, mo
 
 
 @app.cell
@@ -16,6 +17,148 @@ def _():
     import numpy as np
     from rdkit import Chem
     return Chem, np, pd
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# 6. Analysis of Cell Painting dose response analysis""")
+    return
+
+
+@app.cell
+def _(argparse, mo, sys):
+    # Define the parser
+    parser = argparse.ArgumentParser(description="My Marimo Report")
+    parser.add_argument("--input_pods_cp", type=str, default=
+        "modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+    parser.add_argument("--input_pods_metadata", nargs="+", default=[
+        "modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet",
+        "modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet"
+                                                           ])
+    parser.add_argument("--control", type=str, default="s0617825")
+    parser.add_argument("--metadata_cell_viability", nargs="+", default=[
+        "Metadata_mtt_normalized", "Metadata_ldh_normalized"])
+
+    # Parse arguments from sys.argv
+    # marimo ensures sys.argv[1:] contains only the args after the '--'
+    args, unknown = parser.parse_known_args(sys.argv[1:])
+
+    # Use the parsed values in your notebook
+    mo.md(f"# Report for {args.name}")
+    mo.md(f"Input path of data cp pods : {args.input_pods_cp}; metadata pods : {args.input_pods_metadata}")
+    return (args,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Input""")
+    return
+
+
+@app.cell
+def _(args, pd):
+    df_cp_pods = pd.read_parquet(args.input_pods_cp)
+    df_cp_pods
+    return (df_cp_pods,)
+
+
+@app.cell
+def _(args, pd):
+
+    # Load all files into a dictionary: {filename_base: DataFrame}
+    df_meta_pods = {pf.split('/')[-1].replace('.parquet',''): pd.read_parquet(pf) for pf in args.input_pods_metadata}
+
+    # Example access
+    for name, df in df_meta_pods.items():
+        print(f"{name}: {df.shape} rows x columns")
+
+    return (df_meta_pods,)
+
+
+@app.cell
+def _(df_meta_pods):
+    df_meta_pods
+    return
+
+
+@app.cell
+def _(df_cp_pods, df_meta_pods, pd):
+    all_dfs_pods = {'CP_pods': df_cp_pods, **df_meta_pods}
+
+    # Prepare summary table
+    _summary_rows = []
+
+    for _name, _df in all_dfs_pods.items():
+        _n_rows = len(_df)
+        _n_all_pass = _df['all.pass'].sum()
+    
+        # check if 'adv.incr' exists in the df
+        if 'adv.incr' in _df.columns:
+            # Count all.pass & adv.incr == True
+            _n_allpass_adv_true = _df[_df['all.pass'] & (_df['adv.incr'] == True)].shape[0]
+            # Count all.pass & adv.incr == False
+            _n_allpass_adv_false = _df[_df['all.pass'] & (_df['adv.incr'] == False)].shape[0]
+    
+        _summary_rows.append({
+            'dataset': _name,
+            'n_rows': _n_rows,
+            'n_all_pass': _n_all_pass,
+            'n_allpass_adv_true': _n_allpass_adv_true,
+            'n_allpass_adv_false': _n_allpass_adv_false
+        })
+
+    summary_table_pods = pd.DataFrame(_summary_rows)
+    summary_table_pods
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Barplot number of actives""")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Boxplot PODs""")
+    return
+
+
+@app.cell
+def _(pd):
+
+    df_meta_pod_mtt_ = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
+    df_meta_pod_ldh_ = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
+    return df_meta_pod_ldh_, df_meta_pod_mtt_
+
+
+@app.cell
+def _(df_cp_pod_):
+    df_cp_pod_
+    return
+
+
+@app.cell
+def _(df_meta_pod_mtt_):
+    df_meta_pod_mtt_
+    return
+
+
+@app.cell
+def _(df_meta_pod_ldh_):
+    df_meta_pod_ldh_
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# OLD --""")
+    return
 
 
 @app.cell
@@ -228,7 +371,7 @@ def _():
     import sys
     sys.path.append("/Users/ollitrault/Documents/projects/utils")
     from util_standardizer import StandardizeMolecule
-    return AllChem, StandardizeMolecule, umap
+    return AllChem, StandardizeMolecule, sys, umap
 
 
 @app.cell

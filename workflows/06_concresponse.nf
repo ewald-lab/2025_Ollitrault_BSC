@@ -301,7 +301,7 @@ process transform_back_log10concentration {
 process plot_meta_curve_fits {
     tag { "${input_file.baseName} ${meta_nm}" }
 
-    publishDir "04_figures", mode: 'copy', pattern: '*.pdf'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy', pattern: '*.pdf'
 
     input:
     tuple val(meta_nm), path(input_file_meta_pods), path(input_file)
@@ -360,7 +360,7 @@ process plot_ldh_curve_fits {
 process plot_cp_curve_fits {
     tag { "${dist_path.baseName} ${meta_nm}" }
 
-    publishDir "04_figures", mode: 'copy', pattern: '*.pdf'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy', pattern: '*.pdf'
 
     input:
     tuple path(cp_pod_path), path(dist_path), val(meta_nm), val(meta_pods_path)

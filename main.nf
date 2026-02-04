@@ -11,6 +11,12 @@ include { concresponse_workflow } from './workflows/06_concresponse.nf'
 include { analysis_workflow } from './workflows/05_analysis.nf'
 include { analysis_workflow_processed } from './workflows/05_analysis.nf'
 
+// Generate a unique run code with date + short UUID
+def today = new Date()
+def formattedDate = today.format('yyyyMMdd')   // e.g., 20260204
+params.run_code = "run_${formattedDate}_" + UUID.randomUUID().toString()[0..7] 
+
+
 workflow {
     input_path = Channel.fromPath(params.input_path)
     preprocessed_data = preprocessing_workflow(input_path)

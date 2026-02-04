@@ -58,7 +58,14 @@ def _(args, pd):
 def _(df_level4):
     meta_cols = [c for c in df_level4.columns if c.startswith("Metadata_")]
     all_features = [c for c in df_level4.columns if c.startswith("Feature_")]
-    return (all_features,)
+    return all_features, meta_cols
+
+
+@app.cell
+def _(all_features, args, meta_cols):
+    print("There are ", len(all_features)," features in ", args.input_path) 
+    print("There are ", len(meta_cols)," metadata columns in ", args.input_path) 
+    return
 
 
 @app.cell

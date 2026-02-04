@@ -1,3 +1,5 @@
+
+import groovy.json.JsonOutput
 nextflow.enable.dsl = 2
 
 workflow analysis_workflow {
@@ -8,6 +10,8 @@ workflow analysis_workflow {
         path_data_level5
     
     main:
+        // Copy config first
+        EXPORT_PARAMS()
         // 1. Raw analysis level 2
         raw_analysis_results = level2_analysis(path_data_level2)
         // 2. Raw analysis level 3
@@ -15,6 +19,7 @@ workflow analysis_workflow {
         // 3. Transformed analysis
         level4_analysis_results = level4_analysis(path_data_level4)
 }
+
 // Create a second workflow for processed data analysis
 workflow analysis_workflow_processed {
     take:
@@ -31,12 +36,26 @@ workflow analysis_workflow_processed {
         level3_analysis.out
 }
 
+process EXPORT_PARAMS {
+    // Save the resulting file to the 'report' directory
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
+
+    output:
+    path "params_run.json"
+
+    script:
+    // Convert current params object to a JSON string and write to file
+    def jsonParams = JsonOutput.toJson(params)
+    """
+    echo '${JsonOutput.prettyPrint(jsonParams)}' > params_run.json
+    """
+}
+
 // 1. Raw analysis
 // marimo export html modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py -o modules/08_reporting/outputs/1_analysis_formated_data_marimo_bsc.html -- --name bsc --input_path 02_processed_data/level2_bsc.parquet
 
 process level2_analysis {
-    publishDir "modules/08_reporting/outputs", mode: 'copy'
-
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
 
     tag { "${path_data_level2.baseName}" }
 
@@ -59,7 +78,7 @@ process level2_analysis {
 }
 
 process level3_analysis {
-    publishDir "modules/08_reporting/outputs", mode: 'copy'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
 
 
     tag { "${path_data_level3.baseName}" }
@@ -83,7 +102,7 @@ process level3_analysis {
 }
 
 process level4_analysis {
-    publishDir "modules/08_reporting/outputs", mode: 'copy'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
 
     tag { "${path_data_level4.baseName}" }
 

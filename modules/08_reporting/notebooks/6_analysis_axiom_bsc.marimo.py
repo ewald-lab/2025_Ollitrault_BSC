@@ -51,6 +51,13 @@ def _(mo):
 
 
 @app.cell
+def _(pd):
+    test = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_bmd_original_conc.parquet")
+    test
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""## Input""")
     return
