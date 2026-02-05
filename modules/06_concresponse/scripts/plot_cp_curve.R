@@ -50,6 +50,44 @@ Lin <- function(b,c,d,e,f,dose){
   return(d + b * (dose))
 }
 
+well_to_coord <- function(well) {
+  row <- substr(well, 1, 1)
+  col <- as.integer(sub("^[A-P]", "", well))
+  
+  row_num <- match(row, LETTERS[1:16])
+  
+  tibble(row = row_num, col = col)
+}
+get_closest_dmso <- function(comp_fit_coords, dat_dmso) {
+  
+  pmap_dfr(
+    comp_fit_coords,
+    function(...) {
+      this <- tibble(...)
+      
+      dmso_same_plate <- dat_dmso %>%
+        filter(Metadata_plate == this$Metadata_plate)
+      
+      if (nrow(dmso_same_plate) == 0) {
+        return(tibble())
+      }
+      
+      dmso_same_plate <- dmso_same_plate %>%
+        mutate(
+          dist = sqrt(
+            (row - this$row)^2 +
+              (col - this$col)^2
+          )
+        )
+      
+      min_dist <- min(dmso_same_plate$dist)
+      
+      dmso_same_plate %>%
+        filter(dist == min_dist)
+    }
+  ) %>%
+    distinct()  # avoid duplicates across wells
+}
 
 #### 1. Read in data and set common parameters
 args <- commandArgs(trailingOnly = TRUE)
@@ -62,15 +100,19 @@ cp_plot_path <- args[4]
 # meta_nm can be multiple values separated by comma
 meta_nm <- unlist(strsplit(args[5], ","))
 control <- args[6]
+dmso_mode <- args[7]  # "plate" or "closest"
+default_feat_type <- "gmd" # in case there are no PODs computed
 
-
+#### Load data ####
 cp_pods <- read_parquet(cp_pod_path) %>% as.data.frame()
 meta_pods <- map2_df(
-            meta_pod_path,
-            meta_nm,
-            ~ read_parquet(.x) %>%
-              mutate(metadata_type = .y)
-          )
+  meta_pod_path,
+  meta_nm,
+  ~ read_parquet(.x) %>%
+    mutate(metadata_type = .y)
+) %>%
+  dplyr::filter(all.pass) # meta pods filter all.pass == TRUE
+
 # Merge metadata bmd values to cp bmd
 cp_pods <- cp_pods %>%
   left_join(
@@ -88,6 +130,9 @@ cp_pods <- cp_pods %>%
   )
 
 dat <- read_parquet(dist_path) %>% as.data.frame()
+dat_dmso <- dat %>%
+  filter(Metadata_compound == control) %>%
+  bind_cols(map_dfr(.$Metadata_well, well_to_coord))
 
 highest_dose <- max(unique(dat$Metadata_log10conc))
 highest_dose <- round(highest_dose + (0.025 * highest_dose), 1)
@@ -101,45 +146,74 @@ pdf_h <- 10
 
 
 #### 2. Make cell painting plots
-cp_compounds <- unique(cp_pods$Metadata_compound)
+cp_compounds <- unique(dat[dat$Metadata_compound != control,]$Metadata_compound)
 plot_results <- data.frame(Metadata_log10conc = dose)
 fitted_feats <- data.frame()
-for (compound in cp_compounds){
-  temp_pod <- cp_pods[cp_pods$Metadata_compound == compound, ] %>% distinct()
-  feat_type <- temp_pod$gene.id
-  model <- temp_pod$mod.name
-  b <- temp_pod$b
-  c <- temp_pod$c
-  d <- temp_pod$d
-  e <- temp_pod$e
-  f <- temp_pod$f
-  
-  f_dose <- switch(model,
-                   "Exp2" = Exp2(b, c, d, e, f, dose),
-                   "Exp3" = Exp3(b, c, d, e, f, dose),
-                   "Exp4" = Exp4(b, c, d, e, f, dose),
-                   "Exp5" = Exp5(b, c, d, e, f, dose),
-                   "Hill" = Hill(b, c, d, e, f, dose),
-                   "Pow" = Pow(b, c, d, e, f, dose),
-                   "Poly2" = Poly2(b, c, d, e, f, dose),
-                   "Lin" = Lin(b, c, d, e, f, dose))
-  
-  plot_results[, compound] <- f_dose
+for (compound in cp_compounds ){ #cp_compounds){
+  if (compound %in% cp_pods$Metadata_compound) {
+    temp_pod <- cp_pods[cp_pods$Metadata_compound == compound, ] %>% distinct()
+    feat_type <- temp_pod$gene.id
+    model <- temp_pod$mod.name
+    b <- temp_pod$b
+    c <- temp_pod$c
+    d <- temp_pod$d
+    e <- temp_pod$e
+    f <- temp_pod$f
+    
+    f_dose <- switch(model,
+                     "Exp2" = Exp2(b, c, d, e, f, dose),
+                     "Exp3" = Exp3(b, c, d, e, f, dose),
+                     "Exp4" = Exp4(b, c, d, e, f, dose),
+                     "Exp5" = Exp5(b, c, d, e, f, dose),
+                     "Hill" = Hill(b, c, d, e, f, dose),
+                     "Power" = Pow(b, c, d, e, f, dose),
+                     "Poly2" = Poly2(b, c, d, e, f, dose),
+                     "Lin" = Lin(b, c, d, e, f, dose))
+    
+    plot_results[, compound] <- f_dose
+  } else {
+    print(compound)
+    plot_results[, compound] <- NA
+    feat_type <- default_feat_type
+  }
   
   # get observations
-  dat_temp <- dat[dat$Metadata_compound == compound, ]
-  if (grepl("_ap", cp_pod_path)) {
-    cmpd_ctrls <- grepl(compound, dat$Metadata_compound) & grepl(control, dat$Metadata_compound)
-    temp_dmso <- dat[cmpd_ctrls, ]
-    temp_dmso <- temp_dmso[sample(1:720, 20), c(feat_type, "Metadata_log10conc")]
-  } else {
+  dat_temp <- dat[dat$Metadata_compound == compound, ] %>%
+    bind_cols(purrr::map_dfr(.$Metadata_well, well_to_coord))
+  if (dmso_mode == "plate") {
     temp_plates <- unique(dat_temp$Metadata_plate)
     temp_dmso <- dat[(dat$Metadata_compound == control) & (dat$Metadata_plate %in% temp_plates), 
                      c(feat_type, "Metadata_log10conc")]
+  } else if (dmso_mode == "closest") {
+    temp_dmso <- get_closest_dmso(
+      comp_fit_coords = dat_temp,
+      dat_dmso = dat_dmso
+    )
+    temp_dmso <- temp_dmso[,c(feat_type, "Metadata_log10conc"), drop=FALSE]
+    #test <- get_closest_dmso(
+    #  comp_fit_coords = dat_temp[1,] %>%
+    #    bind_cols(purrr::map_dfr(.$Metadata_well, well_to_coord)),
+    #  dat_dmso = dat %>%
+    #    filter(Metadata_compound == control) %>%
+    #    bind_cols(purrr::map_dfr(.$Metadata_well, well_to_coord))
+    #) 
+    #print(dat_temp[1,c("Metadata_plate", "Metadata_well", "Metadata_col", "Metadata_row")])
+    #print(test[,c("Metadata_plate", "Metadata_well", "Metadata_col", "Metadata_row")])
+  } else {
+    stop("dmso_mode must be 'closest' or 'plate'")
   }
   
-  feats <- dat_temp[, c(feat_type, "Metadata_log10conc")]
-  feats <- rbind(temp_dmso, feats)
+  print(
+    paste0(
+      "Fitting POD for ", compound,
+      " with ", nrow(dat_temp),
+      " compound and ", nrow(temp_dmso),
+      " DMSO points."
+    )
+  )
+  
+  fit_comp <- dat_temp[, c(feat_type, "Metadata_log10conc"), drop=FALSE]
+  feats <- rbind(temp_dmso, fit_comp)
   
   colnames(feats)[1] <- "Observations"
   feats$Metadata_compound <- compound
@@ -152,7 +226,7 @@ colnames(plot_results)[2:3] <- c("Metadata_compound", "f_dose")
 
 # merge dataframe together
 fitted_feats$Metadata_log10conc <- round(fitted_feats$Metadata_log10conc, 1)
-plot_results <- merge(plot_results, fitted_feats, by=c("Metadata_compound", "Metadata_log10conc"), all.x = TRUE, all.y = FALSE)
+plot_results <- merge(plot_results, fitted_feats, by=c("Metadata_compound", "Metadata_log10conc"), all.x = TRUE, all.y = TRUE)
 
 # Add better plotting label
 cmpd_type <- plot_results[,c("Metadata_compound", "Observation_Type")] %>% na.omit() %>% distinct()
@@ -161,7 +235,7 @@ cmpd_type <- cmpd_type[,c("Metadata_compound", "Compound_Observation")]
 plot_results <- merge(plot_results, cmpd_type, by="Metadata_compound")
 
 # Add pods
-for (m in meta_nm) {
+for (m in meta_nm) { # be sure to remove all NA and 9999 values
   pod_col <- paste0(m, "_POD")
   cp_pods[[pod_col]][is.na(cp_pods[[pod_col]])] <- 9999
   cp_pods[cp_pods[[pod_col]] == 9999, pod_col] <- NA

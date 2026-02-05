@@ -340,7 +340,8 @@ process plot_meta_curve_fits {
         ${input_file} \
         "plots_pods_meta_${params.input_name}_${meta_nm}.pdf" \
         ${meta_nm} \
-        ${params.control}
+        ${params.control} \
+        ${params.concentration_response.dmso_mode}
     """
 }
 
@@ -400,7 +401,8 @@ process plot_cp_curve_fits {
         ${dist_path} \
         "plots_pods_cp_${params.input_name}.pdf" \
         '${meta_nm.join(",")}' \
-        ${params.control}
+        ${params.control} \
+        ${params.concentration_response.dmso_mode}
     """
 }
 

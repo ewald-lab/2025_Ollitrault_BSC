@@ -286,7 +286,7 @@ def _(df_cp_pods_all, pd):
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Boxplot PODs by channels""")
+    mo.md(r"""# Boxplot PODs grouped by channels""")
     return
 
 
@@ -331,6 +331,7 @@ def _(df_cp_pods_all, np, plt):
 
 @app.cell
 def _():
+    # TODO : Plot SD control
     return
 
 

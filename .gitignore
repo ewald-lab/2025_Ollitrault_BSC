@@ -192,6 +192,7 @@ __marimo__/
 reports/*
 **/outputs/*
 **/inputs/*
+**/results/*
 
 # Nextflow process
 00.first_analysis_module/nextflow.config
