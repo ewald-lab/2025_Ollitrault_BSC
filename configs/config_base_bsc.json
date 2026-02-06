@@ -20,7 +20,7 @@
             "transform": "none",
             "cover_var": 0.95,
             "num_sds": 2,
-            "dmso_mode": "closest",
+            "dmso_mode": "plate",
             "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"]
     }
 }

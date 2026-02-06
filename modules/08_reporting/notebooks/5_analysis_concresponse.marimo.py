@@ -201,7 +201,25 @@ def _(args, dict_all_dfs_pods, pd):
     ]
     df_plot_all_pods_allpass = df_all_pods_allpass[pod_columns].dropna(how='all')
 
-    return df_plot_all_pods_allpass, pod_columns
+    return df_all_pods_allpass, df_plot_all_pods_allpass, pod_columns
+
+
+@app.cell
+def _(df_all_pods_allpass, pod_columns):
+    desc_by_source = (
+        df_all_pods_allpass
+        .melt(
+            id_vars="source",
+            value_vars=pod_columns,
+            value_name="POD"
+        )
+        .dropna(subset=["POD"])
+        .groupby("source")["POD"]
+        .describe()
+    )
+
+    desc_by_source
+    return
 
 
 @app.cell
@@ -241,6 +259,18 @@ def _(df_plot_all_pods_allpass, np, plt, pod_columns):
     plt.tight_layout()
     plt.show()
 
+    return (data_plot_all_pods_allpass,)
+
+
+@app.cell
+def _(data_plot_all_pods_allpass):
+    data_plot_all_pods_allpass
+    return
+
+
+@app.cell
+def _(df_all_pods_allpass):
+    df_all_pods_allpass.groupby("source")["cp_POD_um"].describe()
     return
 
 
@@ -325,6 +355,13 @@ def _(df_cp_pods_all, np, plt):
 
     plt.tight_layout()
     plt.show()
+
+    return (df_plot_cp_pods_all,)
+
+
+@app.cell
+def _(df_plot_cp_pods_all):
+    df_plot_cp_pods_all.groupby("gene.id")["cp_all_POD_um"].describe()
 
     return
 
