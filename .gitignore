@@ -185,6 +185,9 @@ __marimo__/
 # Processed data
 00.first_analysis_module/02_processed_data/
 
+# Script
+**/plot_cp_curve_um.R
+
 # Results
 00.first_analysis_module/03_tables
 00.first_analysis_module/04_figures

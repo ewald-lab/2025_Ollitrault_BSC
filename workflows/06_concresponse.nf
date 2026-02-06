@@ -55,14 +55,14 @@ workflow concresponse_workflow {
         // Single call to transform_back_log10concentration with all data
         path_data_transformed = transform_back_log10concentration(transform_input_channel)
 
-        // 7. plot Metadata curve fits
-        path_data_5g = plot_meta_curve_fits(
-            path_data_5d
-                .combine(input_data_level4)
-                .map { meta_nm, meta_pods, input_file ->
-                    tuple(meta_nm, meta_pods, input_file)
-                }
-        )
+        // 7. plot Metadata curve fits [OUTDATED ]
+        // path_data_5g = plot_meta_curve_fits(
+        //    path_data_5d
+        //        .combine(input_data_level4)
+        //        .map { meta_nm, meta_pods, input_file ->
+        //            tuple(meta_nm, meta_pods, input_file)
+        //        }
+        //)
         // 8. plot CP curve fits (FINAL)
         // Collect metadata
         path_data_5d
@@ -309,6 +309,7 @@ process transform_back_log10concentration {
     def metadata_flag = is_metadata_pods ? "--is_metadata_pods" : ""
 
     """
+    echo Hello
     python3 ${projectDir}/modules/06_concresponse/scripts/transform_back_log10concentration.py \
         --input_pods ${input_file} \
         --input_metadata ${input_file_metadata} \
@@ -323,6 +324,7 @@ process transform_back_log10concentration {
 // Plotting processes
 // ---------------------------------------------------------------------------
 // Rscript modules/06_concresponse/scripts/plot_meta_curve.R 03_tables/meta_pods_Metadata_mtt_normalized.parquet 02_processed_data/level4b_bsc.parquet plots_bsc_Metadata_mtt_normalized_plots.pdf Metadata_mtt_normalized s0617825
+/*
 process plot_meta_curve_fits {
     tag { "${input_file.baseName} ${meta_nm}" }
 
@@ -345,7 +347,6 @@ process plot_meta_curve_fits {
     """
 }
 
-/*
 process plot_mtt_curve_fits {
     input:
     path mttpods from ch_mttpods
@@ -395,6 +396,7 @@ process plot_cp_curve_fits {
     path "plots_pods_cp_${params.input_name}.pdf"
 
     """
+    Echo Hello
     Rscript ${projectDir}/modules/06_concresponse/scripts/plot_cp_curve.R \
         ${cp_pod_path} \
         '${meta_pods_path.join(",")}' \
