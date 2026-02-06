@@ -259,18 +259,6 @@ def _(df_plot_all_pods_allpass, np, plt, pod_columns):
     plt.tight_layout()
     plt.show()
 
-    return (data_plot_all_pods_allpass,)
-
-
-@app.cell
-def _(data_plot_all_pods_allpass):
-    data_plot_all_pods_allpass
-    return
-
-
-@app.cell
-def _(df_all_pods_allpass):
-    df_all_pods_allpass.groupby("source")["cp_POD_um"].describe()
     return
 
 
