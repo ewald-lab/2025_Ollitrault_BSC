@@ -7,6 +7,8 @@ workflow postprocessing_workflow {
         path_data_level3
         path_data_level4
         path_data_level5
+        path_data_level6
+
 
     main:
         // 1. Tag inputs by level
@@ -15,6 +17,7 @@ workflow postprocessing_workflow {
                 .mix( path_data_level3.map { tuple('level3', it) } )
                 .mix( path_data_level4.map { tuple('level4', it) } )
                 .mix( path_data_level5.map { tuple('level5', it) } )
+                .mix( path_data_level6.map { tuple('level6', it) } )
 
         // 2. Single postprocessing step
         postprocessed = bsc_postprocessing(all_levels)
@@ -24,12 +27,14 @@ workflow postprocessing_workflow {
         level3_post = postprocessed.filter { it[0] == 'level3' }.map { it[1] }
         level4_post = postprocessed.filter { it[0] == 'level4' }.map { it[1] }
         level5_post = postprocessed.filter { it[0] == 'level5' }.map { it[1] }
+        level6_post = postprocessed.filter { it[0] == 'level6' }.map { it[1] }
 
     emit:
         path_data_level2 = level2_post
         path_data_level3 = level3_post
         path_data_level4 = level4_post
         path_data_level5 = level5_post
+        path_data_level6 = level6_post
 }
 
 process bsc_postprocessing {
@@ -49,6 +54,7 @@ process bsc_postprocessing {
 
     script:
     """
+    echo hi
     python ${projectDir}/modules/03_postprocessing/scripts/${params.post_processing.script} \
         --input ${input_file} \
         --output "${input_file.baseName}_filtered.parquet" \

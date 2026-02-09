@@ -61,7 +61,8 @@ def _(pd):
     # Cell Painting profiles
     df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
-    return df_level4_bsc, df_level5_bsc
+    df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_filtered.parquet")
+    return df_level4_bsc, df_level5_bsc, df_level6_bsc
 
 
 @app.cell
@@ -192,11 +193,12 @@ def _(df_bsc_all_pod, df_bsc_annotations):
 
 
 @app.cell
-def _(df_level4_bsc, df_level5_bsc):
+def _(df_level4_bsc, df_level5_bsc, df_level6_bsc):
     all_features = [c for c in df_level4_bsc.columns if c.startswith("Feature_")]
     all_metadata_4 = [c for c in df_level4_bsc.columns if c.startswith("Metadata_")]
     all_metadata_5 = [c for c in df_level5_bsc.columns if c.startswith("Metadata_")]
-    return (all_features,)
+    all_metadata_6 = [c for c in df_level6_bsc.columns if c.startswith("Metadata_")]
+    return all_features, all_metadata_6
 
 
 @app.cell
@@ -345,7 +347,91 @@ def _(df_umap_bsc_5, list_botanicals, px):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## POD Cell Painting VS MT VS LDH""")
+    mo.md(r"""## UMAP level 6 aggregated""")
+    return
+
+
+@app.cell
+def _(all_features, df_level6_bsc, pd, umap):
+    # --- 1. Extract features and metadata
+    X_bsc_6 = df_level6_bsc[all_features].values
+    _compound = df_level6_bsc["Metadata_compound"].astype(str)
+    # --- 2. Run UMAP for 2D projection
+    reducer_bsc_6 = umap.UMAP(
+        n_neighbors=15,          # local neighborhood size
+        min_dist=0.1,            # controls cluster tightness
+        metric="cosine",      # or 'cosine' for morphology data
+        random_state=42
+    )
+
+    embedding_bsc_6 = reducer_bsc_6.fit_transform(X_bsc_6)
+
+    # --- 3. Store UMAP coordinates in dataframe
+    df_umap_bsc_6 = pd.DataFrame(embedding_bsc_6, columns=["UMAP_1", "UMAP_2"])
+    df_umap_bsc_6["Metadata_compound"] = _compound
+    #df_umap_bsc_5["Metadata_log10conc"] = df_level5_bsc["Metadata_log10conc"].astype(float)
+    return (df_umap_bsc_6,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP level 6 aggregated colored by botanicals""")
+    return
+
+
+@app.cell
+def _(df_umap_bsc_6, list_botanicals, px):
+    # Create a plotting category:
+    # botanicals keep their name, others become "Other"
+    df_umap_bsc_6["plot_group"] = df_umap_bsc_6["Metadata_compound"].where(
+        df_umap_bsc_6["Metadata_compound"].isin(list_botanicals),
+        "Other"
+    )
+
+    _fig = px.scatter(
+        df_umap_bsc_6.sample(frac=1, random_state=42).reset_index(drop=True),
+        x="UMAP_1",
+        y="UMAP_2",
+        color="plot_group",
+        title="UMAP of Level 5 BSC Cell Painting Profiles",
+        opacity=0.8,
+        width=850,
+        height=650,
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+
+    # Force "Other" to gray
+    _fig.update_traces(
+        selector=dict(name="Other"),
+        marker=dict(color="lightgray")
+    )
+
+    _fig.update_layout(
+        template="plotly_white",
+        legend_title_text="BSC",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2"
+    )
+
+    _fig.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP level 6 aggregated colored by PODs""")
+    return
+
+
+@app.cell
+def _(df_umap_bsc_6):
+    df_umap_bsc_6
+    return
+
+
+@app.cell
+def _(df_bsc_all_pod):
+    df_bsc_all_pod
     return
 
 
@@ -356,7 +442,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""## POD BSC""")
+    mo.md(r"""## POD Cell Painting VS MT VS LDH""")
     return
 
 
@@ -454,76 +540,77 @@ def _(
     theme_classic,
 ):
     # Calculate statistics
-    total_chemicals = df_bsc_all_pod_annotations[
-        df_bsc_all_pod_annotations["Metadata_compound"] != bsc_control
-    ]["Metadata_compound"].nunique()
-
-    pod_stats = (
-        all_pods_um.groupby("POD_Type")
-        .agg(n_active=("POD_Value", "count"))
-        .reset_index()
-    )
-    pod_stats["pct_active"] = (pod_stats["n_active"] / total_chemicals) * 100
-
-    # Prepare data for bars (add a panel identifier)
-    bar_data = pod_stats.copy()
-    bar_data["panel"] = "Percentage"
-    bar_data["value"] = bar_data["pct_active"]
-
-    # Prepare data for boxplot
-    box_data = all_pods_um.copy()
-    box_data["panel"] = "Concentration"
-    box_data["value"] = box_data["POD_Value"]
-
-    # Combine for faceting
-    combined_plot = (
-        ggplot()
-        # Boxplot in bottom panel
-        + geom_sina(
-            data=box_data,
-            mapping=aes(x='POD_Type', y='value'),
-            color='grey',
-            alpha=0.5,
-            size=1.5
+    if False:
+        total_chemicals = df_bsc_all_pod_annotations[
+            df_bsc_all_pod_annotations["Metadata_compound"] != bsc_control
+        ]["Metadata_compound"].nunique()
+    
+        pod_stats = (
+            all_pods_um.groupby("POD_Type")
+            .agg(n_active=("POD_Value", "count"))
+            .reset_index()
         )
-        + geom_boxplot(
-            data=box_data,
-            mapping=aes(x='POD_Type', y='value'),
-            color='red',
-            alpha=0.25,
-            size=1,
-            outlier_alpha=0
+        pod_stats["pct_active"] = (pod_stats["n_active"] / total_chemicals) * 100
+    
+        # Prepare data for bars (add a panel identifier)
+        bar_data = pod_stats.copy()
+        bar_data["panel"] = "Percentage"
+        bar_data["value"] = bar_data["pct_active"]
+    
+        # Prepare data for boxplot
+        box_data = all_pods_um.copy()
+        box_data["panel"] = "Concentration"
+        box_data["value"] = box_data["POD_Value"]
+    
+        # Combine for faceting
+        combined_plot = (
+            ggplot()
+            # Boxplot in bottom panel
+            + geom_sina(
+                data=box_data,
+                mapping=aes(x='POD_Type', y='value'),
+                color='grey',
+                alpha=0.5,
+                size=1.5
+            )
+            + geom_boxplot(
+                data=box_data,
+                mapping=aes(x='POD_Type', y='value'),
+                color='red',
+                alpha=0.25,
+                size=1,
+                outlier_alpha=0
+            )
+            # Percentage bars in top panel
+            + geom_col(
+                data=bar_data,
+                mapping=aes(x='POD_Type', y='value'),
+                fill='black',
+                width=0.5
+            )
+            + geom_text(
+                data=bar_data,
+                mapping=aes(x='POD_Type', y='value', label='pct_active'),
+                va='bottom',
+                size=11,
+                format_string='{:.1f}%',
+                nudge_y=2
+            )
+            # Facet into two panels
+            + facet_grid('panel ~ .', scales='free_y')
+            + labs(x='Assay Type', y='')
+            + theme_classic()
+            + theme(
+                axis_text_x=element_text(angle=45, hjust=1, color='black', size=14, family='Arial'),
+                axis_text_y=element_text(color='black', size=14, family='Arial'),
+                axis_title_x=element_text(size=14, color='black', weight='bold', family='Arial'),
+                strip_text=element_text(size=12, weight='bold', family='Arial'),
+                strip_background=element_rect(fill='white', color='black'),
+            )
+            + scale_y_log10()  # This will only apply to the concentration panel due to free scales
         )
-        # Percentage bars in top panel
-        + geom_col(
-            data=bar_data,
-            mapping=aes(x='POD_Type', y='value'),
-            fill='black',
-            width=0.5
-        )
-        + geom_text(
-            data=bar_data,
-            mapping=aes(x='POD_Type', y='value', label='pct_active'),
-            va='bottom',
-            size=11,
-            format_string='{:.1f}%',
-            nudge_y=2
-        )
-        # Facet into two panels
-        + facet_grid('panel ~ .', scales='free_y')
-        + labs(x='Assay Type', y='')
-        + theme_classic()
-        + theme(
-            axis_text_x=element_text(angle=45, hjust=1, color='black', size=14, family='Arial'),
-            axis_text_y=element_text(color='black', size=14, family='Arial'),
-            axis_title_x=element_text(size=14, color='black', weight='bold', family='Arial'),
-            strip_text=element_text(size=12, weight='bold', family='Arial'),
-            strip_background=element_rect(fill='white', color='black'),
-        )
-        + scale_y_log10()  # This will only apply to the concentration panel due to free scales
-    )
-
-    combined_plot.show()
+    
+        combined_plot.show()
     return
 
 
@@ -1738,10 +1825,9 @@ def _(
     # 5. Plot
     # --------------------------------------------------
     plt.figure(figsize=(11, 6))
-
     # --- Boxplot background ---
     _df.boxplot(
-        column="bmd_POD",
+        column="cp_all_POD",
         by="Metadata_compound",
         grid=False,
         showfliers=False,
@@ -1758,7 +1844,7 @@ def _(
 
         for _gene, _dfg in _dfb.groupby("gene.id"):
 
-            _y = _dfg["bmd_POD"].dropna().to_numpy()
+            _y = _dfg["cp_all_POD"].dropna().to_numpy()
             if _y.size == 0:
                 continue
 
@@ -1909,7 +1995,7 @@ def _(
 
     # --- Boxplot background ---
     _df.boxplot(
-        column="bmd_POD_um",
+        column="cp_all_POD_um",
         by="Metadata_compound",
         grid=False,
         showfliers=False,
@@ -1926,7 +2012,7 @@ def _(
 
         for _gene, _dfg in _dfb.groupby("gene.id"):
 
-            _y = _dfg["bmd_POD_um"].dropna().to_numpy()
+            _y = _dfg["cp_all_POD_um"].dropna().to_numpy()
             if _y.size == 0:
                 continue
 
@@ -1996,18 +2082,41 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""### POD BSC and constituents Cell Painting MTT LDH [filtered] [channel]""")
-    return
-
-
-@app.cell
-def _(mo):
     mo.md(r"""## Chemical space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
     return
 
 
 @app.cell
+def _(all_metadata_6, df_level6_bsc):
+    df_level6_bsc[all_metadata_6]
+    return
+
+
+@app.cell
 def _():
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Clustering Profiles BSC""")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Clustering Chemicals BSC""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## UpSet Plot Clustering Profiles and chemicals BSC""")
     return
 
 

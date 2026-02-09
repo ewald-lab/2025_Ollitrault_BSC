@@ -10,6 +10,7 @@ bmd_path <- args[1]
 # meta_pod_path <- args[2] # remove the information if it is below or above the meta POD
 pod_path <- args[2]
 # meta_nm <- args[4]
+filter_sd_red <- args[3] # whether to filter by the SD of the residuals (TRUE or FALSE)
 
 ######## 2. Select POD as minimum BMD across gmd and all categories
 bmd <- read_parquet(bmd_path) %>% as.data.frame()
@@ -19,7 +20,10 @@ bmd$res.thresh <- 3 * bmd$SDctrl
 bmd <- as.data.table(bmd)
 
 bmd <- bmd[all.pass == TRUE]
-bmd <- bmd[SDres < res.thresh] # Filter by the SD of the residual
+
+if (filter_sd_red == "TRUE") {
+    bmd <- bmd[SDres < res.thresh] # Filter by the SD of the residual
+}
 
 min_bmd <- bmd[,
                .SD[bmd == min(bmd)],

@@ -286,6 +286,7 @@ process select_pod {
     Rscript ${projectDir}/modules/06_concresponse/scripts/select_pod.R \
         ${input_file_bmds} \
         "pods_${params.input_name}_cp_filter.parquet" \
+        ${params.concentration_response.filter_sd_residuals} # whether to filter by the SD of the residuals (TRUE or FALSE)
     """
 }
 
