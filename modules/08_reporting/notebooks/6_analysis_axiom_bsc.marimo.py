@@ -51,13 +51,6 @@ def _(mo):
 
 
 @app.cell
-def _(pd):
-    test = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_bmd_original_conc.parquet")
-    test
-    return
-
-
-@app.cell
 def _(mo):
     mo.md(r"""## Input""")
     return
@@ -66,15 +59,15 @@ def _(mo):
 @app.cell
 def _(pd):
     # Cell Painting profiles
-    df_level4_bsc = pd.read_parquet("02_processed_data/level4b_bsc_filtered.parquet")
-    df_level5_bsc = pd.read_parquet("02_processed_data/level5_bsc_filtered.parquet")
+    df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
+    df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
     return df_level4_bsc, df_level5_bsc
 
 
 @app.cell
 def _(pd):
     # BSC Annotations
-    df_bsc_annotations = pd.read_csv("03_tables/cellpainting_bsc_annotations_merged.tsv", sep="\t")
+    df_bsc_annotations = pd.read_csv("modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv", sep="\t")
     list_botanicals = df_bsc_annotations["Plant scode"].unique()
     bsc_control = "s0617825"
     list_botanicals
@@ -82,13 +75,19 @@ def _(pd):
 
 
 @app.cell
+def _(df_bsc_annotations):
+    df_bsc_annotations
+    return
+
+
+@app.cell
 def _(pd):
     # POD Cell Painting
-    df_bsc_cp_pod = pd.read_parquet("03_tables/pods_bsc_cp_original_conc.parquet")
+    df_bsc_cp_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
     # POD Metadata MT
-    df_bsc_mtt_pod = pd.read_parquet("03_tables/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
+    df_bsc_mtt_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
     # POD Metadata LDH
-    df_bsc_ldh_pod = pd.read_parquet("03_tables/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
+    df_bsc_ldh_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
     return df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod
 
 
@@ -122,7 +121,7 @@ def _(df_bsc_annotations, df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod):
 @app.cell
 def _(pd):
     # POD Cell Painting
-    df_bsc_cp_pod_channel = pd.read_parquet("03_tables/pods_bsc_bmd_original_conc.parquet")
+    df_bsc_cp_pod_channel = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
     df_bsc_cp_pod_channel
     return (df_bsc_cp_pod_channel,)
 
@@ -364,18 +363,6 @@ def _(mo):
 @app.cell
 def _(df_bsc_all_pod_annotations):
     df_bsc_all_pod_annotations["Metadata_compound"].nunique()
-    return
-
-
-@app.cell
-def _(all_pods_um):
-    all_pods_um.drop_duplicates()
-    return
-
-
-@app.cell
-def _(all_pods_um):
-    all_pods_um["POD_Type"].value_counts()
     return
 
 
@@ -1425,7 +1412,7 @@ def _(df_bsc_all_pod_annotations, list_botanicals, mticker, np, pd, plt):
     plt.suptitle("")
     plt.xlabel("POD (in house log scale)")
     plt.ylabel("Plant name")
-    plt.tight_layout(rect=[0, 0, 2, 2.25])  # <-- ADDED: leave space for legend on the right
+    plt.tight_layout(rect=[0, 0, 1.25, 1.5])  # <-- ADDED: leave space for legend on the right
     plt.show()
     return
 
@@ -1603,18 +1590,22 @@ def _(df_bsc_all_pod_annotations, list_botanicals, mticker, np, pd, plt):
     # 8. Log scale with readable ticks (NOW ON X-AXIS)
     # --------------------------------------------------
     plt.xscale("log")  # <-- CHANGED FROM yscale
+    def minor_formatter(x, pos):
+        if x <= 0:
+            return ""
+        mantissa = x / 10**np.floor(np.log10(x))
+        return f"{x:g}" if np.isclose(mantissa, [2,5]).any() else ""
 
     _ax = plt.gca()
-    _ax.xaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.set_xscale("log")
+
+    _ax.xaxis.set_major_locator(mticker.LogLocator(base=10))
     _ax.xaxis.set_minor_locator(
-        mticker.LogLocator(base=10.0, subs=np.arange(2, 10))
+        mticker.LogLocator(base=10, subs=np.arange(2, 10))
     )
-    _ax.xaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda x, _: f"{x:g}")
-    )
-    _ax.xaxis.set_minor_formatter(
-        mticker.FuncFormatter(lambda x, _: f"{x:g}")
-    )
+
+    _ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax.xaxis.set_minor_formatter(mticker.FuncFormatter(minor_formatter))
 
     # --------------------------------------------------
     # 9. Formatting
@@ -1623,7 +1614,7 @@ def _(df_bsc_all_pod_annotations, list_botanicals, mticker, np, pd, plt):
     plt.suptitle("")
     plt.xlabel("POD (uM)")  # <-- SWAPPED
     plt.ylabel("Plant name")  # <-- SWAPPED
-    plt.tight_layout(rect=[0, 0, 2, 2.25])  # <-- ADDED: leave space for legend
+    plt.tight_layout(rect=[0, 0, 1.5, 1.75])  # <-- ADDED: leave space for legend
     plt.show()
     return
 

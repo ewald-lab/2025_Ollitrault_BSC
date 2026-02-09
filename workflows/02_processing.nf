@@ -16,11 +16,14 @@ workflow processing_workflow {
 
     path_data_level5 = level5_consensus(path_data_level4)
 
+    path_data_level6 = level6_aggregate_profiles(path_data_level5)
+
     emit:
     path_data_level2
     path_data_level3
     path_data_level4
     path_data_level5
+    path_data_level6
 }
 
 process level3_aggregate_annotate {
@@ -97,5 +100,23 @@ process level5_consensus {
     python ${projectDir}/modules/02_processing/scripts/consensus.py \\
         --input $input_file \\
         --output level5_${params.input_name}.parquet
+    """
+}
+
+process level6_aggregate_profiles {
+    publishDir "modules/02_processing/outputs", mode: 'copy'
+
+    tag { "${params.input_name}" }
+
+    input:
+    path input_file
+
+    output:
+    path "level6_${params.input_name}.parquet"
+    script:
+    """
+    python ${projectDir}/modules/02_processing/scripts/aggregate_profiles.py \\
+        --input $input_file \\
+        --output level6_${params.input_name}.parquet
     """
 }
