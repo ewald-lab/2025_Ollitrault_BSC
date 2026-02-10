@@ -120,8 +120,6 @@ for (compound in compounds) {
   
   dose <- dat_fit$Metadata_log10conc
   
-  print("Running POD")
-  
   pod <- scoresPOD(
     dat_mat,
     dose,
@@ -142,5 +140,4 @@ for (compound in compounds) {
     #bmd_res <- rbind(bmd_res, pod)
   }
 }
-print(bmd_res)
 write_parquet(as.data.frame(bmd_res), output_path)
