@@ -134,6 +134,8 @@ workflow concresponse_workflow {
 process compute_distances_R {
     tag { "${input_file.baseName}" }
 
+    label 'r'
+
     publishDir "modules/06_concresponse/outputs/distances", mode: 'copy', pattern: '*.parquet'
 
     input:
@@ -194,6 +196,7 @@ EOF
 process compile_distances {
     tag { "${input_files.collect{ it.baseName }.join('_')}" }
 
+
     publishDir "modules/06_concresponse/outputs/distances", mode: 'copy', pattern: '*.parquet'
 
     input:
@@ -217,6 +220,8 @@ process compile_distances {
 // ---------------------------------------------------------------------------
 process fit_curves {
     tag { "${input_file.baseName}" }
+
+    label 'r'
 
     publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
 
@@ -245,6 +250,8 @@ process fit_curves {
 process fit_curves_meta {
     tag { "${input_file.baseName} ${meta_nm}" }
 
+    label 'r'
+
     publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
 
     input:
@@ -271,6 +278,8 @@ process fit_curves_meta {
 // Rscript modules/06_concresponse/scripts/select_pod.R 03_tables/bmds_bsc.parquet 03_tables/meta_pods_Metadata_mtt_normalized.parquet pods_bsc_Metadata_mtt_normalized.parquet         Metadata_mtt_normalized
 process select_pod {
     tag { "${input_file_bmds.baseName}" }
+
+    label 'r'
 
     publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
 
@@ -310,7 +319,6 @@ process transform_back_log10concentration {
     def metadata_flag = is_metadata_pods ? "--is_metadata_pods" : ""
 
     """
-    echo Hello
     python3 ${projectDir}/modules/06_concresponse/scripts/transform_back_log10concentration.py \
         --input_pods ${input_file} \
         --input_metadata ${input_file_metadata} \
@@ -388,6 +396,8 @@ process plot_ldh_curve_fits {
 process plot_cp_curve_fits {
     tag { "${dist_path.baseName} ${meta_nm}" }
 
+    label 'r'
+
     publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy', pattern: '*.pdf'
 
     input:
@@ -397,7 +407,6 @@ process plot_cp_curve_fits {
     path "plots_pods_cp_${params.input_name}.pdf"
 
     """
-    Echo Hello
     Rscript ${projectDir}/modules/06_concresponse/scripts/plot_cp_curve.R \
         ${cp_pod_path} \
         '${meta_pods_path.join(",")}' \
@@ -425,8 +434,6 @@ process analysis_concresponse_report {
 
     script:
     """
-    echo ${params.concentration_response.compute_meta_pods.join(' ')}
-    echo ${input_pods_metadata.join(' ')}
     marimo export html \
     ${projectDir}/modules/08_reporting/notebooks/5_analysis_concresponse.marimo.py \
     -o 5_analysis_concresponse_marimo_${params.input_name}.html \
