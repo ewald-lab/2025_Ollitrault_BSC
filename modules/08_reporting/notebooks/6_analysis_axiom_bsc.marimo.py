@@ -15,12 +15,15 @@ def _():
     import matplotlib.ticker as mticker
     import matplotlib.gridspec as gridspec
     from matplotlib.gridspec import GridSpec
+    from sklearn.preprocessing import StandardScaler
+    import seaborn as sns
     from plotnine import (
         ggplot, aes, theme_classic, geom_boxplot, geom_sina, geom_col, element_blank, scale_y_continuous, theme_minimal,
         geom_jitter,
         labs, theme, element_text, scale_x_discrete, scale_y_log10, geom_text, facet_grid, element_rect, geom_rect, scale_x_continuous
     )
     return (
+        StandardScaler,
         aes,
         element_rect,
         element_text,
@@ -38,6 +41,7 @@ def _():
         plt,
         px,
         scale_y_log10,
+        sns,
         theme,
         theme_classic,
         umap,
@@ -198,7 +202,7 @@ def _(df_level4_bsc, df_level5_bsc, df_level6_bsc):
     all_metadata_4 = [c for c in df_level4_bsc.columns if c.startswith("Metadata_")]
     all_metadata_5 = [c for c in df_level5_bsc.columns if c.startswith("Metadata_")]
     all_metadata_6 = [c for c in df_level6_bsc.columns if c.startswith("Metadata_")]
-    return all_features, all_metadata_6
+    return (all_features,)
 
 
 @app.cell
@@ -436,7 +440,66 @@ def _(df_bsc_all_pod):
 
 
 @app.cell
-def _():
+def _(df_bsc_all_pod, df_umap_bsc_6, list_botanicals, np, px):
+    # Merge the dataframes on Metadata_compound
+    df_umap_bsc_6_pod = df_umap_bsc_6.merge(df_bsc_all_pod, on="Metadata_compound", how="left")
+
+    # Create a plotting category: botanicals keep their name, others become "Other"
+    df_umap_bsc_6_pod["plot_group"] = df_umap_bsc_6_pod["Metadata_compound"].where(
+        df_umap_bsc_6_pod["Metadata_compound"].isin(list_botanicals),
+        "Other"
+    )
+
+    # Function to select the color column based on the "_pass" flags
+    def get_color_column(row):
+        if row.get("cp_all.pass", False):
+            return row.get("cp_POD_um")
+        elif row.get("mtt_all.pass", False):
+            return row.get("mtt_POD_um")
+        elif row.get("ldh_all.pass", False):
+            return row.get("ldh_POD_um")
+        else:
+            return np.nan  # Plotly will ignore NaNs
+
+    df_umap_bsc_6_pod["color_value"] = df_umap_bsc_6_pod.apply(get_color_column, axis=1)
+
+    # Apply log scale for coloring (avoid log(0))
+    df_umap_bsc_6_pod["color_value_log"] = np.log10(df_umap_bsc_6_pod["color_value"] + 1e-9)
+
+    # Determine nice tick values for colorbar in original scale
+    cmin = df_umap_bsc_6_pod["color_value"].min()
+    cmax = df_umap_bsc_6_pod["color_value"].max()
+    # Example: 5 ticks evenly spaced in log space
+    log_ticks = np.linspace(np.log10(cmin + 1e-9), np.log10(cmax + 1e-9), 6)
+    original_ticks = np.round(10**log_ticks, decimals=3)
+
+    # Plot UMAP
+    _fig = px.scatter(
+        df_umap_bsc_6_pod.sample(frac=1, random_state=42).reset_index(drop=True),
+        x="UMAP_1",
+        y="UMAP_2",
+        color="color_value_log",
+        color_continuous_scale=px.colors.sequential.Magma,
+        title="UMAP of Level 5 BSC Cell Painting Profiles (log scale POD)",
+        opacity=0.8,
+        width=850,
+        height=650
+    )
+
+    # Update colorbar to show original POD values
+    _fig.update_layout(
+        template="plotly_white",
+        coloraxis_colorbar=dict(
+            title="POD_um",
+            tickvals=log_ticks,
+            ticktext=[str(t) for t in original_ticks]
+        ),
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2"
+    )
+
+    _fig.show()
+
     return
 
 
@@ -2082,18 +2145,164 @@ def _(
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Phenotypic space Heatmap""")
+    return
+
+
+@app.cell
+def _(df_level6_bsc):
+    df_level6_bsc
+    return
+
+
+@app.cell
+def _(all_features, df_level6_bsc):
+    df_level6_bsc[all_features]
+    return
+
+
+@app.cell
+def _(df_bsc_all_pod_annotations):
+    df_bsc_all_pod_annotations[["Metadata_compound", "Plant scode"]]
+    return
+
+
+@app.cell
+def _(df_bsc_annotations):
+    df_bsc_annotations
+    return
+
+
+@app.cell
+def _(df_level6_bsc_plantscode):
+    df_level6_bsc_plantscode["Plant scode"][0]
+    return
+
+
+@app.cell
+def _(df_level6_bsc_plantscode, np):
+    # Replace empty strings with NaN first, then fill with Plant name, then with Metadata_compound
+    df_level6_bsc_plantscode["Plant scode"] = (
+        df_level6_bsc_plantscode["Plant scode"]
+        .replace('', np.nan)
+        .fillna(df_level6_bsc_plantscode["Plant name"])
+        .fillna(df_level6_bsc_plantscode["Metadata_compound"])
+    )
+
+    # Verify - should have no NaN now
+    print(f"Remaining NaN: {df_level6_bsc_plantscode['Plant scode'].isna().sum()}")
+    return
+
+
+@app.cell
+def _(
+    StandardScaler,
+    all_features,
+    df_bsc_all_pod_annotations,
+    df_level6_bsc,
+    pd,
+    plt,
+    sns,
+):
+    _df_level6_bsc_plantscode = df_level6_bsc.merge(df_bsc_all_pod_annotations[["Metadata_compound", "Plant scode", "Plant name", "Constituent"]], on="Metadata_compound", how="left")
+    #print(_df_level6_bsc_plantscode[["Metadata_compound", "Plant scode", "Plant name", "Constituent"]])
+    # Create mapping from Metadata_compound to Plant name
+    _compound_to_plant_name = (
+        df_bsc_all_pod_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+
+    # Fill Plant name only where it's NaN
+    mask = _df_level6_bsc_plantscode["Constituent"].isna()
+    _df_level6_bsc_plantscode.loc[mask, "Constituent"] = (
+        _df_level6_bsc_plantscode.loc[mask, "Metadata_compound"]
+        .map(_compound_to_plant_name)
+    )
+    mask = _df_level6_bsc_plantscode["Plant name"].isna()
+    _df_level6_bsc_plantscode.loc[mask, "Plant name"] = (
+        _df_level6_bsc_plantscode.loc[mask, "Metadata_compound"]
+        .map(_compound_to_plant_name)
+    )
+    _df_level6_bsc_plantscode["Row_label"] = _df_level6_bsc_plantscode.apply(
+        lambda row: f"{row['Constituent']} ({row['Metadata_compound']})" 
+                    if pd.notna(row['Metadata_compound']) and pd.notna(row['Plant name'])
+                    else f"{row['Constituent']} (-- Botanical --)"
+                    if pd.notna(row['Metadata_compound']) and pd.isna(row['Plant name'])
+                    else row['Metadata_compound'],
+        axis=1
+    )
+
+    # Select features for clustering
+    features_data = _df_level6_bsc_plantscode[all_features]
+
+    # Standardize features
+    scaler = StandardScaler()
+    features_scaled = pd.DataFrame(
+        features_data, #scaler.fit_transform(features_data),
+        columns=all_features,
+        index=_df_level6_bsc_plantscode["Metadata_compound"]
+    )
+
+    # Get row labels - use the new Row_label column
+    row_labels = _df_level6_bsc_plantscode["Row_label"]
+
+    # Create color palette for Plant scode
+    unique_plant_scodes = _df_level6_bsc_plantscode["Plant name"].dropna().unique()
+    n_colors = len(unique_plant_scodes)
+    palette = sns.color_palette("tab20", n_colors) if n_colors <= 20 else sns.color_palette("husl", n_colors)
+    plant_scode_colors = dict(zip(unique_plant_scodes, palette))
+
+    # Create color annotation for rows
+    row_colors = _df_level6_bsc_plantscode["Plant name"].map(plant_scode_colors)
+
+    # Create cluster map with row colors
+    sns.set(font_scale=0.7)
+    cg = sns.clustermap(
+        features_data,
+        method='ward',          # linkage method
+        metric='euclidean',     # distance metric
+        cmap='RdBu_r',          # Red = high, Blue = low
+        vmin=-2,                # force color scale
+        vmax=2,
+        figsize=(12, 10),
+        row_cluster=True,
+        col_cluster=True,
+        xticklabels=False,      # hide column names
+        row_colors=row_colors,  # Add color annotation
+        yticklabels=row_labels, # Set row labels directly with new labels
+        cbar_pos=(0.02, 0.8, 0.03, 0.15)  # Move colorbar to avoid overlap
+    )
+
+    # Adjust rotation if needed
+    cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=7)
+
+    # Create legend for Plant scode colors
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=plant_scode_colors[ps], label=ps) 
+                       for ps in sorted(unique_plant_scodes)]
+
+    # Add legend outside the plot
+    cg.ax_heatmap.legend(
+        handles=legend_elements, 
+        title='Plant name',
+        bbox_to_anchor=(1.35, 1), 
+        loc='upper left',
+        frameon=True,
+        fontsize=6,
+        title_fontsize=7
+    )
+
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## Chemical space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
-    return
-
-
-@app.cell
-def _(all_metadata_6, df_level6_bsc):
-    df_level6_bsc[all_metadata_6]
-    return
-
-
-@app.cell
-def _():
     return
 
 
