@@ -1,6 +1,6 @@
 {
-    "input_path": "../../2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/plates",
-    "metadata_path": "../../2024_09_09_Axiom_OASIS/1_snakemake/inputs/metadata/metadata.parquet",
+    "input_path": "../2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/plates",
+    "metadata_path": "../2024_09_09_Axiom_OASIS/1_snakemake/inputs/metadata/metadata.parquet",
     "input_name": "axiom",
     "features": "dino",
     "post_processing": null,
