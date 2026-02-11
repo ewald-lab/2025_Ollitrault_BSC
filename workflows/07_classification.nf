@@ -52,6 +52,7 @@ process axiom_assay_hitcall{
 }
 /*
 process toxcast_cellbased_binary{ // Check again if to use OASIS_ID or compound ID
+label gpu !!
     input:
         path input //f"outputs/{features}/{name}/aggregated_profiles/agg.parquet",
         //f"inputs/annotations/toxcast_cellbased_binary.parquet",

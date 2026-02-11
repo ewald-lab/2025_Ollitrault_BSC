@@ -19,24 +19,24 @@ def call_hits(
     cc = pl.read_parquet(cc_path)
 
     # 2. Get hits
-    hits = mtt.select("Metadata_OASIS_ID") 
+    hits = mtt.select("Metadata_compound") 
 
-    mtt_hits = mtt.filter(pl.col("all.pass") == True).select("Metadata_OASIS_ID").to_series().to_list()
-    ldh_hits = ldh.filter(pl.col("all.pass") == True).select("Metadata_OASIS_ID").to_series().to_list()
-    cc_hits = cc.filter(pl.col("all.pass") == True).select("Metadata_OASIS_ID").to_series().to_list()
+    mtt_hits = mtt.filter(pl.col("all.pass") == True).select("Metadata_compound").to_series().to_list()
+    ldh_hits = ldh.filter(pl.col("all.pass") == True).select("Metadata_compound").to_series().to_list()
+    cc_hits = cc.filter(pl.col("all.pass") == True).select("Metadata_compound").to_series().to_list()
 
     hits = hits.with_columns(
-        pl.when(pl.col("Metadata_OASIS_ID").is_in(mtt_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("MTT"),
-        pl.when(pl.col("Metadata_OASIS_ID").is_in(ldh_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("LDH"),
-        pl.when(pl.col("Metadata_OASIS_ID").is_in(cc_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("cell_count"),
+        pl.when(pl.col("Metadata_compound").is_in(mtt_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("MTT"),
+        pl.when(pl.col("Metadata_compound").is_in(ldh_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("LDH"),
+        pl.when(pl.col("Metadata_compound").is_in(cc_hits)).then(pl.lit(1)).otherwise(pl.lit(0)).alias("cell_count"),
     )
     print(hits)
-    hits = hits.rename({"Metadata_OASIS_ID": "OASIS_ID"})
+    hits = hits.rename({"Metadata_compound": "ID"})
 
     # 3. Write out results
     hits.write_parquet(hits_path)
 
-# python 01_analysis/7_script_classifier/7_data_axiom_hitcalls.py --input_pod_mtt 03_tables/pods_axiom_Metadata_mtt_normalized_original_conc.parquet --input_pod_ldh 03_tables/pods_axiom_Metadata_ldh_normalized_original_conc.parquet --output 03_tables/test.parquet
+# python modules/07_classification/scripts/hitcalls.py --input_pod_mtt modules/06_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet --input_pod_ldh modules/06_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet --input_pod_cc modules/06_concresponse/outputs/pods/pods_axiom_Metadata_Count_Cells_original_conc.parquet --output modules/07_classification/outputs/test.parquet
 # I have replaced all Metadata_OASIS_ID to Metadata_compound
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Aggregate Level-5 consensus DINOv2 features into Level-6 compound aggregated.")

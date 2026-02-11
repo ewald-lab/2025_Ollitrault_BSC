@@ -142,9 +142,10 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
 
 
 def predict_binary(
-    input_path: str,
-    label_path: str,
-    output_path: str,
+    input_path: str | None = None,
+    label_path: str | None = None,
+    output_path: str | None = None,
+    dat: pl.DataFrame | None = None,
 ) -> None:
     """Build classifier for binary outcomes.
 
@@ -161,11 +162,18 @@ def predict_binary(
     n_splits = 5
     num_gpus = 4
 
-    dat = pl.read_parquet(input_path)
-    meta = pl.read_parquet(label_path).rename({"OASIS_ID": "Metadata_compound"})
+    # If dat is provided, use it
+    if dat is None:
+        if input_path is None:
+            raise ValueError("Either 'dat' or 'input_path' must be provided.")
+        dat = pl.read_parquet(input_path)
+    meta = pl.read_parquet(label_path).rename({"ID": "Metadata_compound"})
     labels = [i for i in meta.columns if "Metadata_" not in i]
 
+    print(f"Data shape before join: {dat.shape}")
+    print(f"Metadata shape before join: {meta.shape}")
     dat = dat.join(meta, on="Metadata_compound", how="left")
+    print(f"Data shape after join: {dat.shape}")
 
     tasks = [
         (dat, label_column, n_splits, labels, i % num_gpus)
@@ -223,16 +231,65 @@ def predict_binary(
     if not pred_df.is_empty() and not null_df.is_empty() and not cc_df.is_empty():
         pl.concat([pred_df, null_df, cc_df], how="vertical").write_parquet(output_path)
 
-# python 01_analysis/7_script_classifier/7_data_axiom_hitcalls.py --input_pod_mtt 03_tables/pods_axiom_Metadata_mtt_normalized_original_conc.parquet --input_pod_ldh 03_tables/pods_axiom_Metadata_ldh_normalized_original_conc.parquet --output 03_tables/test.parquet
+def preprocess_axiom_data_features(
+    input_path: str,
+) -> None:
+    """Preprocess Axiom data for classification."""
+    # This function can be used to perform any necessary preprocessing steps on the Axiom data before classification.
+    # For example, you might want to filter out certain samples, handle missing values, or perform feature engineering.
+    # 1. Read in data
+    profiles = pl.read_parquet(input_path)
+
+    # 2. Process metadata
+    # remove controls
+    controls = ["DMSO"]
+    profiles = profiles.filter(~pl.col("Metadata_compound").is_in(controls))
+
+    return profiles
+def preprocess_axiom_data_cell_count(
+    input_path: str,
+) -> None:
+    """Preprocess Axiom data for cell count baseline. Add a column of the median cell count for each compound."""
+    # 1. Read in data
+    profiles = pl.read_parquet(input_path).rename({"Metadata_Count_Cells": "Cell_Count"})
+
+    # 2. Process metadata
+    # remove controls
+    controls = ["DMSO"]
+    profiles = profiles.filter(~pl.col("Metadata_compound").is_in(controls))
+
+    agg_profiles = (
+                    profiles
+                    .group_by("Metadata_compound")
+                    .agg(
+                        pl.col("Cell_Count").median()
+                    )
+                    )
+    return agg_profiles
+# python modules/07_classification/scripts/classify.py --input_path_level6 modules/02_processing/outputs/level6_axiom.parquet --input_path_level4 modules/02_processing/outputs/level4b_axiom.parquet --label_path modules/07_classification/outputs/test.parquet --output modules/07_classification/outputs/results.parquet
 # I have replaced all Metadata_OASIS_ID to Metadata_compound
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute prediction.")
-    parser.add_argument("--input_path", required=True, help="Path to input aggregated profiles")
+    parser.add_argument("--input_path_level6", required=True, help="Path to input aggregated profiles")
+    parser.add_argument("--input_path_level4", required=True, help="Path to input aggregated profiles")
     parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict") 
     parser.add_argument("--output", required=True, help="Directory for output Parquet file")
     args = parser.parse_args()
+    dat = pd.read_parquet(args.input_path_level4)
+    print(dat.columns[:40])
+    # Preprocess
+    dat_aggregated_features = preprocess_axiom_data_features(
+        input_path=args.input_path_level6,
+    )
+    dat_cell_count = preprocess_axiom_data_cell_count(
+        input_path=args.input_path_level4,
+    )
+
+    dat_features_cell_count = dat_aggregated_features.join(dat_cell_count, on="Metadata_compound", how="left")
+
+    # Pass dat directly
     predict_binary(
-                    input_path=args.input_path,
-                    label_path=args.label_path,
-                    output_path=args.output,
-                )
+        dat=dat_features_cell_count,
+        label_path=args.label_path,
+        output_path=args.output,
+    )
