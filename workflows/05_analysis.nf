@@ -55,6 +55,9 @@ process EXPORT_PARAMS {
 // marimo export html modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py -o modules/08_reporting/outputs/1_analysis_formated_data_marimo_bsc.html -- --name bsc --input_path 02_processed_data/level2_bsc.parquet
 
 process level2_analysis {
+    errorStrategy = 'ignore'  // or 'finish' for safe skip
+    memory = '248 GB'
+
     publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
 
     tag { "${path_data_level2.baseName}" }
