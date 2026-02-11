@@ -101,12 +101,10 @@ def binary_classifier(
 
     return pl.concat(pred_df, how="vertical")
 
-def process_label_and_agg(dat, label_column, agg_type, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False):
-    """Process a single label_column and agg_type combination."""
+def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False):
+    """Process a single label_column."""
     try:
-        prof = dat.filter(
-            (pl.col("Metadata_AggType") == agg_type) & (pl.col(label_column).is_not_null())
-        ).rename({label_column: "Label"})
+        prof = dat.rename({label_column: "Label"})
 
         num_0 = prof.filter(pl.col("Label") == 0).height
         num_1 = prof.filter(pl.col("Label") == 1).height
@@ -130,7 +128,6 @@ def process_label_and_agg(dat, label_column, agg_type, n_splits, labels, gpu_id,
 
             # Add the metadata columns
             class_res = class_res.with_columns(
-                pl.lit(agg_type).alias("Metadata_AggType"),
                 pl.lit(label_column).alias("Metadata_Label"),
                 pl.lit(num_0).alias("Metadata_Count_0"),
                 pl.lit(num_1).alias("Metadata_Count_1"),
@@ -139,7 +136,7 @@ def process_label_and_agg(dat, label_column, agg_type, n_splits, labels, gpu_id,
             return class_res
 
     except Exception as e:
-        print(f"An error occurred for label '{label_column}' and aggregation type '{agg_type}':")
+        print(f"An error occurred for label '{label_column}':")
         print(traceback.format_exc())
         return None
 
@@ -170,20 +167,19 @@ def predict_binary(
 
     dat = dat.join(meta, on="Metadata_compound", how="left")
 
-    agg_types = dat.select("Metadata_AggType").to_series().unique().to_list()
     tasks = [
-        (dat, label_column, agg_type, n_splits, labels, i % num_gpus)
-        for i, (label_column, agg_type) in enumerate(
-            [(label_column, agg_type) for label_column in labels for agg_type in agg_types]
+        (dat, label_column, n_splits, labels, i % num_gpus)
+        for i, (label_column) in enumerate(
+            [(label_column) for label_column in labels]
         )
     ]
 
     # Train actual models
     pred_results = thread_map(
-        lambda args: process_label_and_agg(*args, shuffle=False),
+        lambda args: process_label(*args, shuffle=False),
         tasks,
         max_workers=num_gpus,
-        desc="Processing labels and agg_types",
+        desc="Processing labels",
     )
 
     pred_results = [res for res in pred_results if res is not None]
@@ -195,10 +191,10 @@ def predict_binary(
 
     # Random baseline
     null_results = thread_map(
-        lambda args: process_label_and_agg(*args, shuffle=True),
+        lambda args: process_label(*args, shuffle=True),
         tasks,
         max_workers=num_gpus,
-        desc="Processing labels and agg_types",
+        desc="Processing labels for random baseline",
     )
 
     null_results = [res for res in null_results if res is not None]
@@ -210,10 +206,10 @@ def predict_binary(
 
     # Cell count baseline
     cc_results = thread_map(
-        lambda args: process_label_and_agg(*args, cc=True),
+        lambda args: process_label(*args, cc=True),
         tasks,
         max_workers=num_gpus,
-        desc="Processing labels and agg_types",
+        desc="Processing labels for cell count baseline",
     )
 
     cc_results = [res for res in cc_results if res is not None]
