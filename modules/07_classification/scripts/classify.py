@@ -1,5 +1,5 @@
 import traceback  # noqa: D100
-
+import os
 try:
     import cupy as cp
 except ImportError:
@@ -159,8 +159,19 @@ def predict_binary(
         Filepath for model classification results.
 
     """
+    # Detect GPUs dynamically
+    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if cuda_visible:
+        num_gpus = len(cuda_visible.split(","))
+    else:
+        try:
+            num_gpus = cp.cuda.runtime.getDeviceCount()
+        except cp.cuda.runtime.CUDARuntimeError:
+            num_gpus = 0  # fallback if no GPUs
+
+    print(f"Detected {num_gpus} GPU(s) available")
+
     n_splits = 5
-    num_gpus = 4
 
     # If dat is provided, use it
     if dat is None:
