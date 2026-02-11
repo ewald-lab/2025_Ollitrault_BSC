@@ -71,7 +71,7 @@ if ("cmd" %in% methods) {
   print("Running CMD")
   source(cmd_path)
 
-  num_cores <- 30
+  num_cores <- 8
   cl <- makeCluster(num_cores)
   registerDoParallel(cl)
 
