@@ -20,8 +20,8 @@
             "transform": "none",
             "cover_var": 0.95,
             "num_sds": 2,
-            "dmso_mode": "plate",
-            "filter_sd_residuals": "TRUE",
+            "dmso_mode": "closest",
+            "filter_sd_residuals": "FALSE",
             "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"]
     }
 }

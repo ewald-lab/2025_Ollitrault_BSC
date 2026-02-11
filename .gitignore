@@ -213,6 +213,7 @@ reports/*
 00.first_analysis_module/.nextflow.log.9
 *.nextflow.log.*
 work
+logs/*
 
 # Slurm
 00.first_analysis_module/output.out
