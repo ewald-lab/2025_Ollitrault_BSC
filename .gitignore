@@ -224,3 +224,4 @@ output.out
 output.log
 output.err
 launch_nextflow.bashrc
+dcgm/*

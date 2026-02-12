@@ -1,55 +1,44 @@
+nextflow.enable.dsl = 2
+
 workflow classification_workflow {
-
     take:
-        path_data_level5
-
+        path_data_level6
+        compute_meta_pods
+    
     main:
-        // Run Level 6 aggregate by compounds
-        path_data_level6 = level6_aggregate_compound(path_data_level5)
-
-
+        pods_map_ch = compute_meta_pods
+            .toList()
+            .map { tuples ->
+                tuples.collectEntries { label, file -> 
+                    [(label): file] 
+                }
+            }
+        
+        axiom_assay_hitcall(pods_map_ch)
+    
     emit:
         path_data_level6
 }
 
 
-process level6_aggregate_compound{
-    publishDir "02_processed_data", mode: 'copy'
-
-    tag { "${input_file.baseName}" }
+process axiom_assay_hitcall {
 
     input:
-    path input_file
+        val pods
 
     output:
-    path "level6_${params.input_name}.parquet"
+        path "axiom_hits.parquet"
 
     script:
     """
-    python ${projectDir}/01_analysis/2F_data_processing_level6_aggregation_compounds.py \\
-        --input $input_file \\
-        --output level6_${params.input_name}.parquet
+    python ${projectDir}/modules/07_classification/scripts/hitcalls.py \
+        --input_pod_mtt ${pods["Metadata_mtt_normalized"]} \
+        --input_pod_ldh ${pods["Metadata_ldh_normalized"]} \
+        --input_pod_cc ${pods["Metadata_Count_Cells"]} \
+        --output axiom_hits.parquet
     """
 }
 
-process axiom_assay_hitcall{
-
-    input:
-        path inputs//f"outputs/{features}/{name}/curves/mttpods.parquet",
-        //f"outputs/{features}/{name}/curves/ldhpods.parquet",
-        //f"outputs/{features}/{name}/curves/ccpods.parquet",
-    output:
-        path "axiom_hits.parquet",
-    script:
-    """
-    python ${projectDir}/01_analysis/7_script_classifier/7_data_axiom_hitcalls.py \
-         --input_pod_mtt 03_tables/pods_axiom_Metadata_mtt_normalized_original_conc.parquet\
-         --input_pod_ldh 03_tables/pods_axiom_Metadata_ldh_normalized_original_conc.parquet \
-         --input_pod_cc 03_tables/pods_axiom_Metadata_cc_normalized_original_conc.parquet \ !! CC POD
-         --output 03_tables/test.parquet 
-
-    """
-}
 /*
 process toxcast_cellbased_binary{ // Check again if to use OASIS_ID or compound ID
 label gpu !!

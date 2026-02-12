@@ -44,6 +44,9 @@ def binary_classifier(
         for each sample in the validation sets across all folds.
 
     """
+    # Remove samples without labels
+    dat = dat.dropna(subset=["Label"])
+
     dat["Label"] = dat["Label"].astype(int)
     x = dat.drop(columns=["Label"])
     y = dat["Label"]
@@ -146,6 +149,7 @@ def predict_binary(
     label_path: str | None = None,
     output_path: str | None = None,
     dat: pl.DataFrame | None = None,
+    label_column: str = "OASIS_ID"
 ) -> None:
     """Build classifier for binary outcomes.
 
@@ -178,13 +182,22 @@ def predict_binary(
         if input_path is None:
             raise ValueError("Either 'dat' or 'input_path' must be provided.")
         dat = pl.read_parquet(input_path)
-    meta = pl.read_parquet(label_path).rename({"ID": "Metadata_compound"})
+    
+    if label_column == "OASIS_ID": 
+        meta = pl.read_parquet(label_path).rename({"OASIS_ID": "Metadata_OASIS_ID"})
+        dat = dat.join(meta, on="Metadata_OASIS_ID", how="left")
+        print(f"Data shape before join: {dat.shape}")
+        print(f"Metadata shape before join: {meta.shape}")
+    elif label_column == "ID":
+        meta = pl.read_parquet(label_path).rename({"ID": "Metadata_compound"})
+        dat = dat.join(meta, on="Metadata_compound", how="left")
+        print(f"Data shape before join: {dat.shape}")
+        print(f"Metadata shape before join: {meta.shape}")
+
     labels = [i for i in meta.columns if "Metadata_" not in i]
 
-    print(f"Data shape before join: {dat.shape}")
-    print(f"Metadata shape before join: {meta.shape}")
-    dat = dat.join(meta, on="Metadata_compound", how="left")
     print(f"Data shape after join: {dat.shape}")
+    print(dat)
 
     tasks = [
         (dat, label_column, n_splits, labels, i % num_gpus)
@@ -271,7 +284,7 @@ def preprocess_axiom_data_cell_count(
 
     agg_profiles = (
                     profiles
-                    .group_by("Metadata_compound")
+                    .group_by(["Metadata_compound", "Metadata_OASIS_ID"])
                     .agg(
                         pl.col("Cell_Count").median()
                     )
@@ -284,10 +297,10 @@ if __name__ == "__main__":
     parser.add_argument("--input_path_level6", required=True, help="Path to input aggregated profiles")
     parser.add_argument("--input_path_level4", required=True, help="Path to input aggregated profiles")
     parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict") 
+    parser.add_argument("--label_column", required=False, default="OASIS_ID", help="Column in label_path to use as label (default: OASIS_ID). If using 'ID', will use Metadata_compound for join.")
     parser.add_argument("--output", required=True, help="Directory for output Parquet file")
     args = parser.parse_args()
     dat = pd.read_parquet(args.input_path_level4)
-    print(dat.columns[:40])
     # Preprocess
     dat_aggregated_features = preprocess_axiom_data_features(
         input_path=args.input_path_level6,
@@ -303,4 +316,5 @@ if __name__ == "__main__":
         dat=dat_features_cell_count,
         label_path=args.label_path,
         output_path=args.output,
+        label_column=args.label_column,
     )

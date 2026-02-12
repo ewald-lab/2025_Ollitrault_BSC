@@ -125,6 +125,8 @@ workflow concresponse_workflow {
                     input_pods_cp_ch,
                     input_pods_metadata_ch
                 )
+    emit: 
+        all_pods_files
 }
 
 // ---------------------------------------------------------------------------

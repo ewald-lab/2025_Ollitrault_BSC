@@ -10,6 +10,7 @@ include { postprocessing_workflow } from './workflows/03_postprocessing.nf'
 include { concresponse_workflow } from './workflows/06_concresponse.nf'
 include { analysis_workflow } from './workflows/05_analysis.nf'
 include { analysis_workflow_processed } from './workflows/05_analysis.nf'
+include { classification_workflow } from './workflows/07_classification.nf'
 
 // Generate a unique run code with date + short UUID
 def today = new Date()
@@ -37,5 +38,25 @@ workflow {
     
     // evaluation_results = evaluation_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
     concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+
+    if (params.input_name == "axiom") {
+        compute_meta_pods = concresponse_results
+            .flatten()
+            .map { file ->
+                def label = file.getName()
+                    .replace("pods_axiom_", "")
+                    .replace("_original_conc.parquet", "")
+                // Only keep the three PODs you care about
+                if (!["Metadata_mtt_normalized","Metadata_ldh_normalized","Metadata_Count_Cells"].contains(label)) {
+                    return null
+                }
+                // <-- use tuple() instead of list []
+                tuple(label, file)
+            }
+            .filter { it != null }
+
+        classification_workflow(postprocessed_data.path_data_level6, compute_meta_pods)
+    }
+
     analysis_workflow(postprocessed_data.path_data_level2 , postprocessed_data.path_data_level3, postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
 }
