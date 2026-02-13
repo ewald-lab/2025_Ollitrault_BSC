@@ -2,6 +2,7 @@ nextflow.enable.dsl = 2
 
 workflow classification_workflow {
     take:
+        path_data_level4
         path_data_level6
         compute_meta_pods
     
@@ -13,15 +14,38 @@ workflow classification_workflow {
                     [(label): file] 
                 }
             }
-        
-        axiom_assay_hitcall(pods_map_ch)
-    
+        // Hit call axiom
+        path_axiom_hits = axiom_assay_hitcall(pods_map_ch)
+
+        // Create channel for label files with their label column
+        label_files_ch = Channel.fromList(params.classifier.label_files)
+            .map { label_file -> 
+                tuple(
+                    file("${projectDir}/modules/07_classification/inputs/${label_file}"),
+                    "OASIS_ID"
+                )
+            }
+
+        // Add axiom_hits with "ID" label column
+        all_labels_ch = label_files_ch
+            .concat(
+                path_axiom_hits.map { file -> tuple(file, "ID") }
+            )
+
+
+        // Run classification for all label files
+        path_output_classification = path_data_level6
+                    .combine(path_data_level4)
+                    .combine(all_labels_ch)
+                    | binary_classification
+       
     emit:
         path_data_level6
 }
 
 
 process axiom_assay_hitcall {
+    tag { "${params.input_name}" }
 
     input:
         val pods
@@ -39,20 +63,24 @@ process axiom_assay_hitcall {
     """
 }
 
-/*
-process toxcast_cellbased_binary{ // Check again if to use OASIS_ID or compound ID
-label gpu !!
+
+process binary_classification {
+    label 'gpu'
+    
     input:
-        path input //f"outputs/{features}/{name}/aggregated_profiles/agg.parquet",
-        //f"inputs/annotations/toxcast_cellbased_binary.parquet",
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column)
+    
     output:
-        f"axiom_toxcast_cellbased_binary_predictions.parquet",
+        path "axiom_*_predictions.parquet"
+    
     script:
+    def label_name = label_file.baseName
     """
-    python ${projectDir}/01_analysis/7_script_classifier/7_data_classify.py \
-         --input_path 02_processed_data/level6_axiom.parquet\
-         --label_path 03_tables/test.parquet \
-         --output 03_tables/test_class.parquet 
+    python ${projectDir}/modules/07_classification/scripts/classify.py \
+        --input_path_level6 ${input_level6} \
+        --input_path_level4 ${input_level4} \
+        --label_path ${label_file.name} \
+        --label_column ${label_column} \
+        --output axiom_${label_name}_predictions.parquet
     """
 }
-*/

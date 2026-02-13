@@ -54,8 +54,7 @@ workflow {
                 tuple(label, file)
             }
             .filter { it != null }
-
-        classification_workflow(postprocessed_data.path_data_level6, compute_meta_pods)
+        classification_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level6, compute_meta_pods)
     }
 
     analysis_workflow(postprocessed_data.path_data_level2 , postprocessed_data.path_data_level3, postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
