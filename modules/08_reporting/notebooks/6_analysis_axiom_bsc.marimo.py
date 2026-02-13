@@ -1615,7 +1615,7 @@ def _(df_bsc_all_pod_annotations, list_botanicals, mticker, np, pd, plt):
 
     _df_bot["Plant name mapped"] = _df_bot["Metadata_compound"].map(_plant_scode_to_name)
     _df_bot = _df_bot.dropna(subset=["Plant name mapped"])
-
+    mat_infos_pods_botanicals = _df_bot[["Plant name mapped","Metadata_compound","cp_POD_um", "cp_all.pass", "mtt_POD_um", "mtt_all.pass", "ldh_POD_um", "ldh_all.pass"]]
     # --------------------------------------------------
     # 4. Colors per plant
     # --------------------------------------------------
@@ -1766,6 +1766,12 @@ def _(df_bsc_all_pod_annotations, list_botanicals, mticker, np, pd, plt):
     plt.ylabel("Plant name")  # <-- SWAPPED
     plt.tight_layout(rect=[0, 0, 1.5, 1.75])  # <-- ADDED: leave space for legend
     plt.show()
+    return (mat_infos_pods_botanicals,)
+
+
+@app.cell
+def _(mat_infos_pods_botanicals):
+    mat_infos_pods_botanicals
     return
 
 
@@ -2303,6 +2309,11 @@ def _(
 @app.cell
 def _(mo):
     mo.md(r"""## Chemical space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
+    return
+
+
+@app.cell
+def _():
     return
 
 

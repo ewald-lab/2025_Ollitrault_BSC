@@ -20,13 +20,13 @@ def _():
 
 @app.cell
 def _(pd):
-    df_level5b = pd.read_parquet("02_processed_data/level5_bsc.parquet")
+    df_level5b = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
     return (df_level5b,)
 
 
 @app.cell
 def _(pd):
-    df_level4b = pd.read_parquet("02_processed_data/level4b_bsc.parquet")
+    df_level4b = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     meta_compound_cols = [c for c in df_level4b.columns if c.startswith("Metadata_compound")]
     df_metadata = df_level4b[meta_compound_cols].drop_duplicates()
     return (df_metadata,)
@@ -34,7 +34,7 @@ def _(pd):
 
 @app.cell
 def _(pd):
-    df_annotations_composition = pd.read_csv("00_inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
+    df_annotations_composition = pd.read_csv("modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
     return (df_annotations_composition,)
 
 
