@@ -6,7 +6,7 @@ except ImportError:
     import numpy as cp  # fallback for macOS
 
 import argparse
-
+import joblib
 import pandas as pd
 import polars as pl
 from sklearn.model_selection import StratifiedKFold
@@ -101,10 +101,22 @@ def binary_classifier(
                 }),
             )
             fold += 1
+        # Rerun on all data
+        model = XGBClassifier(
+            objective="binary:logistic",
+            n_estimators=150,
+            tree_method="hist",
+            device=f"cuda:{gpu_id}",
+            learning_rate=0.05,
+            scale_pos_weight=(y == 0).sum() / (y == 1).sum(),
+        )
 
-    return pl.concat(pred_df, how="vertical")
+        # Train the model on the fold training set
+        model.fit(x, y)
 
-def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False):
+    return model, pl.concat(pred_df, how="vertical")
+
+def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, output_dir: str = None):
     """Process a single label_column."""
     try:
         prof = dat.rename({label_column: "Label"})
@@ -120,7 +132,7 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
             prof = prof.drop(all_meta_cols)
 
             # Call your classifier
-            class_res = binary_classifier(
+            model, class_res = binary_classifier(
                 prof.to_pandas(),
                 prof_meta.to_pandas(),
                 n_splits=n_splits,
@@ -128,7 +140,18 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
                 shuffle=shuffle,
                 cc=cc,
             )
-
+            # Save model if output_dir provided
+            if output_dir and model is not None:
+                model_type = "random" if shuffle else ("cellcount" if cc else "actual")
+                
+                # Sanitize label_column to create safe filenames
+                safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
+                
+                model_filename = f"{safe_label}_{model_type}_model.pkl"
+                model_path = os.path.join(output_dir, model_filename)
+                
+                joblib.dump(model, model_path)
+                print(f"Saved model to {model_path}")
             # Add the metadata columns
             class_res = class_res.with_columns(
                 pl.lit(label_column).alias("Metadata_Label"),
@@ -205,10 +228,12 @@ def predict_binary(
             [(label_column) for label_column in labels]
         )
     ]
-
+    # In predict_binary function
+    model_output_dir = os.path.join(os.path.dirname(output_path), "models")
+    os.makedirs(model_output_dir, exist_ok=True)
     # Train actual models
     pred_results = thread_map(
-        lambda args: process_label(*args, shuffle=False),
+        lambda args: process_label(*args, shuffle=False, output_dir=model_output_dir),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels",
@@ -290,7 +315,7 @@ def preprocess_axiom_data_cell_count(
                     )
                     )
     return agg_profiles
-# python modules/07_classification/scripts/classify.py --input_path_level6 modules/02_processing/outputs/level6_axiom.parquet --input_path_level4 modules/02_processing/outputs/level4b_axiom.parquet --label_path modules/07_classification/outputs/test.parquet --output modules/07_classification/outputs/results.parquet
+# python modules/07_classification/scripts/classify.py --input_path_level6 modules/02_processing/outputs/level6_axiom.parquet --input_path_level4 modules/02_processing/outputs/level4b_axiom.parquet --label_path modules/07_classification/outputs/test.parquet --label_column ID --output modules/07_classification/outputs/results.parquet
 # I have replaced all Metadata_OASIS_ID to Metadata_compound
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute prediction.")

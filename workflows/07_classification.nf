@@ -65,13 +65,20 @@ process axiom_assay_hitcall {
 
 
 process binary_classification {
+
+    tag { "${label_file.baseName}" }
+
     label 'gpu'
+
+    publishDir "modules/07_classification/outputs/", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/07_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'  // Changed!
     
     input:
         tuple path(input_level6), path(input_level4), path(label_file), val(label_column)
     
     output:
         path "axiom_*_predictions.parquet"
+        path "models/*.pkl"  // Make sure this line exists!
     
     script:
     def label_name = label_file.baseName
