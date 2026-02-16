@@ -7,6 +7,9 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
+    import os
+    import glob
+    import pickle
     import pandas as pd
     import numpy as np
     import umap
@@ -16,13 +19,16 @@ def _():
     import matplotlib.gridspec as gridspec
     from matplotlib.gridspec import GridSpec
     from sklearn.preprocessing import StandardScaler
+    from matplotlib.colors import ListedColormap
     import seaborn as sns
+    from tqdm import tqdm
     from plotnine import (
         ggplot, aes, theme_classic, geom_boxplot, geom_sina, geom_col, element_blank, scale_y_continuous, theme_minimal,
         geom_jitter,
         labs, theme, element_text, scale_x_discrete, scale_y_log10, geom_text, facet_grid, element_rect, geom_rect, scale_x_continuous
     )
     return (
+        ListedColormap,
         StandardScaler,
         aes,
         element_rect,
@@ -33,17 +39,21 @@ def _():
         geom_sina,
         geom_text,
         ggplot,
+        glob,
         labs,
         mo,
         mticker,
         np,
+        os,
         pd,
+        pickle,
         plt,
         px,
         scale_y_log10,
         sns,
         theme,
         theme_classic,
+        tqdm,
         umap,
     )
 
@@ -62,11 +72,27 @@ def _(mo):
 
 @app.cell
 def _(pd):
+    test = pd.read_parquet("modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet")
+    test.columns
+    return
+
+
+@app.cell
+def _():
+    import polars as pl
+    test2 = pl.read_parquet("modules/01_preprocessing/outputs/level2_bsc.parquet")
+    test2.columns
+    return
+
+
+@app.cell
+def _(pd):
     # Cell Painting profiles
     df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
     df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_filtered.parquet")
-    return df_level4_bsc, df_level5_bsc, df_level6_bsc
+    df_level6_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_all_features_filtered.parquet")
+    return df_level4_bsc, df_level5_bsc, df_level6_bsc, df_level6_bsc_all
 
 
 @app.cell
@@ -77,12 +103,6 @@ def _(pd):
     bsc_control = "s0617825"
     list_botanicals
     return bsc_control, df_bsc_annotations, list_botanicals
-
-
-@app.cell
-def _(df_bsc_annotations):
-    df_bsc_annotations
-    return
 
 
 @app.cell
@@ -197,12 +217,13 @@ def _(df_bsc_all_pod, df_bsc_annotations):
 
 
 @app.cell
-def _(df_level4_bsc, df_level5_bsc, df_level6_bsc):
-    all_features = [c for c in df_level4_bsc.columns if c.startswith("Feature_")]
+def _(df_level4_bsc, df_level5_bsc, df_level6_bsc, df_level6_bsc_all):
+    all_selected_features = [c for c in df_level4_bsc.columns if c.startswith("Feature_")]
+    all_features = [c for c in df_level6_bsc_all.columns if c.startswith("Feature_")]
     all_metadata_4 = [c for c in df_level4_bsc.columns if c.startswith("Metadata_")]
     all_metadata_5 = [c for c in df_level5_bsc.columns if c.startswith("Metadata_")]
     all_metadata_6 = [c for c in df_level6_bsc.columns if c.startswith("Metadata_")]
-    return (all_features,)
+    return (all_selected_features,)
 
 
 @app.cell
@@ -218,9 +239,9 @@ def _(mo):
 
 
 @app.cell
-def _(all_features, df_level4_bsc, pd, umap):
+def _(all_selected_features, df_level4_bsc, pd, umap):
     # --- 1. Extract features and metadata
-    X_bsc_4 = df_level4_bsc[all_features].values
+    X_bsc_4 = df_level4_bsc[all_selected_features].values
     _compound = df_level4_bsc["Metadata_compound"].astype(str)
     _plates = df_level4_bsc["Metadata_plate"].astype(str)
     _concentration = df_level4_bsc["Metadata_concentration"].astype(float)
@@ -288,9 +309,9 @@ def _(mo):
 
 
 @app.cell
-def _(all_features, df_level5_bsc, pd, umap):
+def _(all_selected_features, df_level5_bsc, pd, umap):
     # --- 1. Extract features and metadata
-    X_bsc_5 = df_level5_bsc[all_features].values
+    X_bsc_5 = df_level5_bsc[all_selected_features].values
     _compound = df_level5_bsc["Metadata_compound"].astype(str)
     _concentration = df_level5_bsc["Metadata_concentration"].astype(float)
     # --- 2. Run UMAP for 2D projection
@@ -356,9 +377,9 @@ def _(mo):
 
 
 @app.cell
-def _(all_features, df_level6_bsc, pd, umap):
+def _(all_selected_features, df_level6_bsc, pd, umap):
     # --- 1. Extract features and metadata
-    X_bsc_6 = df_level6_bsc[all_features].values
+    X_bsc_6 = df_level6_bsc[all_selected_features].values
     _compound = df_level6_bsc["Metadata_compound"].astype(str)
     # --- 2. Run UMAP for 2D projection
     reducer_bsc_6 = umap.UMAP(
@@ -499,7 +520,6 @@ def _(df_bsc_all_pod, df_umap_bsc_6, list_botanicals, np, px):
     )
 
     _fig.show()
-
     return
 
 
@@ -607,24 +627,24 @@ def _(
         total_chemicals = df_bsc_all_pod_annotations[
             df_bsc_all_pod_annotations["Metadata_compound"] != bsc_control
         ]["Metadata_compound"].nunique()
-    
+
         pod_stats = (
             all_pods_um.groupby("POD_Type")
             .agg(n_active=("POD_Value", "count"))
             .reset_index()
         )
         pod_stats["pct_active"] = (pod_stats["n_active"] / total_chemicals) * 100
-    
+
         # Prepare data for bars (add a panel identifier)
         bar_data = pod_stats.copy()
         bar_data["panel"] = "Percentage"
         bar_data["value"] = bar_data["pct_active"]
-    
+
         # Prepare data for boxplot
         box_data = all_pods_um.copy()
         box_data["panel"] = "Concentration"
         box_data["value"] = box_data["POD_Value"]
-    
+
         # Combine for faceting
         combined_plot = (
             ggplot()
@@ -672,7 +692,7 @@ def _(
             )
             + scale_y_log10()  # This will only apply to the concentration panel due to free scales
         )
-    
+
         combined_plot.show()
     return
 
@@ -2162,8 +2182,8 @@ def _(df_level6_bsc):
 
 
 @app.cell
-def _(all_features, df_level6_bsc):
-    df_level6_bsc[all_features]
+def _(all_selected_features, df_level6_bsc):
+    df_level6_bsc[all_selected_features]
     return
 
 
@@ -2203,7 +2223,7 @@ def _(df_level6_bsc_plantscode, np):
 @app.cell
 def _(
     StandardScaler,
-    all_features,
+    all_selected_features,
     df_bsc_all_pod_annotations,
     df_level6_bsc,
     pd,
@@ -2242,13 +2262,13 @@ def _(
     )
 
     # Select features for clustering
-    features_data = _df_level6_bsc_plantscode[all_features]
+    features_data = _df_level6_bsc_plantscode[all_selected_features]
 
     # Standardize features
     scaler = StandardScaler()
     features_scaled = pd.DataFrame(
         features_data, #scaler.fit_transform(features_data),
-        columns=all_features,
+        columns=all_selected_features,
         index=_df_level6_bsc_plantscode["Metadata_compound"]
     )
 
@@ -2404,9 +2424,9 @@ def _(mo):
 
 
 @app.cell
-def _(all_features, df_level4, pd, umap):
+def _(all_selected_features, df_level4, pd, umap):
     # --- 1. Extract features and metadata
-    X = df_level4[all_features].values
+    X = df_level4[all_selected_features].values
 
     _plates = df_level4["Metadata_plate"].astype(str)
     _concentration = df_level4["Metadata_concentration"].astype(float)
@@ -2455,6 +2475,481 @@ def _(df_umap, px):
     )
 
     _fig.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Classification BSC with Axiom (Toxcast models)""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Load models""")
+    return
+
+
+@app.cell
+def _(glob, os, pickle):
+    _models_path = "modules/07_classification/outputs/models"
+
+    # Find all matching model files
+    _model_files = glob.glob(os.path.join(_models_path, "*_actual_model.pkl"))
+
+    loaded_models = {}
+
+    for _file in _model_files:
+        # Extract clean model name
+        _filename = os.path.basename(_file)
+        _model_name = _filename.replace("_actual_model.pkl", "")
+
+        # Load model
+        with open(_file, "rb") as f:
+            loaded_models[_model_name] = pickle.load(f)
+    return (loaded_models,)
+
+
+@app.cell
+def _(loaded_models):
+    loaded_models.keys()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Predict BSC""")
+    return
+
+
+@app.cell
+def _(df_level6_bsc_all, list_botanicals, loaded_models, pd, tqdm):
+    # Subset once
+    X_base = df_level6_bsc_all.loc[
+        df_level6_bsc_all["Metadata_compound"].isin(list_botanicals)
+    ].copy()
+
+    # Prepare prediction matrix with compound names
+    pred_matrix = pd.DataFrame({
+        "Metadata_compound": X_base["Metadata_compound"].values
+    }, index=X_base.index)
+
+    # Loop with progress bar
+    for model_name, model in tqdm(loaded_models.items(), 
+                                  total=len(loaded_models), 
+                                  desc="Predicting"):
+
+        # Get training feature names
+        trained_features = model.get_booster().feature_names
+
+        # Align features exactly
+        X_pred = X_base.reindex(columns=trained_features)
+
+        # Predict
+        preds = model.predict(X_pred)
+
+        # Store predictions
+        pred_matrix[model_name] = preds
+
+    # Optional: reset index
+    pred_matrix = pred_matrix.reset_index(drop=True)
+
+    pred_matrix.head()
+
+    return (pred_matrix,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Visualise BSC predictions""")
+    return
+
+
+@app.cell
+def _(ListedColormap, df_bsc_all_pod_annotations):
+    compound_to_plant_name = (
+        df_bsc_all_pod_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+    binary_cmap = ListedColormap(["lightgray", "red"])
+    return binary_cmap, compound_to_plant_name
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""#### All""")
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = pred_matrix.set_index("Metadata_compound")
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(20,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions")
+    plt.show()
+
+    return
+
+
+@app.cell
+def _(
+    binary_cmap,
+    compound_to_plant_name,
+    linkage,
+    plt,
+    pred_matrix,
+    sns,
+    ssd,
+):
+    # Set compound as index
+    _heatmap_data = pred_matrix.set_index("Metadata_compound")
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+    # Row clustering: compounds
+    _row_dist = ssd.pdist(_heatmap_data.values, metric='jaccard')
+    _row_linkage = linkage(_row_dist, method='average')  # 'ward' can't be used with Jaccard
+
+    # Column clustering: models
+    _col_dist = ssd.pdist(_heatmap_data.T.values, metric='jaccard')
+    _col_linkage = linkage(_col_dist, method='average')
+
+    # Plot clustered heatmap
+    sns.clustermap(
+        _heatmap_data,
+        row_linkage=_row_linkage,
+        col_linkage=_col_linkage,
+        cmap=binary_cmap,
+        cbar=False,
+        linewidths=0.5,
+        linecolor='white',
+        figsize=(18, 6)
+    )
+    plt.show()
+
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""#### Cytotox""")
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("tissue|MTT|LDH|cell_count")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(6,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (Tissue level)")
+    plt.show()
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("cell|MTT|LDH|cell_count")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(6,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (cell level)")
+    plt.show()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""#### Cell based""")
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: ~df.columns.str.contains("cell|MTT|LDH|cell_count|NVS|tissue")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(20,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (cell based)")
+    plt.show()
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("TOX21")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(15,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (cell based)")
+    plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""#### Cell free""")
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("NVS|CCTE_GLTED_hIYD")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(6,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (cell free)")
+    plt.show()
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("NVS_TR_hNET|NVS_TR_hDAT|NVS_ADME_hCYP2C19|NVS_NR_hGR|NVS_MP_hPBR")]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(4,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (cell free)")
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""#### CYP""")
+    return
+
+
+@app.cell
+def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
+    # Set compound as index
+    _heatmap_data = (
+        pred_matrix
+        .set_index("Metadata_compound")          # step 1: index
+        .loc[:, lambda df: df.columns.str.contains("kidney|HEK|HK|498|TERT1", case=False)]  # step 2: filter
+    )
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(compound_to_plant_name)
+
+    plt.figure(figsize=(6,4))
+    sns.heatmap(
+        _heatmap_data,
+        cmap=binary_cmap,
+        cbar=False,           # optional: hide colorbar for binary
+        linewidths=0.5,       # grid lines
+        linecolor='white'
+    )
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.title("Active vs Inactive Predictions (Tissue level)")
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Predict BSC & constituents""")
+    return
+
+
+@app.cell
+def _(df_level6_bsc_all, loaded_models, pd, tqdm):
+    # Subset once
+    _X_all = df_level6_bsc_all.copy()
+
+    # Prepare prediction matrix with compound names
+    pred_matrix_all = pd.DataFrame({
+        "Metadata_compound": _X_all["Metadata_compound"].values
+    }, index=_X_all.index)
+
+    # Loop with progress bar
+    for _model_name, _model in tqdm(loaded_models.items(), 
+                                  total=len(loaded_models), 
+                                  desc="Predicting"):
+
+        # Get training feature names
+        _trained_features = _model.get_booster().feature_names
+
+        # Align features exactly
+        _X_pred = _X_all.reindex(columns=_trained_features)
+
+        # Predict
+        _preds = _model.predict(_X_pred)
+
+        # Store predictions
+        pred_matrix_all[_model_name] = _preds
+
+    # Optional: reset index
+    pred_matrix_all = pred_matrix_all.reset_index(drop=True)
+
+    pred_matrix_all.head()
+    return (pred_matrix_all,)
+
+
+@app.cell
+def _(pred_matrix_all):
+    pred_matrix_all
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""#### All""")
+    return
+
+
+@app.cell
+def _():
+
+    from scipy.cluster.hierarchy import linkage
+    import scipy.spatial.distance as ssd
+    return linkage, ssd
+
+
+@app.cell
+def _(
+    binary_cmap,
+    compound_to_plant_name,
+    linkage,
+    plt,
+    pred_matrix_all,
+    sns,
+    ssd,
+):
+    # Set compound as index
+    _heatmap_data = pred_matrix_all.set_index("Metadata_compound")
+    # Map Metadata_compound (Plant scode) to Plant name
+    _heatmap_data.index = _heatmap_data.index.map(lambda x: compound_to_plant_name.get(x, x))
+    # Row clustering: compounds
+    _row_dist = ssd.pdist(_heatmap_data.values, metric='jaccard')
+    _row_linkage = linkage(_row_dist, method='average')  # 'ward' can't be used with Jaccard
+
+    # Column clustering: models
+    _col_dist = ssd.pdist(_heatmap_data.T.values, metric='jaccard')
+    _col_linkage = linkage(_col_dist, method='average')
+
+    # Plot clustered heatmap
+    sns.clustermap(
+        _heatmap_data,
+        row_linkage=_row_linkage,
+        col_linkage=_col_linkage,
+        cmap=binary_cmap,
+        cbar=False,
+        linewidths=0.5,
+        linecolor='white',
+        figsize=(18, 16)
+    )
+    plt.show()
     return
 
 
