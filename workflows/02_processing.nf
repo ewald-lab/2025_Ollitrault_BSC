@@ -50,6 +50,9 @@ workflow processing_workflow {
         path_data_level6 = path_data_level6_tuples.map { it[1] }
         // Set defaults
         path_data_level4 = path_data_level4a
+        // Set empty channels for consistency
+        path_data_level5_all = Channel.empty()
+        path_data_level6_all = Channel.empty()
     }
 
     emit:
@@ -58,6 +61,8 @@ workflow processing_workflow {
     path_data_level4
     path_data_level5
     path_data_level6
+    path_data_level5_all
+    path_data_level6_all
 }
 
 process level3_aggregate_annotate {

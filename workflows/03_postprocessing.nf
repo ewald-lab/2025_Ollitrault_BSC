@@ -8,6 +8,8 @@ workflow postprocessing_workflow {
         path_data_level4
         path_data_level5
         path_data_level6
+        path_data_level5_all
+        path_data_level6_all
 
 
     main:
@@ -18,6 +20,8 @@ workflow postprocessing_workflow {
                 .mix( path_data_level4.map { tuple('level4', it) } )
                 .mix( path_data_level5.map { tuple('level5', it) } )
                 .mix( path_data_level6.map { tuple('level6', it) } )
+                .mix( path_data_level5_all.map { tuple('level5_all', it) } )
+                .mix( path_data_level6_all.map { tuple('level6_all', it) } )
 
         // 2. Single postprocessing step
         postprocessed = bsc_postprocessing(all_levels)
@@ -28,6 +32,8 @@ workflow postprocessing_workflow {
         level4_post = postprocessed.filter { it[0] == 'level4' }.map { it[1] }
         level5_post = postprocessed.filter { it[0] == 'level5' }.map { it[1] }
         level6_post = postprocessed.filter { it[0] == 'level6' }.map { it[1] }
+        level5_all_post = postprocessed.filter { it[0] == 'level5_all' }.map { it[1] }
+        level6_all_post = postprocessed.filter { it[0] == 'level6_all' }.map { it[1] }
 
     emit:
         path_data_level2 = level2_post
@@ -35,6 +41,8 @@ workflow postprocessing_workflow {
         path_data_level4 = level4_post
         path_data_level5 = level5_post
         path_data_level6 = level6_post
+        path_data_level5_all = level5_all_post
+        path_data_level6_all = level6_all_post
 }
 
 process bsc_postprocessing {

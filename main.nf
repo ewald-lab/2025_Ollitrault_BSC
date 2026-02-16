@@ -29,7 +29,9 @@ workflow {
             processed_data.path_data_level3,
             processed_data.path_data_level4,
             processed_data.path_data_level5,
-            processed_data.path_data_level6
+            processed_data.path_data_level6,
+            processed_data.path_data_level5_all,
+            processed_data.path_data_level6_all
         )
         analysis_workflow_processed(processed_data.path_data_level2 , processed_data.path_data_level3, processed_data.path_data_level4, processed_data.path_data_level5)
     } else {
