@@ -80,7 +80,7 @@ def _(args, pd):
 @app.cell
 def _(args, pd):
     df_cp_pods = pd.read_parquet(args.input_pods_cp)
-    df_cp_pods[df_cp_pods["Metadata_compound"] == "Itraconazole"]
+    df_cp_pods
     return (df_cp_pods,)
 
 
@@ -350,12 +350,6 @@ def _(mo):
 
 
 @app.cell
-def _(df_cp_pods_all):
-    df_cp_pods_all
-    return
-
-
-@app.cell
 def _(df_cp_pods_all, np, plt):
     # Filter your data: keep all.pass True and finite POD values > 0
     _df_plot_cp_pods_all = df_cp_pods_all[
@@ -384,7 +378,7 @@ def _(df_cp_pods_all, np, plt):
         _x_jitter = np.random.normal(_i, 0.04, size=len(_values))
         plt.scatter(_x_jitter, _values, alpha=0.5)
 
-    plt.ylabel("POD (µM)")
+    plt.ylabel("POD (log µM)")
     plt.title("CP POD distributions: gmd vs. all others (all.pass = True)")
     plt.tight_layout()
     plt.show()
@@ -425,12 +419,6 @@ def _(df_cp_pods_all, np, plt):
     plt.yscale("log")
     plt.tight_layout()
     plt.show()
-    return
-
-
-@app.cell
-def _(df_cp_pods):
-    df_cp_pods
     return
 
 
