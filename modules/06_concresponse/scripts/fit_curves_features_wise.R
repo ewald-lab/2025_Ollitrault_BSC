@@ -88,6 +88,7 @@ category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito",
 log10.dose <- args[7] #TRUE
 compounds <- args[8] #"all"
 permutation <- args[9] #FALSE
+thresholds_n_active <- args[10]
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
@@ -163,12 +164,23 @@ results <- with_progress({
     
     # Filter active and Count valid BMDs
     fit_obj_passed_bmd_res  <- fit_obj$bmd_res[fit_obj$bmd_res[, "all.pass"] == TRUE, ]
-    n_active_features <- nrow(fit_obj_passed_bmd_res)
+    if (permutation) {
+      n_active_features <- nrow(fit_obj_passed_bmd_res)
+    } else {
+      n_active_features <- nrow(fit_obj_passed_bmd_res) > thresholds_n_active # TRUE or FALSE as a check
+    }
+    
     
     # Helper to mean/sd finite BMD values (excluding sentinel 9999)
     bmd_mean <- function(x) mean(x[x != 9999], na.rm = TRUE)
     bmd_sd   <- function(x) sd(x[x   != 9999], na.rm = TRUE)
     
+    # Check all.pass
+    all.pass = (any(fit_obj_passed_bmd_res$conv.pass, na.rm = TRUE) & 
+                  any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE) & 
+                  any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE) &
+                  n_active_features)
+
     data.frame(
       compound  = compound,
       bmd       = bmd_mean(fit_obj_passed_bmd_res$bmd),
@@ -182,7 +194,7 @@ results <- with_progress({
       hd.pass   = any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE),
       CI.pass   = any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE),
       ld.pass   = any(fit_obj_passed_bmd_res$ld.pass,    na.rm = TRUE),
-      all.pass  = any(fit_obj_passed_bmd_res$all.pass,   na.rm = TRUE)
+      all.pass  = all.pass
     )
   }, .options = furrr_options(seed = TRUE))
   bind_rows(res_list)
@@ -191,4 +203,6 @@ results <- with_progress({
 if (permutation) {
   # at the end of the script
   writeLines(as.character(results$n.active), output_path)
+} else {
+  arrow::write_parquet(results, output_path)
 }
