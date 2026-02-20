@@ -8,6 +8,7 @@ include { processing_workflow } from './workflows/02_processing.nf'
 include { postprocessing_workflow } from './workflows/03_postprocessing.nf'
 //include { evaluation_workflow } from './workflows/04_evaluation.nf'
 include { concresponse_workflow } from './workflows/06_concresponse.nf'
+include { concresponse_workflow_feature_wise } from './workflows/06_concresponse.nf'
 include { analysis_workflow } from './workflows/05_analysis.nf'
 include { analysis_workflow_processed } from './workflows/05_analysis.nf'
 include { classification_workflow } from './workflows/07_classification.nf'
@@ -39,7 +40,8 @@ workflow {
     }
     
     // evaluation_results = evaluation_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    //concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    concresponse_results = concresponse_workflow_feature_wise(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
 
     if (params.input_name == "axiom") {
         compute_meta_pods = concresponse_results

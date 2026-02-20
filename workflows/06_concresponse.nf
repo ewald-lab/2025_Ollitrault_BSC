@@ -15,7 +15,6 @@ workflow concresponse_workflow {
         path_data_5b = compile_distances(path_data_5a.collect())
         // 3a. fit curves (bmds)
         path_data_5c = fit_curves(path_data_5b)
-
         // 4. fit curves meta (CC, MTT, LDH)
         channel_5d_meta_channel = Channel
             .fromList(params.concentration_response.compute_meta_pods)
@@ -127,6 +126,22 @@ workflow concresponse_workflow {
                 )
     emit: 
         all_pods_files
+}
+workflow concresponse_workflow_feature_wise {
+    take:
+        input_data_level4
+        input_data_level5
+    main:
+        ch_compounds = Channel.fromPath("${projectDir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
+                              .splitText()
+                              .map { it.trim() }
+
+        ch_permutation_n_active = fit_curves_feature_wise_permutation(input_data_level4, ch_compounds.take(100), "TRUE")
+
+        // Collect all n_actives_permutation values and compute mean
+        ch_permutation_n_active
+            .collectFile(name: "all_n_actives_permutation.txt", newLine: true)
+            | compute_mean_pod
 }
 
 // ---------------------------------------------------------------------------
@@ -447,5 +462,43 @@ process analysis_concresponse_report {
         --input_pods_metadata ${input_pods_metadata.join(' ')} \\
         --control ${params.control} \\
         --metadata_cell_viability ${params.concentration_response.compute_meta_pods.join(' ')}
+    """
+}
+
+process fit_curves_feature_wise_permutation {
+    tag { compound }
+    label 'r'
+    input:
+        path input_file
+        val compound
+        val permutation
+    output:
+        path "pod_${compound}.txt"
+    """
+    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
+        ${input_file} \\
+        ${params.concentration_response.num_sds} \\
+        ${params.control} \\
+        ${params.concentration_response.dmso_mode} \\
+        ${params.categories.join(',')} \\
+        TRUE \\
+        2 \\
+        ${compound} \\
+        ${permutation}
+    """
+}
+process compute_mean_pod {
+    input:
+        path threshold_active_features_file
+    output:
+        path "threshold_active_features_${params.input_name}.parquet"
+    """
+    Rscript -e "
+        vals <- as.numeric(readLines('${threshold_active_features_file}'))
+        arrow::write_parquet(
+            data.frame(threshold = mean(vals, na.rm = TRUE)),
+            'threshold_active_features_${params.input_name}.parquet'
+        )
+    "
     """
 }
