@@ -76,17 +76,17 @@ plan(multisession, workers = n_workers)
 # 1. Arguments
 args <- commandArgs(trailingOnly = TRUE)
 
-input_path <- "../../03_postprocessing/outputs/level4b_bsc_filtered.parquet" #distances_bsc.parquet
-output_path <- "../outputs/pods/test.parquet"
-num.sds <- 2
-ctrl <- "s0617825"
+input_path <- args[1] #"../../03_postprocessing/outputs/level4b_bsc_filtered.parquet" #distances_bsc.parquet
+output_path <- args[2] #"../outputs/pods/test.parquet"
+num.sds <- args[3] #2
+ctrl <- args[4] #"s0617825"
 #cp_plot_path <- "../outputs/fig/bayese_inference_bsc.pdf"
-dmso_mode <- "closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
-category <- c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
-log10.dose <- TRUE
-ncpus <- 4
-compounds <- "all"
-permutation <- FALSE
+dmso_mode <- args[5] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
+category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
+log10.dose <- args[7] #TRUE
+ncpus <- args[8] #4
+compounds <- args[9] #"all"
+permutation <- args[10] #FALSE
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
@@ -139,8 +139,15 @@ results <- with_progress({
     
     # Prepare data once per compound
     dat_fit <- bind_rows(ctrl_fit, dat_comp) %>% arrange(Metadata_log10conc)
-    dat_mat <- t(dat_fit[, feat_cols])
-    rownames(dat_mat) <- feat_cols
+    if (permutation) {
+      dat_perm <- dat_fit
+      dat_perm[, feat_cols] <- lapply(dat_fit[, feat_cols], sample)
+      dat_mat <- t(dat_perm[, feat_cols])
+      rownames(dat_mat) <- feat_cols
+    } else {
+      dat_mat <- t(dat_fit[, feat_cols])
+      rownames(dat_mat) <- feat_cols
+    }
     doses   <- dat_fit$Metadata_log10conc
     
     # Compute FastBMD
@@ -185,4 +192,7 @@ dim(results)
 boxplot(results$bmd[results$n.active > 20])
 length(results$bmd[results$n.active > 20])
 
-output_path
+if (permutation) {
+  # at the end of the script
+  writeLines(as.character(pod_value), paste0("n_actives_permutation", compound, ".txt"))
+}
