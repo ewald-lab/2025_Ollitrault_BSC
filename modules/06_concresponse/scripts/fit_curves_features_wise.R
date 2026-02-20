@@ -194,5 +194,5 @@ length(results$bmd[results$n.active > 20])
 
 if (permutation) {
   # at the end of the script
-  writeLines(as.character(pod_value), paste0("n_actives_permutation", compound, ".txt"))
+  writeLines(as.character(results$n.active), output_path)
 }
