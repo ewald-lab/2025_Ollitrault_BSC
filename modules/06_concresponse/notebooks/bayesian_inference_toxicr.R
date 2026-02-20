@@ -191,13 +191,39 @@ get_closest_dmso <- function(comp_fit_coords, dat_ctrl) {
   ) %>%
     distinct()  # avoid duplicates across wells
 }
+# 0. Parrallelization
+library(future)
+library(furrr)
+library(parallel)
+library(progressr)
+handlers(global = TRUE)
+handlers("progress")  # or "cli" if you have the cli package
+# ── Auto-configure parallelism ─────────────────────────────────────────────────
+total_cores      <- parallel::detectCores(logical = FALSE)  # physical cores only
+threads_per_fit  <- 2L                                       # threads inside ma_continuous_fit
+
+# Leave 1 core for OS/session, divide remaining by per-fit threads
+n_workers <- max(1L, floor((total_cores - 1L) / threads_per_fit))
+
+message(sprintf(
+  "Detected %d physical cores → %d parallel workers × %d threads/fit = %d cores used",
+  total_cores, n_workers, threads_per_fit, n_workers * threads_per_fit
+))
+
+plan(multisession, workers = n_workers)
 # 1. Arguments
-input_path <- "../outputs/distances/distance_bsc_gmd.parquet"
-output_path <- NA
+input_path <- "../outputs/distances/distance_bsc_gmd.parquet" #distances_bsc.parquet
+output_path <- "../outputs/pods/test.parquet"
 ctrl <- "s0617825"
 dmso_mode <- "closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
-# 2. Calculate BMDs from global mahalanobis distances
+cp_plot_path <- "../outputs/fig/bayese_inference_bsc.pdf"
+log10.dose <- TRUE
+num.sds <- 2
+# 2. Calculate BMDs from mahalanobis distances
 dat <- read_parquet(input_path) %>% as.data.frame()
+
+feat_cols <- colnames(dat)[!grepl("Metadata", colnames(dat))] # The computed distances
+
 dat <- dat %>%
           bind_cols(map_dfr(.$Metadata_well, well_to_coord))
 compounds <- unique(dat$Metadata_compound)
@@ -208,22 +234,128 @@ dat_ctrl <- dat %>%
 dat_comp <- dat %>%
   filter(Metadata_compound != ctrl)
 
-feat_cols <- colnames(dat)[grepl("Feature", colnames(dat))] # The computed distances
-
-bmd_res <- data.frame()
-
-for (compound in compounds) {
-  dat_comp <- dat %>%
-    filter(Metadata_compound == compound)
-  if (dmso_mode == "closest") {
-    ctrl_fit <- get_closest_dmso(
-      comp_fit_coords = dat_comp,
-      dat_ctrl = dat_ctrl
-    )
-  } else if (dmso_mode == "plate") {
-    ctrl_fit <- dat_ctrl %>%
-      filter(Metadata_plate %in% unique(dat_comp$Metadata_plate))
-  } else {
-    stop("dmso_mode must be 'closest' or 'plate'")
-  }
+# ── Pre-compute plate-split once if needed (avoids repeated filtering) ─────────
+if (dmso_mode == "plate") {
+  dat_ctrl_by_plate <- split(dat_ctrl, dat_ctrl$Metadata_plate)
+} else if (dmso_mode != "closest") {
+  stop("dmso_mode must be 'closest' or 'plate'")
 }
+
+# ── Parallel loop over compounds ───────────────────────────────────────────────
+with_progress({
+  p <- progressor(steps = length(compounds))
+  results <- future_map(compounds, function(compound) {
+    #
+    fail_msgs <- character(0)  # pre-allocate empty
+    # Compound selection 
+    dat_comp <- dat %>% filter(Metadata_compound == compound)
+    # Control selection
+    ctrl_fit <- if (dmso_mode == "closest") {
+      get_closest_dmso(comp_fit_coords = dat_comp, dat_ctrl = dat_ctrl)
+    } else {
+      bind_rows(dat_ctrl_by_plate[
+        intersect(names(dat_ctrl_by_plate), unique(dat_comp$Metadata_plate))
+      ])
+    }
+    p(sprintf(
+      "Fitting POD for %s with %d compound and %d DMSO points.",
+      compound, nrow(dat_comp), nrow(ctrl_fit)
+    ))
+    #message(sprintf(
+    #  "Fitting POD for %s with %d compound and %d DMSO points.",
+    #  compound, nrow(dat_comp), nrow(ctrl_fit)
+    #))
+    
+    # Prepare data once per compound
+    dat_fit  <- bind_rows(ctrl_fit, dat_comp) %>% arrange(Metadata_log10conc)
+    dat_mat  <- t(dat_fit[, feat_cols])
+    rownames(dat_mat) <- feat_cols
+    doses    <- dat_fit$Metadata_log10conc
+    
+    # Pre-compute reused values once per compound
+    max_dose <- max(doses)
+    dose2    <- unique(sort(doses))[2]
+    
+    # Pre-allocate per-compound results
+    res_list  <- vector("list", length(feat_cols))
+    plot_list <- vector("list", length(feat_cols))
+    names(res_list) <- names(plot_list) <- feat_cols
+    
+    for (feat_col in feat_cols) {
+      fit <- ma_continuous_fit(
+        doses, dat_mat[feat_col, ],
+        fit_type = "laplace",
+        threads  = threads_per_fit
+      )
+      
+      fit$gene.id   <- feat_col
+      fit$conv.pass <- sum(is.na(fit$bmd)) == 0
+      fit$hd.pass   <- fit$bmd["BMD"] < max_dose
+      
+      if (isTRUE(log10.dose)) {
+        fit$CI.pass <- fit$bmd["BMDU"] - fit$bmd["BMDL"] < log10(40)
+        fit$ld.pass <- fit$bmd["BMDL"] > (dose2 - log10(10))
+      } else {
+        fit$CI.pass <- fit$bmd["BMDU"] / fit$bmd["BMDL"] < 40
+        fit$ld.pass <- fit$bmd["BMDL"] > (dose2 / 10)
+      }
+      
+      fit$all.pass <- fit$conv.pass & fit$hd.pass & fit$CI.pass
+      
+      if (!fit$all.pass) {
+        fail_msgs <- c(fail_msgs, sprintf("  [FAIL] compound: %s | feature: %s", compound, feat_col))
+      }
+      
+      res_list[[feat_col]] <- data.frame(
+        compound  = compound,
+        gene.id   = feat_col,
+        bmd       = fit$bmd["BMD"],
+        bmdl      = fit$bmd["BMDL"],
+        bmdu      = fit$bmd["BMDU"],
+        conv.pass = fit$conv.pass,
+        hd.pass   = fit$hd.pass,
+        CI.pass   = fit$CI.pass,
+        ld.pass   = fit$ld.pass,
+        all.pass  = fit$all.pass
+      )
+      
+      plot_list[[paste0(compound, "__", feat_col)]] <- suppressWarnings(plot(fit) +
+        ggtitle(paste(compound,feat_col)) +
+        theme(plot.title = element_text(size = 40, face = "bold", hjust = 0.5)))
+    }
+    list(bmd = bind_rows(res_list), plots = plot_list, fails = fail_msgs)
+  }, .options = furrr_options(seed = TRUE))         
+})
+# ── Restore plan ───────────────────────────────────────────────────────────────
+plan(sequential)
+
+# ── Collect results ────────────────────────────────────────────────────────────
+bmd_res   <- bind_rows(lapply(results, `[[`, "bmd"))
+fit_plots <- unlist(lapply(results, `[[`, "plots"), recursive = FALSE)
+
+# ── Print fail messages ────────────────────────────────────────────────────────
+all_fails <- unlist(lapply(results, `[[`, "fails"))
+if (length(all_fails) > 0) {
+  message("\n── Failed fits ──────────────────────────────")
+  message(paste(all_fails, collapse = "\n"))
+  message(sprintf(
+    "Total failed: %d / %d",
+    length(all_fails), length(compounds) * length(feat_cols)
+  ))
+} else {
+  message("All fits passed.")
+}
+
+# ── Write PDF ──────────────────────────────────────────────────────────────────
+pdf(cp_plot_path, width = pdf_w, height = pdf_h)
+for (key in names(fit_plots)) {
+  tryCatch({
+    print(suppressWarnings(fit_plots[[key]]))
+  }, error = function(e) {
+    message(sprintf("Error plotting %s: %s", key, e$message))
+  })
+}
+dev.off()
+
+# ── Write Parquet ──────────────────────────────────────────────────────────────
+write_parquet(as.data.frame(bmd_res), output_path)

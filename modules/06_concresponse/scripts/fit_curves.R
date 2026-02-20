@@ -69,7 +69,7 @@ dmso_mode <- args[5]  # "closest" or "plate" # Improve ? : "rowcol" → same row
 ######## 2. Calculate BMDs from global mahalanobis distances
 dat <- read_parquet(input_path) %>% as.data.frame()
 
-feat_cols <- colnames(dat)[grepl("Distance", colnames(dat))] # The computed distances
+feat_cols <- colnames(dat)[!grepl("Metadata", colnames(dat))] # The computed distances
 
 compounds <- unique(dat$Metadata_compound)
 compounds <- compounds[!grepl(ctrl, compounds)]
