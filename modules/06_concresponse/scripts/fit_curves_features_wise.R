@@ -187,11 +187,6 @@ results <- with_progress({
   }, .options = furrr_options(seed = TRUE))
   bind_rows(res_list)
 })
-boxplot(fit_obj$bmd_res[fit_obj$bmd_res[,"all.pass"] == TRUE,"bmd"])
-
-dim(results)
-boxplot(results$bmd[results$n.active > 20])
-length(results$bmd[results$n.active > 20])
 
 if (permutation) {
   # at the end of the script
