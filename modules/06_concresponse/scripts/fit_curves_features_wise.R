@@ -61,18 +61,20 @@ library(progressr)
 handlers(global = TRUE)
 handlers("progress")  # or "cli" if you have the cli package
 # ── Auto-configure parallelism ─────────────────────────────────────────────────
-total_cores      <- parallel::detectCores(logical = FALSE)  # physical cores only
-threads_per_fit  <- 2L                                       # threads inside ma_continuous_fit
+threads_per_fit <- 2L  # threads inside PerformCurveFitting / PerformBMDCalc
 
-# Leave 1 core for OS/session, divide remaining by per-fit threads
-n_workers <- max(1L, floor((total_cores - 1L) / threads_per_fit))
+# Use parallelly::availableCores() — respects cgroups, SLURM, container limits
+available       <- parallelly::availableCores()
+n_workers       <- max(1L, floor((available - 1L) / threads_per_fit))
 
 message(sprintf(
-  "Detected %d physical cores → %d parallel workers × %d threads/fit = %d cores used",
-  total_cores, n_workers, threads_per_fit, n_workers * threads_per_fit
+  "Detected %d available cores → %d parallel workers × %d threads/fit = %d cores used",
+  available, n_workers, threads_per_fit, n_workers * threads_per_fit
 ))
 
 plan(multisession, workers = n_workers)
+threads_per_fit <- 2L
+ncpus           <- threads_per_fit  # each worker uses this many threads internally
 # 1. Arguments
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -84,9 +86,8 @@ ctrl <- args[4] #"s0617825"
 dmso_mode <- args[5] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
 category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
 log10.dose <- args[7] #TRUE
-ncpus <- args[8] #4
-compounds <- args[9] #"all"
-permutation <- args[10] #FALSE
+compounds <- args[8] #"all"
+permutation <- args[9] #FALSE
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
