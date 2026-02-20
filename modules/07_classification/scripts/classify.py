@@ -23,6 +23,7 @@ def binary_classifier(
     *,
     shuffle: bool = False,
     cc: bool = False,
+    n_repeats: int = 1,
 ) -> pl.DataFrame:
     """Perform a binary XGBoost classification.
 
@@ -36,12 +37,17 @@ def binary_classifier(
         Number of folds for cross-validation.
     shuffle : bool, optional
         Whether to shuffle the data before splitting (default is False).
+    cc : bool, optional
+        Whether to use only cell count as a feature (default is False).
+    n_repeats : int, optional
+        Number of times to repeat the cross-validation (default is 1).
 
     Returns
     -------
-    pl.DataFrame
-        A Polars DataFrame containing the predicted labels and probabilities
-        for each sample in the validation sets across all folds.
+    tuple[XGBClassifier, pl.DataFrame]
+        A tuple containing:
+        - The final model trained on all data
+        - A Polars DataFrame with predictions from all folds and iterations
 
     """
     # Remove samples without labels
@@ -59,7 +65,9 @@ def binary_classifier(
     if shuffle:
         y = y.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    kf = StratifiedKFold(n_splits=n_splits)
+    # Use RepeatedStratifiedKFold
+    rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=42)
+
 
     pred_df = []
     fold = 1
@@ -90,6 +98,10 @@ def binary_classifier(
             # Validate the model on the fold validation set
             y_fold_prob = model.predict_proba(x_fold_val)[:, 1]
             y_fold_pred = model.predict(x_fold_val)
+            
+            # Calculate which repeat and fold we're in
+            repeat_num = (fold - 1) // n_splits + 1
+            fold_num = (fold - 1) % n_splits + 1
 
             pred_df.append(
                 pl.DataFrame({
@@ -98,6 +110,7 @@ def binary_classifier(
                     "y_pred": list(y_fold_pred),
                     "y_actual": list(y_fold_val),
                     "k_fold": fold,
+                    "repeat": repeat_num,
                 }),
             )
             fold += 1
@@ -116,7 +129,7 @@ def binary_classifier(
 
     return model, pl.concat(pred_df, how="vertical")
 
-def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, output_dir: str = None):
+def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, output_dir: str = None):
     """Process a single label_column."""
     try:
         prof = dat.rename({label_column: "Label"})
@@ -139,6 +152,7 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
                 gpu_id=gpu_id,
                 shuffle=shuffle,
                 cc=cc,
+                n_repeats=n_repeats,
             )
             # Save model if output_dir provided
             if output_dir and model is not None:
@@ -172,6 +186,7 @@ def predict_binary(
     label_path: str | None = None,
     output_path: str | None = None,
     dat: pl.DataFrame | None = None,
+    n_repeats: int = 1,
     label_column: str = "OASIS_ID"
 ) -> None:
     """Build classifier for binary outcomes.
@@ -182,6 +197,10 @@ def predict_binary(
         Filepath for input profiles.
     label_path : str
         Filepath for input binary labels.
+    n_repeats : int, optional
+        Number of times to repeat cross-validation (default is 1).
+    label_column : str, optional
+        Column in label_path to use as label (default is "OASIS_ID"). If using "ID", will use Metadata_compound for join.
     output_path : str
         Filepath for model classification results.
 
@@ -223,7 +242,7 @@ def predict_binary(
     print(dat)
 
     tasks = [
-        (dat, label_column, n_splits, labels, i % num_gpus)
+        (dat, label_column, n_splits, n_repeats, labels, i % num_gpus)
         for i, (label_column) in enumerate(
             [(label_column) for label_column in labels]
         )
