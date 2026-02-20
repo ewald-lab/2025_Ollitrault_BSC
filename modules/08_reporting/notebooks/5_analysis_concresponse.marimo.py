@@ -32,14 +32,14 @@ def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
     parser.add_argument("--name", type=str, default="Default")
-    parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_filtered.parquet") # TODO : adapt for level6
+    parser.add_argument("--input", type=str, default="modules/02_processing/outputs/level5_axiom.parquet") # TODO : adapt for level6
     parser.add_argument("--input_pods_cp_all", type=str, default=
-        "modules/06_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
+        "modules/06_concresponse/outputs/pods/pods_axiom_cp_all_original_conc.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
-        "modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+        "modules/06_concresponse/outputs/pods/pods_axiom_cp_original_conc.parquet")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
-        "modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet",
-        "modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet"
+        "modules/06_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet",
+        "modules/06_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet"
                                                            ])
     parser.add_argument("--control", type=str, default="s0617825")
     parser.add_argument("--metadata_cell_viability", nargs="+", default=[
@@ -174,7 +174,6 @@ def _(dict_all_dfs_pods, len_compounds, plt):
 
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -200,7 +199,6 @@ def _(args, dict_all_dfs_pods, pd):
         if f"{m}_POD_um" in df_all_pods_allpass.columns
     ]
     df_plot_all_pods_allpass = df_all_pods_allpass[pod_columns].dropna(how='all')
-
     return df_all_pods_allpass, df_plot_all_pods_allpass, pod_columns
 
 
@@ -258,7 +256,6 @@ def _(df_plot_all_pods_allpass, np, plt, pod_columns):
 
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -343,25 +340,97 @@ def _(df_cp_pods_all, np, plt):
 
     plt.tight_layout()
     plt.show()
-
     return (df_plot_cp_pods_all,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Boxplot PODs of GMD (General Mahalanobis distance) vs minimum CMD (Channel Mahalanobis distance)""")
+    return
+
+
+@app.cell
+def _(df_cp_pods_all, np, plt):
+    # Filter your data: keep all.pass True and finite POD values > 0
+    _df_plot_cp_pods_all = df_cp_pods_all[
+        (df_cp_pods_all["all.pass"] == True)
+    
+    ]
+
+    # Split into gmd vs all others
+    gmd_values = _df_plot_cp_pods_all[_df_plot_cp_pods_all["gene.id"] == "gmd"]["cp_all_POD"].values
+    other_values =  _df_plot_cp_pods_all[_df_plot_cp_pods_all["gene.id"] != "gmd"].groupby("Metadata_compound")["cp_all_POD"].min().values
+    print(gmd_values.shape)
+    print(other_values.shape)
+
+    _data_plot = [gmd_values, other_values]
+    _labels = ["gmd", "all others"]
+
+    plt.figure(figsize=(6, 6))
+
+    # Boxplot
+    plt.boxplot(_data_plot, labels=_labels, showfliers=False)
+
+    # Jitter points
+    for _i, _values in enumerate(_data_plot, start=1):
+        if len(_values) == 0:
+            continue
+        _x_jitter = np.random.normal(_i, 0.04, size=len(_values))
+        plt.scatter(_x_jitter, _values, alpha=0.5)
+
+    plt.ylabel("POD (log µM)")
+    plt.title("CP POD distributions: gmd vs. all others (all.pass = True)")
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _(df_cp_pods_all, np, plt):
+    # Filter your data: keep all.pass True and finite POD values > 0
+    _df_plot_cp_pods_all = df_cp_pods_all[
+        (df_cp_pods_all["all.pass"] == True)
+    
+    ]
+
+    # Split into gmd vs all others
+    _gmd_values = _df_plot_cp_pods_all[_df_plot_cp_pods_all["gene.id"] == "gmd"]["cp_all_POD_um"].values
+    _other_values =  _df_plot_cp_pods_all[_df_plot_cp_pods_all["gene.id"] != "gmd"].groupby("Metadata_compound")["cp_all_POD_um"].min().values
+    print(_gmd_values.shape)
+    print(_other_values.shape)
+
+    _data_plot = [_gmd_values, _other_values]
+    _labels = ["gmd", "all others"]
+
+    plt.figure(figsize=(6, 6))
+
+    # Boxplot
+    plt.boxplot(_data_plot, labels=_labels, showfliers=False)
+
+    # Jitter points
+    for _i, _values in enumerate(_data_plot, start=1):
+        if len(_values) == 0:
+            continue
+        _x_jitter = np.random.normal(_i, 0.04, size=len(_values))
+        plt.scatter(_x_jitter, _values, alpha=0.5)
+
+    plt.ylabel("POD (µM)")
+    plt.title("CP POD distributions: gmd vs. all others (all.pass = True)")
+    plt.yscale("log")
+    plt.tight_layout()
+    plt.show()
+    return
 
 
 @app.cell
 def _(df_plot_cp_pods_all):
     df_plot_cp_pods_all.groupby("gene.id")["cp_all_POD_um"].describe()
-
     return
 
 
 @app.cell
 def _():
     # TODO : Plot SD control
-    return
-
-
-@app.cell
-def _():
     return
 
 
