@@ -136,12 +136,24 @@ workflow concresponse_workflow_feature_wise {
                               .splitText()
                               .map { it.trim() }
 
-        ch_permutation_n_active = fit_curves_feature_wise_permutation(input_data_level4, ch_compounds.take(100), "TRUE")
+        ch_permutation_n_active = fit_curves_feature_wise_permutation(input_data_level4.first(), ch_compounds.randomSample(100), "TRUE")
 
         // Collect all n_actives_permutation values and compute mean
-        ch_permutation_n_active
+        ch_permutation_n_active_threshold = ch_permutation_n_active
             .collectFile(name: "all_n_actives_permutation.txt", newLine: true)
-            | compute_mean_pod
+            | compute_percentile_permutation_active_features
+
+        // Run feature-wise curve fitting with threshold
+        ch_fit_curves_feature_wise = fit_curves_feature_wise(
+            input_data_level4.first(), 
+            ch_compounds, 
+            ch_permutation_n_active_threshold.first()
+        )
+
+        // Collect all parquet outputs and concatenate
+        ch_concatenated = ch_fit_curves_feature_wise
+            .collect()
+            | concatenate_parquet_files
 }
 
 // ---------------------------------------------------------------------------
@@ -473,32 +485,78 @@ process fit_curves_feature_wise_permutation {
         val compound
         val permutation
     output:
-        path "pod_${compound}.txt"
+        path "n_active_permutation_${params.input_name}_${compound}.txt"
+
+
     """
     Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
+        n_active_permutation_${params.input_name}_${compound}.txt \\
         ${params.concentration_response.num_sds} \\
         ${params.control} \\
         ${params.concentration_response.dmso_mode} \\
         ${params.categories.join(',')} \\
         TRUE \\
-        2 \\
         ${compound} \\
         ${permutation}
     """
 }
-process compute_mean_pod {
+process compute_percentile_permutation_active_features {
+    label 'r'
+
     input:
         path threshold_active_features_file
     output:
-        path "threshold_active_features_${params.input_name}.parquet"
+        stdout
     """
-    Rscript -e "
-        vals <- as.numeric(readLines('${threshold_active_features_file}'))
-        arrow::write_parquet(
-            data.frame(threshold = mean(vals, na.rm = TRUE)),
-            'threshold_active_features_${params.input_name}.parquet'
-        )
-    "
+    Rscript - <<'EOF'
+    vals <- as.numeric(readLines("${threshold_active_features_file}"))
+    cat(quantile(vals, 0.9, na.rm = TRUE))
+EOF
+    """
+}
+
+process fit_curves_feature_wise {
+    tag { compound }
+    label 'r'
+    input:
+        path input_file
+        val compound
+        val thresholds_n_active
+    output:
+        path "pod_${params.input_name}_${compound}.parquet"
+
+        
+    """
+    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
+        ${input_file} \\
+        pod_${params.input_name}_${compound}.parquet \\
+        ${params.concentration_response.num_sds} \\
+        ${params.control} \\
+        ${params.concentration_response.dmso_mode} \\
+        ${params.categories.join(',')} \\
+        TRUE \\
+        ${compound} \\
+        FALSE \\
+        ${thresholds_n_active}
+    """
+}
+
+process concatenate_parquet_files {
+    label 'r'
+    input:
+        path parquet_files
+    output:
+        path "pod_${params.input_name}.parquet"
+    """
+    Rscript - <<'EOF'
+    library(arrow)
+    
+    files <- strsplit("${parquet_files}", " ")[[1]]
+    
+    combined <- do.call(rbind, lapply(files, arrow::read_parquet))
+    
+    arrow::write_parquet(combined, "pod_${params.input_name}.parquet")
+EOF
     """
 }
