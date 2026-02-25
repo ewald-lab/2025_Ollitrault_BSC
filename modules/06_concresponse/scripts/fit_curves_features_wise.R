@@ -89,6 +89,7 @@ log10.dose <- args[7] #TRUE
 compounds <- args[8] #"all"
 permutation <- args[9] #FALSE
 thresholds_n_active <- args[10]
+output_path_all <- args[11] "../outputs/pods/feature_wise/test_cmpd.parquet"
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
@@ -151,13 +152,17 @@ results <- with_progress({
       rownames(dat_mat) <- feat_cols
     }
     doses   <- dat_fit$Metadata_log10conc
+    # Shift data per rows to have onyly positiv values
+    row_mins <- apply(dat_mat, 1, min)
+    shift_vals <- ifelse(row_mins <= 0, -row_mins + 1e-3, 0)
+    dat_mat <- dat_mat + shift_vals
     
     # Compute FastBMD
     fit_obj <- PerformCurveFitting(
       data   = dat_mat[, , drop = FALSE],
       dose   = doses,
       ncpus  = ncpus,
-      models = c("Hill", "Power", "Lin", "Poly2")
+      models = c("Exp2", "Exp3", "Exp4", "Exp5", "Poly2", "Lin", "Power", "Hill")
     )
     fit_obj <- FilterDRFit(fit_obj, lof.pval = 0, filt.var = "AIC.model")
     fit_obj <- PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile")
@@ -170,6 +175,10 @@ results <- with_progress({
       n_active_features <- nrow(fit_obj_passed_bmd_res) > thresholds_n_active # TRUE or FALSE as a check
     }
     
+    # write all features results
+    if (!permutation) {
+      arrow::write_parquet(fit_obj_passed_bmd_res, file.path(output_path_all))
+    }
     
     # Helper to mean/sd finite BMD values (excluding sentinel 9999)
     bmd_mean <- function(x) mean(x[x != 9999], na.rm = TRUE)
@@ -204,5 +213,6 @@ if (permutation) {
   # at the end of the script
   writeLines(as.character(results$n.active), output_path)
 } else {
+  # write mean results
   arrow::write_parquet(results, output_path)
 }
