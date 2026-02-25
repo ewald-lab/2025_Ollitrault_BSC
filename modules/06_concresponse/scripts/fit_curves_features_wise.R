@@ -85,9 +85,9 @@ ctrl <- args[4] #"s0617825"
 #cp_plot_path <- "../outputs/fig/bayese_inference_bsc.pdf"
 dmso_mode <- args[5] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
 category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
-log10.dose <- args[7] #TRUE
+log10.dose <- as.logical(args[7]) #TRUE
 compounds <- args[8] #"all"
-permutation <- args[9] #FALSE
+permutation <- as.logical(args[9]) #FALSE
 thresholds_n_active <- args[10]
 output_path_all <- args[11] # "../outputs/pods/feature_wise/test_cmpd.parquet"
 
