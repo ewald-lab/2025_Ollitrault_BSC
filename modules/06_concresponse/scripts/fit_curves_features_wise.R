@@ -89,7 +89,7 @@ log10.dose <- args[7] #TRUE
 compounds <- args[8] #"all"
 permutation <- args[9] #FALSE
 thresholds_n_active <- args[10]
-output_path_all <- args[11] "../outputs/pods/feature_wise/test_cmpd.parquet"
+output_path_all <- args[11] # "../outputs/pods/feature_wise/test_cmpd.parquet"
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()

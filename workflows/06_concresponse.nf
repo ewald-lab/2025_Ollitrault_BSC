@@ -155,7 +155,7 @@ workflow concresponse_workflow_feature_wise {
         )
 
         // Collect all parquet outputs and concatenate
-        ch_concatenated = ch_fit_curves_feature_wise
+        ch_concatenated = ch_fit_curves_feature_wise.pod
             .collect()
             | concatenate_parquet_files
 }
@@ -522,14 +522,15 @@ EOF
 
 process fit_curves_feature_wise {
     tag { compound }
+    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'copy'
     label 'r'
     input:
         path input_file
         val compound
         val thresholds_n_active
     output:
-        path "pod_${params.input_name}_${compound}.parquet"
-
+        path "pod_${params.input_name}_${compound}.parquet", emit: pod
+        path "pod_${params.input_name}_${compound}_feature_wise.parquet"
         
     """
     Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
@@ -543,6 +544,7 @@ process fit_curves_feature_wise {
         ${compound} \\
         FALSE \\
         ${thresholds_n_active}
+        pod_${params.input_name}_${compound}_feature_wise.parquet \\
     """
 }
 
