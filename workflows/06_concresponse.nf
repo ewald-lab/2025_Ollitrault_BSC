@@ -136,7 +136,11 @@ workflow concresponse_workflow_feature_wise {
                               .splitText()
                               .map { it.trim() }
 
-        ch_permutation_n_active = fit_curves_feature_wise_permutation(input_data_level4.first(), ch_compounds.randomSample(100), "TRUE")
+        ch_permutation_n_active = fit_curves_feature_wise_permutation(
+            input_data_level4.first(),
+            ch_compounds.randomSample(100),
+            "TRUE"
+        )
 
         // Collect all n_actives_permutation values and compute mean
         ch_permutation_n_active_threshold = ch_permutation_n_active
