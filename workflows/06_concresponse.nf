@@ -135,6 +135,9 @@ workflow concresponse_workflow_feature_wise {
         ch_compounds = Channel.fromPath("${projectDir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
                               .splitText()
                               .map { it.trim() }
+        
+        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(input_data_level4.first(),
+            ch_compounds)
 
         ch_permutation_n_active = fit_curves_feature_wise_permutation(
             input_data_level4.first(),
@@ -149,9 +152,10 @@ workflow concresponse_workflow_feature_wise {
 
         // Run feature-wise curve fitting with threshold
         ch_fit_curves_feature_wise = fit_curves_feature_wise(
-            input_data_level4.first(), 
-            ch_compounds, 
-            ch_permutation_n_active_threshold.first()
+            input_data_level4.first(),
+            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> compound },
+            ch_permutation_n_active_threshold.first(),
+            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> score }
         )
 
         // Collect all parquet outputs and concatenate
@@ -481,6 +485,24 @@ process analysis_concresponse_report {
     """
 }
 
+process select_feature_selection_interdependence_score {
+    tag { "${input_file.baseName} ${compound}" }
+
+    input:
+        path input_file
+        val compound
+    output:
+        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: ids_score_by_compound
+
+    """
+    python ${projectDir}/modules/06_concresponse/scripts/select_features_interdependence_scores.py \\
+        --input_path ${input_file} \\
+        --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
+        --ctrl ${params.control} \\
+        --compounds ${compound}
+    """
+}
+
 process fit_curves_feature_wise_permutation {
     tag { compound }
     label 'r'
@@ -502,7 +524,8 @@ process fit_curves_feature_wise_permutation {
         ${params.categories.join(',')} \\
         TRUE \\
         ${compound} \\
-        ${permutation}
+        ${permutation} \\
+        NA 
     """
 }
 process compute_percentile_permutation_active_features {
@@ -522,12 +545,13 @@ EOF
 
 process fit_curves_feature_wise {
     tag { compound }
-    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'copy'
+    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'copy', pattern: '*_feature_wise.parquet'
     label 'r'
     input:
         path input_file
         val compound
         val thresholds_n_active
+        path feature_selection_score_file
     output:
         path "pod_${params.input_name}_${compound}.parquet", emit: pod
         path "pod_${params.input_name}_${compound}_feature_wise.parquet"
@@ -543,8 +567,9 @@ process fit_curves_feature_wise {
         TRUE \\
         ${compound} \\
         FALSE \\
-        ${thresholds_n_active}
+        ${thresholds_n_active} \\
         pod_${params.input_name}_${compound}_feature_wise.parquet \\
+        ${feature_selection_score_file}
     """
 }
 
