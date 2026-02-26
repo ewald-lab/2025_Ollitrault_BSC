@@ -72,7 +72,7 @@ message(sprintf(
   available, n_workers, threads_per_fit, n_workers * threads_per_fit
 ))
 
-plan(multisession, workers = n_workers)
+plan(multicore, workers = n_workers)
 threads_per_fit <- 2L
 ncpus           <- threads_per_fit  # each worker uses this many threads internally
 # 1. Arguments

@@ -14,7 +14,6 @@ def _():
     import matplotlib.ticker as mticker
     import numpy as np
     import glob
-
     return glob, mo, mticker, np, pd, plt, sns
 
 
@@ -668,7 +667,7 @@ def _(
     results = {}
 
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
-    
+
         futures = {
             executor.submit(
                 process_compound,
@@ -698,9 +697,41 @@ def _(results):
     return
 
 
+@app.cell
+def _(mo):
+    mo.md(r"""## Results BSC ids filtering""")
+    return
+
+
+@app.cell
+def _(glob, pd):
+    # Define path pattern
+    path_pattern_ids = "modules/06_concresponse/outputs/interdependence_score/*.txt"
+
+    # Get all matching files
+    files_ids = glob.glob(path_pattern_ids)
+
+    print(f"Found {len(files_ids)} files.")
+
+    # Read and concatenate
+    dt_ids_all_feature = pd.concat(
+        [pd.read_csv(_f) for _f in files_ids],
+        ignore_index=True
+    )
+
+    print(f"Final dataframe shape: {dt_ids_all_feature.shape}")
+    return (dt_ids_all_feature,)
+
+
+@app.cell
+def _(dt_ids_all_feature):
+    dt_ids_all_feature
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""## Results BSC filtering""")
+    mo.md(r"""## Results PODs feature wise BSC ids filtering""")
     return
 
 
@@ -746,6 +777,18 @@ def _(glob, pd):
 
     print(f"Final dataframe shape: {dt_pod_all_featurewise.shape}")
     return (dt_pod_all_featurewise,)
+
+
+@app.cell
+def _(dt_pod_all_featurewise):
+    dt_pod_all_featurewise
+    return
+
+
+@app.cell
+def _(dt_pod_all_featurewise):
+    dt_pod_all_featurewise.groupby("Metada_compound").size().reset_index(name="n_rows")
+    return
 
 
 @app.cell
