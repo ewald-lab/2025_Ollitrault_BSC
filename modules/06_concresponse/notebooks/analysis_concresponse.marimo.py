@@ -13,7 +13,9 @@ def _():
     import seaborn as sns
     import matplotlib.ticker as mticker
     import numpy as np
-    return mo, mticker, np, pd, plt, sns
+    import glob
+
+    return glob, mo, mticker, np, pd, plt, sns
 
 
 @app.cell
@@ -693,6 +695,62 @@ def _(
 @app.cell
 def _(results):
     results
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Results BSC filtering""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_pod_all_mean = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp.parquet")
+    return (dt_pod_all_mean,)
+
+
+@app.cell
+def _(dt_pod_all_mean):
+    dt_pod_all_mean
+    return
+
+
+@app.cell
+def _(dt_pod_all_mean):
+    dt_pod_all_mean["all.pass"].value_counts()
+    return
+
+
+@app.cell
+def _(dt_pod_all_mean):
+    dt_pod_all_mean[~dt_pod_all_mean["all.pass"]]
+    return
+
+
+@app.cell
+def _(glob, pd):
+    # Define path pattern
+    path_pattern = "modules/06_concresponse/outputs/pods/feature_wise/*feature_wise.parquet"
+
+    # Get all matching files
+    files = glob.glob(path_pattern)
+
+    print(f"Found {len(files)} files.")
+
+    # Read and concatenate
+    dt_pod_all_featurewise = pd.concat(
+        [pd.read_parquet(f) for f in files],
+        ignore_index=True
+    )
+
+    print(f"Final dataframe shape: {dt_pod_all_featurewise.shape}")
+    return (dt_pod_all_featurewise,)
+
+
+@app.cell
+def _(dt_pod_all_featurewise):
+    dt_pod_all_featurewise
     return
 
 

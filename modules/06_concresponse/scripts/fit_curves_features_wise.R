@@ -183,6 +183,7 @@ results <- with_progress({
     
     # write all features results
     if (!permutation) {
+      fit_obj_passed_bmd_res$Metada_compound = compound
       arrow::write_parquet(fit_obj_passed_bmd_res, file.path(output_path_all))
     }
     
