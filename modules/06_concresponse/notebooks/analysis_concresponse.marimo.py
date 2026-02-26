@@ -729,6 +729,41 @@ def _(dt_ids_all_feature):
     return
 
 
+@app.cell
+def _(dt_ids_all_feature):
+    dt_ids_all_feature.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    return
+
+
+@app.cell
+def _(dt_ids_all_feature, np, plt):
+    _df = dt_ids_all_feature.groupby("Metadata_compound").size().reset_index(name="n_rows")
+
+    _fig, _ax = plt.subplots(figsize=(8, 5))
+
+    # Box plot
+    _ax.boxplot(_df["n_rows"], positions=[0], widths=0.4, patch_artist=True,
+                boxprops=dict(facecolor="lightblue", alpha=0.7))
+
+    # Jitter
+    _x = np.random.normal(0, 0.05, size=len(_df))
+    _ax.scatter(_x, _df["n_rows"], alpha=0.6, color="steelblue", s=30, zorder=3)
+
+    _ax.set_xticks([0])
+    _ax.set_xticklabels(["Compounds"])
+    _ax.set_ylabel("n features after ids")
+    _ax.set_title("Rows per Compound")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _():
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Results PODs feature wise BSC ids filtering""")
@@ -794,6 +829,43 @@ def _(dt_pod_all_featurewise):
 @app.cell
 def _(dt_pod_all_featurewise):
     dt_pod_all_featurewise
+    return
+
+
+@app.cell
+def _(dt_pod_all_featurewise):
+    dt_pod_all_featurewise
+    return
+
+
+@app.cell
+def _(dt_pod_all_featurewise, np, plt):
+    _df_counts = dt_pod_all_featurewise.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _compounds = _df_counts["Metadata_compound"].values
+    _x_pos = np.arange(len(_compounds))
+
+    _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(max(10, len(_compounds) * 0.5), 10), sharex=True)
+
+    # --- Bar plot (counts) ---
+    _ax2.bar(_x_pos, _df_counts["n_rows"], color="steelblue", alpha=0.7)
+    _ax2.set_ylabel("Number of features")
+    _ax2.set_xticks(_x_pos)
+    _ax2.set_xticklabels(_compounds, rotation=90, fontsize=8)
+
+    # --- Box plot with jitter ---
+    for _i, _compound in enumerate(_compounds):
+        _vals = dt_pod_all_featurewise[dt_pod_all_featurewise["Metadata_compound"] == _compound]["POD"].values
+        _ax1.boxplot(_vals, positions=[_i], widths=0.4, patch_artist=True,
+                    boxprops=dict(facecolor="lightblue", alpha=0.7),
+                    flierprops=dict(marker=""), medianprops=dict(color="navy"))
+        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+        _ax1.scatter(_jitter, _vals, alpha=0.5, color="steelblue", s=15, zorder=3)
+
+    _ax1.set_ylabel("POD")
+    _ax1.set_title("POD distribution per compound")
+
+    plt.tight_layout()
+    _fig
     return
 
 
