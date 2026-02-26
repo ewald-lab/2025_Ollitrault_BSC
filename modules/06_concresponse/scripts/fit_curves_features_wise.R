@@ -174,7 +174,9 @@ results <- with_progress({
     fit_obj <- PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile")
     
     # Filter active and Count valid BMDs
+    fit_obj_passed_bmd_res$Metada_compound = compound
     fit_obj_passed_bmd_res  <- fit_obj$bmd_res[fit_obj$bmd_res[, "all.pass"] == TRUE, ]
+    
     if (permutation) {
       n_active_features <- nrow(fit_obj_passed_bmd_res)
     } else {
@@ -183,7 +185,6 @@ results <- with_progress({
     
     # write all features results
     if (!permutation) {
-      fit_obj_passed_bmd_res$Metada_compound = compound
       arrow::write_parquet(fit_obj_passed_bmd_res, file.path(output_path_all))
     }
     
