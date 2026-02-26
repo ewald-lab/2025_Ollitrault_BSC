@@ -72,7 +72,6 @@ def _(pd, pods_closest, pods_closest_sdres, pods_plate, pods_plate_sdres):
     common_compounds = common_compounds[common_compounds == 4].index
 
     df_long = df_long[df_long["Metadata_compound"].isin(common_compounds)]
-
     return (df_long,)
 
 
@@ -116,7 +115,6 @@ def _(df_long, mticker, np, plt, sns):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -173,8 +171,6 @@ def _(
     plt.title("Number of active compounds per method")
     plt.tight_layout()
     plt.show()
-
-
     return
 
 
@@ -255,7 +251,6 @@ def _(df_plot, plt, sns):
     plt.yscale("log")
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -305,14 +300,14 @@ def _(df_plot, list_botanicals, np, plt):
     for idx, botanical in enumerate(botanicals):
         # Filter data for this botanical
         df_botanical = df_plot[df_plot["Plant scode"] == botanical].copy()
-    
+
         if df_botanical.empty:
             axes[idx].axis('off')
             continue
-    
+
         # Get sources present in this botanical's data
         botanical_sources = df_botanical["Source"].unique()
-    
+
         # Create boxplots by Source
         df_botanical.boxplot(
             column="cp_POD_um",
@@ -321,21 +316,21 @@ def _(df_plot, list_botanicals, np, plt):
             showfliers=False,
             ax=axes[idx]
         )
-    
+
         # Overlay scatter points colored by Plant scode
         for i, source in enumerate(botanical_sources, start=1):
             df_source = df_botanical[df_botanical["Source"] == source]
-        
+
             # Regular points (all data for this source)
             for plant in df_source["Plant scode"].unique():
                 y = df_source.loc[
                     df_source["Plant scode"] == plant,
                     "cp_POD_um"
                 ].dropna()
-            
+
                 if y.empty:
                     continue
-            
+
                 x = np.random.normal(i, 0.04, size=len(y))
                 axes[idx].plot(
                     x,
@@ -345,22 +340,22 @@ def _(df_plot, list_botanicals, np, plt):
                     markersize=4,
                     color=plant_colors.get(plant, 'gray')
                 )
-        
+
             # Triangle markers for botanical compounds
             df_botanical_source = df_plot[
                 (df_plot["Source"] == source) & 
                 (df_plot["Metadata_compound"] == botanical)
             ]
-        
+
             for plant in df_botanical_source["Metadata_compound"].unique():
                 y_bot = df_botanical_source.loc[
                     df_botanical_source["Metadata_compound"] == plant,
                     "cp_POD_um"
                 ].dropna()
-            
+
                 if y_bot.empty:
                     continue
-            
+
                 x_bot = np.random.normal(i, 0.02, size=len(y_bot))
                 axes[idx].plot(
                     x_bot,
@@ -372,7 +367,7 @@ def _(df_plot, list_botanicals, np, plt):
                     color=plant_colors.get(plant, 'gray'),
                     markeredgecolor="black"
                 )
-    
+
         axes[idx].set_title(f"{botanical}")
         axes[idx].set_xlabel("Source")
         axes[idx].set_ylabel("cp_POD_um (log)")
@@ -395,6 +390,309 @@ def _(botanical, df_plot, source):
                 (df_plot["Source"] == source) & 
                 (df_plot["Metadata_compound"] == botanical)
             ]
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Try interdependence score filtering (X: features; Y: Metadata_concentration)""")
+    return
+
+
+@app.cell
+def _():
+    import ids
+    return (ids,)
+
+
+@app.cell
+def _(features_cols, ids, np, subset):
+    _X = subset[features_cols].values
+    _Y = subset[["Metadata_concentration"]].values  # must be 2D
+
+    _C, _p_vals = ids.compute_IDS(
+        _X,
+        _Y,
+        p_val=True,
+        num_tests=1000
+    )
+    _p_vals
+    n_significant = np.sum(_p_vals < 0.05)
+
+    print("Number of p-values < 0.05:", n_significant)
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Python code IDS""")
+    return
+
+
+@app.cell
+def _(np, pd):
+    def well_to_coord(well):
+        row_letter = well[0]
+        col = int(well[1:])
+
+        row_num = ord(row_letter) - ord("A") + 1  # A=1, B=2, ...
+
+        return pd.Series({"row": row_num, "col": col})
+    def get_closest_dmso(comp_fit_coords, dat_ctrl):
+
+        closest_rows = []
+
+        for _, this in comp_fit_coords.iterrows():
+
+            ctrl_same_plate = dat_ctrl[
+                dat_ctrl["Metadata_plate"] == this["Metadata_plate"]
+            ]
+
+            if ctrl_same_plate.empty:
+                continue
+
+            # compute Euclidean distance
+            dist = np.sqrt(
+                (ctrl_same_plate["row"] - this["row"])**2 +
+                (ctrl_same_plate["col"] - this["col"])**2
+            )
+
+            ctrl_same_plate = ctrl_same_plate.assign(dist=dist)
+            min_dist = dist.min()
+
+            closest = ctrl_same_plate[ctrl_same_plate["dist"] == min_dist]
+            closest_rows.append(closest)
+
+        if len(closest_rows) == 0:
+            return pd.DataFrame()
+
+        return pd.concat(closest_rows).drop_duplicates()
+    return get_closest_dmso, well_to_coord
+
+
+@app.cell
+def _():
+    import os
+    import multiprocessing as mp
+
+    threads_per_fit = 2
+
+    available = os.cpu_count()
+    n_workers = max(1, (available - 1) // threads_per_fit)
+
+    print(
+        f"Detected {available} cores → "
+        f"{n_workers} workers × {threads_per_fit} threads/fit"
+    )
+    return (n_workers,)
+
+
+@app.cell
+def _(get_closest_dmso, ids, np, pd):
+    def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
+                         dmso_mode, features_cols, output_path):
+        # Subset compound
+        dat_comp = dat.loc[dat["Metadata_compound"] == compound].copy()
+        if dat_comp.empty:
+            print(f"No data for {compound}")
+            return None
+        # Control selection
+        if dmso_mode == "closest":
+            ctrl_fit = get_closest_dmso(dat_comp, dat_ctrl)
+        else:
+            plates = dat_comp["Metadata_plate"].unique()
+            ctrl_fit = pd.concat(
+                [dat_ctrl_by_plate[p] for p in plates if p in dat_ctrl_by_plate],
+                ignore_index=True
+            )
+        print(
+            f"Fitting IDS for {compound} "
+            f"with {len(dat_comp)} compound and "
+            f"{len(ctrl_fit)} DMSO points."
+        )
+        # Combine
+        dat_fit = pd.concat([ctrl_fit, dat_comp]).sort_values(
+            "Metadata_log10conc"
+        )
+        # Prepare IDS inputs
+        X = dat_fit[features_cols].values
+        Y = dat_fit[["Metadata_log10conc"]].values  # must be 2D
+        # Compute IDS
+        C, p_vals = ids.compute_IDS(
+            X,
+            Y,
+            p_val=True,
+            num_tests=1000
+        )
+        p_vals_flat = p_vals.flatten()
+        C_flat = C.flatten()
+        n_significant = np.sum(p_vals_flat < 0.05)
+        print(f"{compound}: {n_significant} features with p < 0.05")
+        print(p_vals_flat)
+
+        # Write significant features to output file
+        sig_mask = p_vals_flat < 0.05
+        sig_features = np.array(features_cols)[sig_mask]
+        sig_scores   = C_flat[sig_mask]
+        sig_pvals    = p_vals_flat[sig_mask]
+
+        sig_df = pd.DataFrame({
+            "feature":   sig_features,
+            "ids_score": sig_scores,
+            "p_value":   sig_pvals
+        }).sort_values("p_value")
+        sig_df.to_csv(output_path, index=False)
+        print(f"Significant features written to {output_path}")
+
+        return {
+            "compound":      compound,
+            "n_significant": int(n_significant),
+            "ids_scores":    C_flat,
+            "p_values":      p_vals_flat
+        }
+    return (process_compound,)
+
+
+@app.cell
+def _(pd, well_to_coord):
+    import argparse
+
+    def parse_args():
+        parser = argparse.ArgumentParser(
+            description="Dose-response BMD pipeline"
+        )
+        parser.add_argument(
+            "--input_path",
+            type=str,
+            default="modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet",
+            help="Path to input parquet file"
+        )
+        parser.add_argument(
+            "--output_path",
+            type=str,
+            default="modules/06_concresponse/outputs/pods/test.csv",
+            help="Path to output parquet file"
+        )
+        parser.add_argument(
+            "--ctrl",
+            type=str,
+            default="s0617825",
+            help="Control compound name (e.g., DMSO id)"
+        )
+        parser.add_argument(
+            "--dmso_mode",
+            type=str,
+            default="closest",
+            choices=["closest", "plate"],
+            help="How to select DMSO controls"
+        )
+        parser.add_argument(
+            "--category",
+            type=str,
+            default="DNA,ER,AGP,RNA,Mito,Brightfield",
+            help="Comma-separated list of categories"
+        )
+        parser.add_argument(
+            "--log10_dose",
+            type=lambda x: x.lower() == "true",
+            default=True,
+            help="Use log10 dose (true/false)"
+        )
+        parser.add_argument(
+            "--compounds",
+            type=str,
+            default="s0654867",
+            help="'all' or comma-separated compound list"
+        )
+
+        return parser.parse_args()
+
+
+    args = parse_args()
+
+    # Assign variables
+    input_path = args.input_path
+    output_path = args.output_path
+    ctrl = args.ctrl
+    dmso_mode = args.dmso_mode
+    category = args.category.split(",")
+    log10_dose = args.log10_dose
+    compounds = [args.compounds]
+    dat = pd.read_parquet(input_path)
+    features_cols = [c for c in dat.columns if c.startswith("Feature_")]
+    dat[["row", "col"]] = dat["Metadata_well"].apply(well_to_coord)
+    dat_ctrl = dat[dat["Metadata_compound"] == ctrl].copy()
+    if compounds == ["all"]:
+        compounds = dat["Metadata_compound"].unique().tolist()
+        compounds = [c for c in compounds if c != ctrl]
+    dat_ctrl_by_plate = None
+    if dmso_mode == "plate":
+        dat_ctrl_by_plate = {
+            plate: df
+            for plate, df in dat_ctrl.groupby("Metadata_plate")
+        }
+    elif dmso_mode != "closest":
+        raise ValueError("dmso_mode must be 'closest' or 'plate'")
+    return (
+        compounds,
+        dat,
+        dat_ctrl,
+        dat_ctrl_by_plate,
+        dmso_mode,
+        features_cols,
+        output_path,
+    )
+
+
+@app.cell
+def _(
+    compounds,
+    dat,
+    dat_ctrl,
+    dat_ctrl_by_plate,
+    dmso_mode,
+    features_cols,
+    n_workers,
+    output_path,
+    process_compound,
+):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from tqdm import tqdm
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+    
+        futures = {
+            executor.submit(
+                process_compound,
+                cmpd,
+                dat,
+                dat_ctrl,
+                dat_ctrl_by_plate,
+                dmso_mode,
+                features_cols,
+                output_path
+            ): cmpd
+            for cmpd in compounds
+        }
+
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            compound = futures[future]
+            try:
+                results[compound] = future.result()
+            except Exception as e:
+                print(f"Error processing {compound}: {e}")
+    return (results,)
+
+
+@app.cell
+def _(results):
+    results
     return
 
 

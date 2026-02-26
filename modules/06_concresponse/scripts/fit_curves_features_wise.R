@@ -90,11 +90,17 @@ compounds <- args[8] #"all"
 permutation <- as.logical(args[9]) #FALSE
 thresholds_n_active <- args[10]
 output_path_all <- args[11] # "../outputs/pods/feature_wise/test_cmpd.parquet"
+feature_selection_score_file <- args[12]
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
 
-feat_cols <- colnames(dat)[grepl("Feature", colnames(dat))] # The computed distances
+if (feature_selection_score_file != "NA") {
+  feature_selection_score_dt = read.table(feature_selection_score_file, sep = ",", header = T)
+  feat_cols <- feature_selection_score_dt$feature
+} else {
+  feat_cols <- colnames(dat)[grepl("Feature", colnames(dat))] # The computed distances
+}
 
 dat <- dat %>%
   bind_cols(map_dfr(.$Metadata_well, well_to_coord))
