@@ -14,7 +14,8 @@ def _():
     import matplotlib.ticker as mticker
     import numpy as np
     import glob
-    return glob, mo, mticker, np, pd, plt, sns
+    import matplotlib.ticker as ticker
+    return glob, mo, mticker, np, pd, plt, sns, ticker
 
 
 @app.cell
@@ -797,7 +798,7 @@ def _(dt_pod_all_mean):
 @app.cell
 def _(glob, pd):
     # Define path pattern
-    path_pattern = "modules/06_concresponse/outputs/pods/feature_wise/*feature_wise.parquet"
+    path_pattern = "modules/06_concresponse/outputs/pods/feature_wise/*feature_wise_original_conc.parquet"
 
     # Get all matching files
     files = glob.glob(path_pattern)
@@ -822,7 +823,7 @@ def _(dt_pod_all_featurewise):
 
 @app.cell
 def _(dt_pod_all_featurewise):
-    dt_pod_all_featurewise.groupby("Metada_compound").size().reset_index(name="n_rows")
+    dt_pod_all_featurewise.groupby("Metadata_compound").size().reset_index(name="n_rows")
     return
 
 
@@ -833,39 +834,79 @@ def _(dt_pod_all_featurewise):
 
 
 @app.cell
-def _(dt_pod_all_featurewise):
-    dt_pod_all_featurewise
-    return
-
-
-@app.cell
-def _(dt_pod_all_featurewise, np, plt):
+def _(dt_pod_all_featurewise, np, plt, ticker):
     _df_counts = dt_pod_all_featurewise.groupby("Metadata_compound").size().reset_index(name="n_rows")
     _compounds = _df_counts["Metadata_compound"].values
     _x_pos = np.arange(len(_compounds))
 
-    _fig, (_ax1, _ax2) = plt.subplots(2, 1, figsize=(max(10, len(_compounds) * 0.5), 10), sharex=True)
+    # Compute PAC (5th percentile, type=7 equivalent in numpy)
+    _df_pac = dt_pod_all_featurewise.groupby("Metadata_compound")["cp_POD_um"].quantile(0.05, interpolation="linear").reset_index(name="PAC")
 
-    # --- Bar plot (counts) ---
-    _ax2.bar(_x_pos, _df_counts["n_rows"], color="steelblue", alpha=0.7)
-    _ax2.set_ylabel("Number of features")
-    _ax2.set_xticks(_x_pos)
-    _ax2.set_xticklabels(_compounds, rotation=90, fontsize=8)
+    _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(16, max(6, len(_compounds) * 0.4)),
+                                        sharey=True,
+                                        gridspec_kw={"width_ratios": [4, 1]})
 
     # --- Box plot with jitter ---
     for _i, _compound in enumerate(_compounds):
-        _vals = dt_pod_all_featurewise[dt_pod_all_featurewise["Metadata_compound"] == _compound]["POD"].values
-        _ax1.boxplot(_vals, positions=[_i], widths=0.4, patch_artist=True,
-                    boxprops=dict(facecolor="lightblue", alpha=0.7),
-                    flierprops=dict(marker=""), medianprops=dict(color="navy"))
-        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
-        _ax1.scatter(_jitter, _vals, alpha=0.5, color="steelblue", s=15, zorder=3)
+        _vals = dt_pod_all_featurewise[dt_pod_all_featurewise["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _pac = _df_pac[_df_pac["Metadata_compound"] == _compound]["PAC"].values[0]
 
-    _ax1.set_ylabel("POD")
-    _ax1.set_title("POD distribution per compound")
+        # Jitter first (behind)
+        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+        _ax1.scatter(_vals, _jitter, alpha=0.4, color="steelblue", s=15, zorder=2)
+
+        # Box plot on top
+        _ax1.boxplot(_vals, positions=[_i], widths=0.4, patch_artist=True, vert=False,
+                    boxprops=dict(facecolor="lightblue", alpha=0.5),
+                    flierprops=dict(marker=""), medianprops=dict(color="navy"),
+                    zorder=3)
+
+        # PAC red line
+        _ax1.plot([_pac, _pac], [_i - 0.3, _i + 0.3], color="red", linewidth=1.5, zorder=4)
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_compounds, fontsize=8)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per compound BMD (log)")
+    _ax1.plot([], [], color="red", linewidth=1.5, label="PAC (5th percentile)")
+    _ax1.legend(fontsize=8)
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # --- Bar plot (counts) ---
+    _ax2.barh(_x_pos, _df_counts["n_rows"], color="steelblue", alpha=0.7, height=0.4)
+    for _i, _v in enumerate(_df_counts["n_rows"]):
+        _ax2.text(_v + 0.2, _i, str(_v), va="center", fontsize=7)
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Count")
 
     plt.tight_layout()
     _fig
+    return
+
+
+@app.cell
+def _(dat):
+    dat[dat["Metadata_compound"] == "s0654793"]
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Results PODs bayesian inference BSC""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_pod_all_bayesian_inference = pd.read_parquet("modules/06_concresponse/outputs/pods/bayese_inference_bsc_pods.parquet")
+    return (dt_pod_all_bayesian_inference,)
+
+
+@app.cell
+def _(dt_pod_all_bayesian_inference):
+    dt_pod_all_bayesian_inference
     return
 
 
