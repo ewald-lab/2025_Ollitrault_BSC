@@ -93,7 +93,8 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
     sig_df = pd.DataFrame({
         "feature":   sig_features,
         "ids_score": sig_scores,
-        "p_value":   sig_pvals
+        "p_value":   sig_pvals,
+        "Metadata_compound": compound
     }).sort_values("p_value")
     sig_df.to_csv(output_path, index=False)
     print(f"Significant features written to {output_path}")

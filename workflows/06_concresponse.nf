@@ -158,10 +158,48 @@ workflow concresponse_workflow_feature_wise {
             ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> score }
         )
 
+        ch_fit_curves_feature_wise_log10 = transform_log10concentration(input_data_level4.first(), ch_fit_curves_feature_wise.pod_feature_wise, "cp", "modules/06_concresponse/outputs/pods/feature_wise")
+
         // Collect all parquet outputs and concatenate
         ch_concatenated = ch_fit_curves_feature_wise.pod
             .collect()
             | concatenate_parquet_files
+}
+
+workflow concresponse_workflow_bayesian_inference {
+    take:
+        input_data_level4
+        input_data_level5
+    main:
+        // 1. compute distance
+        channel_5a_distances_r = Channel
+            .fromList(params.concentration_response.distances_R)
+        path_data_5a = compute_distances_R(
+            channel_5a_distances_r.combine(input_data_level4))
+        // 2. compile distances
+        path_data_5b = compile_distances(path_data_5a.collect())
+        // 3a. fit curves (bmds)
+        path_data_5c = fit_curves_bayesian_inferences(path_data_5b)
+        
+        // 6. Transform back log10 concentration - combine ALL inputs into ONE channel
+        // Combine BMD, metadata, and CP data into a single channel
+        /*
+        transform_input_channel = path_data_5c
+            .combine(input_data_level5)
+            .map { pods_path, metadata_path ->
+                tuple("cp_all", pods_path, metadata_path, true)
+            }
+            .mix(
+                path_data_5e
+                    .combine(input_data_level5)
+                    .map { pods_path, input_file ->
+                        tuple("cp", pods_path, input_file, false)
+                    }
+            )
+        
+        // Single call to transform_back_log10concentration with all data
+        ch_fit_curves_bayesian_log10 = transform_log10concentration(input_data_level4.first(), path_data_5c, "cp", "modules/06_concresponse/outputs/pods")
+        */
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +211,7 @@ process compute_distances_R {
 
     label 'r'
 
-    publishDir "modules/06_concresponse/outputs/distances", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/distances", mode: 'symlink', pattern: '*.parquet'
 
     input:
     tuple val(distance_R), path(input_file)
@@ -234,7 +272,7 @@ process compile_distances {
     tag { "${input_files.collect{ it.baseName }.join('_')}" }
 
 
-    publishDir "modules/06_concresponse/outputs/distances", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/distances", mode: 'symlink', pattern: '*.parquet'
 
     input:
         path input_files
@@ -260,7 +298,7 @@ process fit_curves {
 
     label 'r'
 
-    publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
 
     input:
         path input_file
@@ -289,7 +327,7 @@ process fit_curves_meta {
 
     label 'r'
 
-    publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
 
     input:
         tuple val(meta_nm), path(input_file)
@@ -344,7 +382,7 @@ process select_pod {
 process transform_back_log10concentration {
     tag { "${input_file.baseName} ${meta_nm}" }
 
-    publishDir "modules/06_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
 
     input:
     tuple val(meta_nm), path(input_file), path(input_file_metadata), val(is_metadata_pods)
@@ -363,6 +401,35 @@ process transform_back_log10concentration {
         --control ${params.control} \
         --pod_col ${meta_nm} \
         ${metadata_flag}
+    """
+}
+
+// ---------------------------------------------------------------------------
+// Transform back log10 concentration to original concentration simplified function
+// ---------------------------------------------------------------------------
+// python3 modules/06_concresponse/scripts/transform_log10concentration.py --input_pods 03_tables/meta_pods_Metadata_mtt_normalized.parquet --input_metadata 02_processed_data/level5_bsc.parquet --output pods_bsc_Metadata_mtt_normalized_original_conc.parquet --control s0617825 --pod_col Metadata_mtt_normalized_POD
+// python3 modules/06_concresponse/scripts/transform_log10concentration.py --input_pods 03_tables/pods_bsc_meta_Metadata_mtt_normalized.parquet --input_metadata 02_processed_data/level5_bsc.parquet --output pods_bsc_meta_Metadata_mtt_normalized_original_conc.parquet --control s0617825 --pod_col bmd
+process transform_log10concentration {
+    tag { "${input_file.baseName} ${path_dt_pod}" }
+
+    publishDir "${publishdir}", mode: 'symlink', pattern: '*.parquet'
+
+    input:
+        path input_file
+        path path_dt_pod
+        val bmd_col
+        val publishdir
+
+    output:
+    path "${path_dt_pod.baseName}_original_conc.parquet"
+
+    """
+    python3 ${projectDir}/modules/06_concresponse/scripts/transform_log10concentration.py \
+        --input_level4 ${input_file} \
+        --input_file ${path_dt_pod} \
+        --output ${path_dt_pod.baseName}_original_conc.parquet \
+        --control ${params.control} \
+        --pod_col ${bmd_col}
     """
 }
 
@@ -435,7 +502,7 @@ process plot_cp_curve_fits {
 
     label 'r'
 
-    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy', pattern: '*.pdf'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'symlink', pattern: '*.pdf'
 
     input:
     tuple path(cp_pod_path), path(dist_path), val(meta_nm), val(meta_pods_path)
@@ -458,7 +525,7 @@ process plot_cp_curve_fits {
 
 process analysis_concresponse_report {
     tag { "${params.input_name}" }
-    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'copy'
+    publishDir { "reports/${params.run_code}_${params.input_name}" }, mode: 'symlink'
 
     input:
     path input_data_level5            // your level5 parquet
@@ -487,14 +554,15 @@ process analysis_concresponse_report {
 
 process select_feature_selection_interdependence_score {
     tag { "${input_file.baseName} ${compound}" }
-
+    publishDir { "modules/06_concresponse/outputs/interdependence_score" }, mode: 'symlink', pattern: '*.txt'
     input:
         path input_file
         val compound
     output:
-        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: ids_score_by_compound
+        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: score_by_compound
 
     """
+    echo test 
     python ${projectDir}/modules/06_concresponse/scripts/select_features_interdependence_scores.py \\
         --input_path ${input_file} \\
         --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
@@ -525,6 +593,8 @@ process fit_curves_feature_wise_permutation {
         TRUE \\
         ${compound} \\
         ${permutation} \\
+        NA \\
+        NA \\
         NA 
     """
 }
@@ -545,7 +615,7 @@ EOF
 
 process fit_curves_feature_wise {
     tag { compound }
-    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'copy', pattern: '*_feature_wise.parquet'
+    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: '*_feature_wise.parquet'
     label 'r'
     input:
         path input_file
@@ -554,9 +624,10 @@ process fit_curves_feature_wise {
         path feature_selection_score_file
     output:
         path "pod_${params.input_name}_${compound}.parquet", emit: pod
-        path "pod_${params.input_name}_${compound}_feature_wise.parquet"
+        path "pod_${params.input_name}_${compound}_feature_wise.parquet", emit: pod_feature_wise
         
     """
+    echo test
     Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
         pod_${params.input_name}_${compound}.parquet \\
@@ -575,10 +646,11 @@ process fit_curves_feature_wise {
 
 process concatenate_parquet_files {
     label 'r'
+    publishDir { "modules/06_concresponse/outputs/pods/" }, mode: 'symlink', pattern: '*.parquet'
     input:
         path parquet_files
     output:
-        path "pod_${params.input_name}.parquet"
+        path "pods_${params.input_name}_cp.parquet"
     """
     Rscript - <<'EOF'
     library(arrow)
@@ -587,7 +659,35 @@ process concatenate_parquet_files {
     
     combined <- do.call(rbind, lapply(files, arrow::read_parquet))
     
-    arrow::write_parquet(combined, "pod_${params.input_name}.parquet")
+    arrow::write_parquet(combined, "pods_${params.input_name}_cp.parquet")
 EOF
+    """
+}
+
+// ---------------------------------------------------------------------------
+// fit_curves (bmds) BAYESIAN INFERENCE
+// ---------------------------------------------------------------------------
+process fit_curves_bayesian_inference {
+    tag { "${input_file.baseName}" }
+
+    label 'r'
+
+    publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+
+    input:
+        path input_file
+
+    output:
+        path "pods_${params.input_name}_cp.parquet"
+
+    """
+    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves.R \
+        ${input_file} \
+        pods_${params.input_name}_cp.parquet \
+        ${params.control} \
+        ${params.concentration_response.dmso_mode} \
+        pods_${params.input_name}_cp_bayese_inference_plot.pdf \
+        TRUE \
+        ${params.concentration_response.num_sds} \
     """
 }
