@@ -3,6 +3,7 @@ library(purrr)
 library(tidyr)
 require(dplyr)
 require(arrow)
+library(ToxicR)
 # 0. Functions
 well_to_coord <- function(well) {
   row <- substr(well, 1, 1)
