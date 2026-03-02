@@ -94,10 +94,10 @@ for (i in seq_along(compounds)) {
       intersect(names(dat_ctrl_by_plate), unique(dat_comp$Metadata_plate))
     ])
   }
-  p(sprintf(
+  sprintf(
     "Fitting POD for %s with %d compound and %d DMSO points.",
     compound, nrow(dat_comp), nrow(ctrl_fit)
-  ))
+  )
   #message(sprintf(
   #  "Fitting POD for %s with %d compound and %d DMSO points.",
   #  compound, nrow(dat_comp), nrow(ctrl_fit)
