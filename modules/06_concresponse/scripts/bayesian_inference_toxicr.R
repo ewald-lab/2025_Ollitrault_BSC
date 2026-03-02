@@ -54,6 +54,7 @@ dmso_mode <- args[4] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" â
 cp_plot_path <- args[5] #"../outputs/fig/bayese_inference_bsc.pdf"
 log10.dose <- as.logical(args[6]) #TRUE
 num.sds <- as.numeric(args[7]) #2
+compounds <- args[8] #"all"
 # 2. Calculate BMDs from mahalanobis distances
 dat <- read_parquet(input_path) %>% as.data.frame()
 
@@ -61,8 +62,11 @@ feat_cols <- colnames(dat)[!grepl("Metadata", colnames(dat))] # The computed dis
 
 dat <- dat %>%
           bind_cols(map_dfr(.$Metadata_well, well_to_coord))
-compounds <- unique(dat$Metadata_compound)
-compounds <- compounds[!grepl(ctrl, compounds)]
+
+if (compounds == "all") {
+  compounds <- unique(dat$Metadata_compound)
+  compounds <- compounds[!grepl(ctrl, compounds)]
+}
 
 dat_ctrl <- dat %>%
   filter(Metadata_compound == ctrl)
