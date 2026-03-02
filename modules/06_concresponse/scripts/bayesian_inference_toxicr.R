@@ -163,7 +163,7 @@ for (i in seq_along(compounds)) {
       all.pass  = fit$all.pass
     )
     ggsave(
-      filename = paste0(compound, "__", feat_col, ".png"),
+      filename = paste0(cp_plot_path, "__", feat_col, ".png"),
       plot = plot(suppressWarnings(plot(fit) +
                                      ggtitle(paste(compound,feat_col)) +
                                      theme(plot.title = element_text(size = 40, face = "bold", hjust = 0.5))))
@@ -181,14 +181,14 @@ bmd_res   <- bind_rows(lapply(results, `[[`, "bmd"))
 # ── Print fail messages ────────────────────────────────────────────────────────
 all_fails <- unlist(lapply(results, `[[`, "fails"))
 if (length(all_fails) > 0) {
-  message("\n── Failed fits ──────────────────────────────")
-  message(paste(all_fails, collapse = "\n"))
-  message(sprintf(
+  print("\n── Failed fits ──────────────────────────────")
+  print(paste(all_fails, collapse = "\n"))
+  print(sprintf(
     "Total failed: %d / %d",
     length(all_fails), length(compounds) * length(feat_cols)
   ))
 } else {
-  message("All fits passed.")
+  print("All fits passed.")
 }
 
 # ── Write Parquet ──────────────────────────────────────────────────────────────
