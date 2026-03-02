@@ -4,6 +4,7 @@ library(tidyr)
 require(dplyr)
 require(arrow)
 library(ToxicR)
+library(ggplot2)
 # 0. Functions
 well_to_coord <- function(well) {
   row <- substr(well, 1, 1)
