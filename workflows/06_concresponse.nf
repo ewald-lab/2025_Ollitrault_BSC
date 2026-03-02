@@ -670,6 +670,8 @@ EOF
 process fit_curves_bayesian_inferences {
     tag { "${input_file.baseName}" }
 
+    memory = '6 GB'
+
     label 'r'
 
     publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'

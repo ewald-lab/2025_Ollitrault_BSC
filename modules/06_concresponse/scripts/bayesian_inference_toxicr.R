@@ -197,18 +197,17 @@ get_closest_dmso <- function(comp_fit_coords, dat_ctrl) {
 library(future)
 library(furrr)
 library(parallel)
+library(parallelly)
 library(progressr)
 handlers(global = TRUE)
 handlers("progress")  # or "cli" if you have the cli package
 # ── Auto-configure parallelism ─────────────────────────────────────────────────
-total_cores      <- parallel::detectCores(logical = FALSE)  # physical cores only
-threads_per_fit  <- 2L                                       # threads inside ma_continuous_fit
-
-# Leave 1 core for OS/session, divide remaining by per-fit threads
-n_workers <- max(1L, floor((total_cores - 1L) / threads_per_fit))
+total_cores     <- availableCores()  # respects cgroups/slurm allocation
+threads_per_fit <- 2L
+n_workers       <- max(1L, floor((total_cores - 1L) / threads_per_fit))
 
 message(sprintf(
-  "Detected %d physical cores → %d parallel workers × %d threads/fit = %d cores used",
+  "Detected %d available cores → %d parallel workers × %d threads/fit = %d cores used",
   total_cores, n_workers, threads_per_fit, n_workers * threads_per_fit
 ))
 
@@ -222,7 +221,7 @@ ctrl <- args[3] #"s0617825"
 dmso_mode <- args[4] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
 cp_plot_path <- args[5] #"../outputs/fig/bayese_inference_bsc.pdf"
 log10.dose <- as.logical(args[6]) #TRUE
-num.sds <- args[7] #2
+num.sds <- as.numeric(args[7]) #2
 # 2. Calculate BMDs from mahalanobis distances
 dat <- read_parquet(input_path) %>% as.data.frame()
 
@@ -249,7 +248,8 @@ if (dmso_mode == "plate") {
 with_progress({
   p <- progressor(steps = length(compounds))
   results <- future_map(compounds, function(compound) {
-    #
+    cat("Now fitting:", compound, "\n")
+    flush.console()
     fail_msgs <- character(0)  # pre-allocate empty
     # Compound selection 
     dat_comp <- dat %>% filter(Metadata_compound == compound)
@@ -329,7 +329,7 @@ with_progress({
         theme(plot.title = element_text(size = 40, face = "bold", hjust = 0.5)))
     }
     list(bmd = bind_rows(res_list), plots = plot_list, fails = fail_msgs)
-  }, .options = furrr_options(seed = TRUE))         
+  }, .options = furrr_options(seed = TRUE, stdout = TRUE, conditions = "message"))         
 })
 # ── Restore plan ───────────────────────────────────────────────────────────────
 plan(sequential)
