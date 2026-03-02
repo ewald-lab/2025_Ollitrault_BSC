@@ -181,14 +181,14 @@ bmd_res   <- bind_rows(lapply(results, `[[`, "bmd"))
 # ── Print fail messages ────────────────────────────────────────────────────────
 all_fails <- unlist(lapply(results, `[[`, "fails"))
 if (length(all_fails) > 0) {
-  print("\n── Failed fits ──────────────────────────────")
-  print(paste(all_fails, collapse = "\n"))
-  print(sprintf(
+  message("\n── Failed fits ──────────────────────────────")
+  message(paste(all_fails, collapse = "\n"))
+  message(sprintf(
     "Total failed: %d / %d",
     length(all_fails), length(compounds) * length(feat_cols)
   ))
 } else {
-  print("All fits passed.")
+  message("All fits passed.")
 }
 
 # ── Write Parquet ──────────────────────────────────────────────────────────────
