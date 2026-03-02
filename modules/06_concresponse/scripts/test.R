@@ -1,4 +1,4 @@
-#### plot_cp_curve ####
+#### 1. plot_cp_curve ####
 require(dplyr)
 require(arrow)
 require(ggplot2)
@@ -363,3 +363,56 @@ for (i in 1:n_pages) {
 }
 
 dev.off()
+
+
+
+#### 2. compute_distances ####
+
+require(dplyr)
+require(arrow)
+require(foreach)
+require(doParallel)
+
+#### 0. Read in and process data
+args <- commandArgs(trailingOnly = TRUE)
+
+input_file <- args[1]
+output_dist <- args[2]
+cover_var <- args[3]
+treatment <- args[4]
+categories <- args[5]
+methods <- args[6]
+control <- args[7]
+gmd_path <- args[8]
+cmd_path <- args[9]
+
+print(input_file)
+print(output_dist)
+print(cover_var)
+print(treatment)
+print(categories)
+print(methods)
+print(control)
+print(gmd_path)
+print(cmd_path)
+
+# Process data
+all_dat <- read_parquet(input_file) %>% as.data.frame()
+
+dat_cols <- colnames(all_dat)
+feat_cols <- dat_cols[grepl("Feature_", dat_cols)]
+feat_cols <- feat_cols[!grepl("ObjectSkeleton", feat_cols)] # causes major problems
+meta_cols <- dat_cols[grepl("Metadata_", dat_cols)]
+
+treatment_labels <- all_dat[, treatment] %>% c()
+
+dat <- all_dat[, feat_cols] %>% as.matrix()
+
+
+###
+#test_featurewise =read_parquet("Documents/projects/2025_Ollitrault_BSC/modules/06_concresponse/outputs/pods/") %>% as.data.frame()
+
+
+
+
+

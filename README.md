@@ -10,6 +10,10 @@ module load r/4.5.1
 create ~/.Renviron file in home directory
 write in .Renviron : R_LIBS_USER=/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5
 write in .Renviron : R_LIBS=/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5
+For ToxicR : write in mkdir -p ~/.R
+echo "PKG_CPPFLAGS=$(gsl-config --cflags)" >> ~/.R/Makevars
+echo "PKG_LIBS=$(gsl-config --libs)" >> ~/.R/Makevars
+
 restart session
 module load r/4.5.1
 open R and check that the path is in it:
