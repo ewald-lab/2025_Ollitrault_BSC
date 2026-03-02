@@ -199,7 +199,7 @@ results <- with_progress({
                   n_active_features)
 
     data.frame(
-      compound  = compound,
+      Metadata_compound  = compound,
       bmd       = bmd_mean(fit_obj_passed_bmd_res$bmd),
       bmdl      = bmd_mean(fit_obj_passed_bmd_res$bmdl),
       bmdu      = bmd_mean(fit_obj_passed_bmd_res$bmdu),

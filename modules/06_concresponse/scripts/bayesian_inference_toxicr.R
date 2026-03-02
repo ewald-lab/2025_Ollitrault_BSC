@@ -151,7 +151,7 @@ for (i in seq_along(compounds)) {
     }
     
     res_list[[feat_col]] <- data.frame(
-      compound  = compound,
+      Metadata_compound  = compound,
       gene.id   = feat_col,
       bmd       = fit$bmd["BMD"],
       bmdl      = fit$bmd["BMDL"],
