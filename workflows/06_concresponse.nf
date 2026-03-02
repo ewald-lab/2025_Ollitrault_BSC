@@ -171,6 +171,9 @@ workflow concresponse_workflow_bayesian_inference {
         input_data_level4
         input_data_level5
     main:
+        ch_compounds = Channel.fromPath("${projectDir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
+                            .splitText()
+                            .map { it.trim() }
         // 1. compute distance
         channel_5a_distances_r = Channel
             .fromList(params.concentration_response.distances_R)
@@ -179,7 +182,12 @@ workflow concresponse_workflow_bayesian_inference {
         // 2. compile distances
         path_data_5b = compile_distances(path_data_5a.collect())
         // 3a. fit curves (bmds)
-        path_data_5c = fit_curves_bayesian_inferences(path_data_5b)
+        path_data_5c = fit_curves_bayesian_inferences(path_data_5b.collect().first(), ch_compounds)
+
+        // Collect all parquet outputs and concatenate
+        ch_concatenated_pods = path_data_5c.pod
+            .collect()
+            | concatenate_parquet_files
         
         // 6. Transform back log10 concentration - combine ALL inputs into ONE channel
         // Combine BMD, metadata, and CP data into a single channel
@@ -670,26 +678,29 @@ EOF
 process fit_curves_bayesian_inferences {
     tag { "${input_file.baseName}" }
 
-    memory = '6 GB'
+    memory = '8 GB'
 
     label 'r'
 
-    publishDir "modules/06_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/06_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.png'
 
     input:
         path input_file
+        val compound
 
     output:
-        path "pods_${params.input_name}_cp.parquet"
+        path "pods_${params.input_name}_cp_${compound}.parquet", emit: pod
 
     """
     Rscript ${projectDir}/modules/06_concresponse/scripts/bayesian_inference_toxicr.R \
         ${input_file} \
-        pods_${params.input_name}_cp.parquet \
+        pods_${params.input_name}_cp_${compound}.parquet \
         ${params.control} \
         ${params.concentration_response.dmso_mode} \
-        pods_${params.input_name}_cp_bayese_inference_plot.pdf \
+        pods_${params.input_name}_cp_bayese_inference_plot_${compound} \
         TRUE \
         ${params.concentration_response.num_sds} \
+        ${compound} 
     """
 }
