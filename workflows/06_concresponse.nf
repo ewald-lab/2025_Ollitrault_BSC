@@ -667,7 +667,7 @@ EOF
 // ---------------------------------------------------------------------------
 // fit_curves (bmds) BAYESIAN INFERENCE
 // ---------------------------------------------------------------------------
-process fit_curves_bayesian_inference {
+process fit_curves_bayesian_inferences {
     tag { "${input_file.baseName}" }
 
     label 'r'
@@ -681,7 +681,7 @@ process fit_curves_bayesian_inference {
         path "pods_${params.input_name}_cp.parquet"
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves.R \
+    Rscript ${projectDir}/modules/06_concresponse/scripts/bayesian_inference_toxicr.R \
         ${input_file} \
         pods_${params.input_name}_cp.parquet \
         ${params.control} \
