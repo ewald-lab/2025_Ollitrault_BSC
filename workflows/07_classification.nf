@@ -88,6 +88,8 @@ process binary_classification {
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \
         --label_column ${label_column} \
-        --output axiom_${label_name}_predictions.parquet
+        --output axiom_${label_name}_predictions.parquet \
+        --n_repeats ${params.classifier.n_repeats} \
+        --filter_label_size ${params.classifier.filter_label_size}
     """
 }

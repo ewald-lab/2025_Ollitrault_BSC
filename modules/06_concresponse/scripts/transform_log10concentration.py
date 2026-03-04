@@ -28,9 +28,11 @@ def main():
 
     print(f"📂 Loading data from {input_pods_path} and {input_metadata_path}")
     
-    df_pods = pl.read_parquet(input_pods_path).
+    df_pods = pl.read_parquet(input_pods_path)
 
-    df_pods[args.pod_col+"_POD"] = df_pods["bmd"]
+    df_pods = df_pods.with_columns(
+        df_pods["bmd"].alias(args.pod_col + "_POD")
+    )
 
     df_metadata = pl.read_parquet(input_metadata_path)
 

@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import ids
+from statsmodels.stats.multitest import multipletests
 def well_to_coord(well):
     row_letter = well[0]
     col = int(well[1:])
@@ -50,6 +51,7 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
     if dat_comp.empty:
         print(f"No data for {compound}")
         return None
+
     # Control selection
     if dmso_mode == "closest":
         ctrl_fit = get_closest_dmso(dat_comp, dat_ctrl)
@@ -59,18 +61,20 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
             [dat_ctrl_by_plate[p] for p in plates if p in dat_ctrl_by_plate],
             ignore_index=True
         )
+
     print(
         f"Fitting IDS for {compound} "
         f"with {len(dat_comp)} compound and "
         f"{len(ctrl_fit)} DMSO points."
     )
+
     # Combine
-    dat_fit = pd.concat([ctrl_fit, dat_comp]).sort_values(
-        "Metadata_log10conc"
-    )
+    dat_fit = pd.concat([ctrl_fit, dat_comp]).sort_values("Metadata_log10conc")
+
     # Prepare IDS inputs
     X = dat_fit[features_cols].values
     Y = dat_fit[["Metadata_log10conc"]].values  # must be 2D
+
     # Compute IDS
     C, p_vals = ids.compute_IDS(
         X,
@@ -78,32 +82,44 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
         p_val=True,
         num_tests=1000
     )
+
     p_vals_flat = p_vals.flatten()
-    C_flat = C.flatten()
-    n_significant = np.sum(p_vals_flat < 0.05)
-    print(f"{compound}: {n_significant} features with p < 0.05")
-    print(p_vals_flat)
+    C_flat      = C.flatten()
+
+    # ── Benjamini-Hochberg correction ─────────────────────────────────────
+    reject, p_vals_corrected, _, _ = multipletests(
+        p_vals_flat, alpha=0.05, method="fdr_bh"
+    )
+    # ──────────────────────────────────────────────────────────────────────
+
+    n_significant = np.sum(reject)
+    print(f"{compound}: {np.sum(p_vals_flat < 0.05)} features significant before BH correction")
+    print(f"{compound}: {n_significant} features significant after BH correction")
+    print(f"  Raw p-values:       {p_vals_flat}")
+    print(f"  Corrected p-values: {p_vals_corrected}")
 
     # Write significant features to output file
-    sig_mask = p_vals_flat < 0.05
-    sig_features = np.array(features_cols)[sig_mask]
-    sig_scores   = C_flat[sig_mask]
-    sig_pvals    = p_vals_flat[sig_mask]
+    sig_features = np.array(features_cols)[reject]
+    sig_scores   = C_flat[reject]
+    sig_pvals    = p_vals_flat[reject]
+    sig_pvals_bh = p_vals_corrected[reject]
 
     sig_df = pd.DataFrame({
-        "feature":   sig_features,
-        "ids_score": sig_scores,
-        "p_value":   sig_pvals,
-        "Metadata_compound": compound
-    }).sort_values("p_value")
+        "feature":          sig_features,
+        "ids_score":        sig_scores,
+        "p_value_raw":      sig_pvals,
+        "p_value_bh":       sig_pvals_bh        # BH-adjusted p-value
+    }).sort_values("p_value_bh")
+
     sig_df.to_csv(output_path, index=False)
     print(f"Significant features written to {output_path}")
 
     return {
-        "compound":      compound,
-        "n_significant": int(n_significant),
-        "ids_scores":    C_flat,
-        "p_values":      p_vals_flat
+        "compound":          compound,
+        "n_significant":     int(n_significant),
+        "ids_scores":        C_flat,
+        "p_values":          p_vals_flat,
+        "p_values_bh":       p_vals_corrected    # full corrected array
     }
 
 def parse_args():

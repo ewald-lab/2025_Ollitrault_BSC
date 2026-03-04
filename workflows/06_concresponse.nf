@@ -184,10 +184,13 @@ workflow concresponse_workflow_bayesian_inference {
         // 3a. fit curves (bmds)
         path_data_5c = fit_curves_bayesian_inferences(path_data_5b.collect().first(), ch_compounds)
 
+        ch_fit_curves_feature_wise_log10 = transform_log10concentration(input_data_level4.first(), path_data_5c.pod, "cp", "modules/06_concresponse/outputs/pods/bayesian_inference")
+
         // Collect all parquet outputs and concatenate
         ch_concatenated_pods = path_data_5c.pod
             .collect()
             | concatenate_parquet_files
+
         
         // 6. Transform back log10 concentration - combine ALL inputs into ONE channel
         // Combine BMD, metadata, and CP data into a single channel
@@ -691,8 +694,10 @@ process fit_curves_bayesian_inferences {
 
     output:
         path "pods_${params.input_name}_cp_${compound}.parquet", emit: pod
+        path "pods_${params.input_name}_cp_bayese_inference_plot_${compound}_*.png", emit: plot
 
     """
+    echo yes
     Rscript ${projectDir}/modules/06_concresponse/scripts/bayesian_inference_toxicr.R \
         ${input_file} \
         pods_${params.input_name}_cp_${compound}.parquet \

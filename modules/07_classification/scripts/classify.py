@@ -9,7 +9,7 @@ import argparse
 import joblib
 import pandas as pd
 import polars as pl
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from tqdm.contrib.concurrent import thread_map
 from xgboost import XGBClassifier
@@ -72,7 +72,7 @@ def binary_classifier(
     pred_df = []
     fold = 1
     with cp.cuda.Device(gpu_id):
-        for train_index, val_index in kf.split(x, y):
+        for train_index, val_index in rskf.split(x, y):
             x_fold_train, x_fold_val = cp.array(x.iloc[train_index].to_numpy()), cp.array(x.iloc[val_index].to_numpy())
             y_fold_train, y_fold_val = y.iloc[train_index], y.iloc[val_index]
 
@@ -129,7 +129,7 @@ def binary_classifier(
 
     return model, pl.concat(pred_df, how="vertical")
 
-def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, output_dir: str = None):
+def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, filter_label_size: int = 50, output_dir: str = None):
     """Process a single label_column."""
     try:
         prof = dat.rename({label_column: "Label"})
@@ -137,7 +137,8 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
         num_0 = prof.filter(pl.col("Label") == 0).height
         num_1 = prof.filter(pl.col("Label") == 1).height
 
-        if (num_0 >= n_splits) & (num_1 >= n_splits):
+
+        if (num_0 >= n_splits) & (num_1 >= n_splits) & (num_0 + num_1 >= filter_label_size):
             meta_cols = [i for i in prof.columns if "Metadata_" in i]
             all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
 
@@ -187,6 +188,7 @@ def predict_binary(
     output_path: str | None = None,
     dat: pl.DataFrame | None = None,
     n_repeats: int = 1,
+    filter_label_size: int = 50,
     label_column: str = "OASIS_ID"
 ) -> None:
     """Build classifier for binary outcomes.
@@ -242,7 +244,7 @@ def predict_binary(
     print(dat)
 
     tasks = [
-        (dat, label_column, n_splits, n_repeats, labels, i % num_gpus)
+        (dat, label_column, n_splits, labels, i % num_gpus)
         for i, (label_column) in enumerate(
             [(label_column) for label_column in labels]
         )
@@ -252,7 +254,7 @@ def predict_binary(
     os.makedirs(model_output_dir, exist_ok=True)
     # Train actual models
     pred_results = thread_map(
-        lambda args: process_label(*args, shuffle=False, output_dir=model_output_dir),
+        lambda args: process_label(*args, shuffle=False, n_repeats=n_repeats, filter_label_size=filter_label_size, output_dir=model_output_dir),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels",
@@ -267,7 +269,7 @@ def predict_binary(
 
     # Random baseline
     null_results = thread_map(
-        lambda args: process_label(*args, shuffle=True),
+        lambda args: process_label(*args, shuffle=True, n_repeats=n_repeats, filter_label_size=filter_label_size),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels for random baseline",
@@ -282,7 +284,7 @@ def predict_binary(
 
     # Cell count baseline
     cc_results = thread_map(
-        lambda args: process_label(*args, cc=True),
+        lambda args: process_label(*args, cc=True, n_repeats=n_repeats, filter_label_size=filter_label_size),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels for cell count baseline",
@@ -343,6 +345,8 @@ if __name__ == "__main__":
     parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict") 
     parser.add_argument("--label_column", required=False, default="OASIS_ID", help="Column in label_path to use as label (default: OASIS_ID). If using 'ID', will use Metadata_compound for join.")
     parser.add_argument("--output", required=True, help="Directory for output Parquet file")
+    parser.add_argument("--n_repeats", required=False, default=1, type=int, help="Number of times to repeat cross-validation (default: 1)")
+    parser.add_argument("--filter_label_size", required=False, default=50, type=int, help="Minimum number of samples (0 and 1 combined) required for a label to be included in the classification (default: 50)")
     args = parser.parse_args()
     dat = pd.read_parquet(args.input_path_level4)
     # Preprocess
@@ -361,4 +365,6 @@ if __name__ == "__main__":
         label_path=args.label_path,
         output_path=args.output,
         label_column=args.label_column,
+        n_repeats=args.n_repeats,
+        filter_label_size=args.filter_label_size,
     )
