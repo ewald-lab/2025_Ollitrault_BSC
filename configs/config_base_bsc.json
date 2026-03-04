@@ -22,6 +22,8 @@
             "num_sds": 2,
             "dmso_mode": "closest",
             "filter_sd_residuals": "FALSE",
-            "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"]
+            "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"],
+            "p_value_correction": "FALSE",
+            "num_tests": 1000
     }
 }

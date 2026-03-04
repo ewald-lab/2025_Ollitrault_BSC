@@ -45,7 +45,7 @@ def get_closest_dmso(comp_fit_coords, dat_ctrl):
     return pd.concat(closest_rows).drop_duplicates()
 
 def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
-                     dmso_mode, features_cols, output_path):
+                     dmso_mode, features_cols, output_path, num_tests=10000, p_value_correction=True):
     # Subset compound
     dat_comp = dat.loc[dat["Metadata_compound"] == compound].copy()
     if dat_comp.empty:
@@ -80,29 +80,32 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
         X,
         Y,
         p_val=True,
-        num_tests=1000
+        num_tests=num_tests
     )
 
     p_vals_flat = p_vals.flatten()
     C_flat      = C.flatten()
 
     # ── Benjamini-Hochberg correction ─────────────────────────────────────
-    reject, p_vals_corrected, _, _ = multipletests(
+    sig_mask, p_vals_corrected, _, _ = multipletests(
         p_vals_flat, alpha=0.05, method="fdr_bh"
     )
     # ──────────────────────────────────────────────────────────────────────
 
-    n_significant = np.sum(reject)
+    if not p_value_correction:
+        sig_mask = p_vals_flat < 0.05
+
+    n_significant = np.sum(sig_mask)
     print(f"{compound}: {np.sum(p_vals_flat < 0.05)} features significant before BH correction")
     print(f"{compound}: {n_significant} features significant after BH correction")
     print(f"  Raw p-values:       {p_vals_flat}")
     print(f"  Corrected p-values: {p_vals_corrected}")
 
     # Write significant features to output file
-    sig_features = np.array(features_cols)[reject]
-    sig_scores   = C_flat[reject]
-    sig_pvals    = p_vals_flat[reject]
-    sig_pvals_bh = p_vals_corrected[reject]
+    sig_features = np.array(features_cols)[sig_mask]
+    sig_scores   = C_flat[sig_mask]
+    sig_pvals    = p_vals_flat[sig_mask]
+    sig_pvals_bh = p_vals_corrected[sig_mask]
 
     sig_df = pd.DataFrame({
         "feature":          sig_features,
@@ -169,6 +172,18 @@ def parse_args():
         default="s0654867",
         help="'all' or comma-separated compound list"
     )
+    parser.add_argument(
+        "--num_tests",
+        type=int,
+        default=1000,
+        help="Number of random tests for IDS p-value estimation"
+    )
+    parser.add_argument(
+        "--p_value_correction",
+        type=lambda x: x.lower() == "true",
+        default=True,
+        help="Whether to apply Benjamini-Hochberg correction (true/false)"
+    )
 
     return parser.parse_args()
 
@@ -223,7 +238,9 @@ if __name__ == "__main__":
                 dat_ctrl_by_plate,
                 dmso_mode,
                 features_cols,
-                output_path
+                output_path,
+                num_tests=args.num_tests,
+                p_value_correction=args.p_value_correction
             ): cmpd
             for cmpd in compounds
         }

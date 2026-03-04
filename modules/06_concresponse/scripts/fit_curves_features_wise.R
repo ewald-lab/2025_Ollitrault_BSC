@@ -98,6 +98,29 @@ dat <- read_parquet(input_path) %>% as.data.frame()
 if (feature_selection_score_file != "NA") {
   feature_selection_score_dt = read.table(feature_selection_score_file, sep = ",", header = T)
   feat_cols <- feature_selection_score_dt$feature
+  if (length(feat_cols) == 0) {
+    message("feat_cols is empty — writing empty parquet and exiting.")
+    
+    empty_df <- data.frame(
+      Metadata_compound = compounds[1],
+      bmd       = NA_real_,
+      bmdl      = NA_real_,
+      bmdu      = NA_real_,
+      bmd_sd    = NA_real_,
+      bmdl_sd   = NA_real_,
+      bmdu_sd   = NA_real_,
+      n.active  = 0L,
+      conv.pass = NA,
+      hd.pass   = NA,
+      CI.pass   = NA,
+      ld.pass   = NA,
+      all.pass  = FALSE
+    )
+    arrow::write_parquet(empty_df, output_path)
+    if (!is.null(output_path_all)) arrow::write_parquet(empty_df, output_path_all)
+    
+    quit(save = "no", status = 0)
+  }
 } else {
   feat_cols <- colnames(dat)[grepl("Feature", colnames(dat))] # The computed distances
 }

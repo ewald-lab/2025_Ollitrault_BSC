@@ -136,8 +136,7 @@ workflow concresponse_workflow_feature_wise {
                               .splitText()
                               .map { it.trim() }
         
-        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(input_data_level4.first(),
-            ch_compounds)
+        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(input_data_level4.first(),ch_compounds)
 
         ch_permutation_n_active = fit_curves_feature_wise_permutation(
             input_data_level4.first(),
@@ -154,7 +153,7 @@ workflow concresponse_workflow_feature_wise {
         ch_fit_curves_feature_wise = fit_curves_feature_wise(
             input_data_level4.first(),
             ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> compound },
-            ch_permutation_n_active_threshold.first(),
+            ch_permutation_n_active_threshold.median_val.first(),
             ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> score }
         )
 
@@ -573,12 +572,14 @@ process select_feature_selection_interdependence_score {
         tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: score_by_compound
 
     """
-    echo test 
+    echo test3
     python ${projectDir}/modules/06_concresponse/scripts/select_features_interdependence_scores.py \\
         --input_path ${input_file} \\
         --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
         --ctrl ${params.control} \\
-        --compounds ${compound}
+        --compounds ${compound} \\
+        --num_tests ${params.concentration_response.num_tests} \\
+        --p_value_correction ${params.concentration_response.p_value_correction}
     """
 }
 
@@ -611,17 +612,20 @@ process fit_curves_feature_wise_permutation {
 }
 process compute_percentile_permutation_active_features {
     label 'r'
-
+    publishDir { "modules/06_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: 'feature_wise_median_permutation_threshold.txt'
     input:
         path threshold_active_features_file
     output:
-        stdout
-    """
+        stdout emit: median_val
+        path "feature_wise_median_permutation_threshold.txt", emit: median_file
+"""
     Rscript - <<'EOF'
     vals <- as.numeric(readLines("${threshold_active_features_file}"))
-    cat(quantile(vals, 0.9, na.rm = TRUE))
+    med <- median(vals, na.rm = TRUE)
+    cat(med)
+    writeLines(as.character(med), "feature_wise_median_permutation_threshold.txt")
 EOF
-    """
+"""
 }
 
 process fit_curves_feature_wise {
@@ -638,7 +642,6 @@ process fit_curves_feature_wise {
         path "pod_${params.input_name}_${compound}_feature_wise.parquet", emit: pod_feature_wise
         
     """
-    echo test
     Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
         pod_${params.input_name}_${compound}.parquet \\
