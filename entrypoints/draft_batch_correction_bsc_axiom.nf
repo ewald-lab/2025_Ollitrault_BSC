@@ -1,32 +1,39 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run entrypoints/03_postprocessing_bsc.nf -params-file entrypoints/config_base_bsc.json -profile local -resume
+// To RUN BSC: nextflow run entrypoints/draft_batch_correction_bsc_axiom.nf -params-file configs/config_base_bsc.json -profile slurm -resume
 
-include { postprocessing_workflow } from './workflows/03_postprocessing.nf'
-include { level5_consensus } from './workflows/02_processing.nf'
-include { level6_aggregate_profiles } from './workflows/02_processing.nf'
+include { postprocessing_workflow } from '../workflows/03_postprocessing.nf'
+// include { level5_consensus } from '../workflows/02_processing.nf'
+// include { level6_aggregate_profiles } from '../workflows/02_processing.nf'
 
 // Generate a unique run code with date + short UUID
 def today = new Date()
 def formattedDate = today.format('yyyyMMdd')   // e.g., 20260204
 params.run_code = "run_${formattedDate}_" + UUID.randomUUID().toString()[0..7] 
 
+params.base_dir = "${projectDir}/.."
 
 workflow {
 
     // Inputs
-    path_data_level4       = Channel.fromPath("./modules/02_processing/output/level4b_bsc.parquet")
-    path_data_level4_axiom = Channel.fromPath("./modules/02_processing/output/level4b_axiom.parquet")
-
-    // Combine into one tuple (IMPORTANT)
-    paired_input = path_data_level4.combine(path_data_level4_axiom)
+    path_data_level4_bsc       = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
+    path_data_level4_axiom = Channel.fromPath("${projectDir}/../modules/02_processing/outputs/level4a_axiom.parquet")
 
     // Run Harmony
-    result = HARMONY_BATCH_CORRECTION(paired_input)
+    result = HARMONY_BATCH_CORRECTION(path_data_level4_bsc, path_data_level4_axiom)
 
-    features_tuple = Channel.of('selected_features_batch', path_data_level4b)
+    // process
+    // path_data_level4_bsc_batch = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_batch.parquet")
+    // path_data_level4_axiom_batch = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_axiom_batch.parquet")
+
+    features_tuple = result.bsc
+        .mix(result.axiom)
+        .map { file -> tuple('selected_features_batch', file) }
+
+    features_tuple.view()
+
     path_data_level5_tuples = level5_consensus(features_tuple)
-    path_data_level6_tuples = level6_aggregate_profiles(features_tuple)
+    path_data_level6_tuples = level6_aggregate_profiles(path_data_level5_tuples)
 
 }
 
@@ -40,15 +47,53 @@ process HARMONY_BATCH_CORRECTION {
     path axiom_file
 
     output:
-    path "bsc_corrected.parquet", emit: bsc
-    path "axiom_corrected.parquet", emit: axiom
+    path "level4b_bsc_batch.parquet", emit: bsc
+    path "level4b_axiom_batch.parquet", emit: axiom
 
     script:
     """
-    python3 harmony.py \
+    python3 ${projectDir}/../modules/03_postprocessing/scripts/draft_batch_correction.py \
         --bsc ${bsc_file} \
         --axiom ${axiom_file} \
-        --out-bsc level4b_bsc.parquet \
-        --out-axiom level4b_axiom.parquet
+        --out-bsc level4b_bsc_batch.parquet \
+        --out-axiom level4b_axiom_batch.parquet
+    """
+}
+
+process level5_consensus {
+    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+
+    tag { "${params.input_name}" }
+
+    input:
+    tuple val(feature_type), path(input_file)
+
+    output:
+    tuple val(feature_type), path("level5_${params.input_name}_${feature_type}.parquet")
+
+    script:
+    """
+    python ${projectDir}/../modules/02_processing/scripts/consensus.py \\
+        --input $input_file \\
+        --output level5_${params.input_name}_${feature_type}.parquet
+    """
+}
+
+process level6_aggregate_profiles {
+    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+
+    tag { "${params.input_name}" }
+
+    input:
+    tuple val(feature_type), path(input_file)
+
+    output:
+    tuple val(feature_type), path("level6_${params.input_name}_${feature_type}.parquet")
+
+    script:
+    """
+    python ${projectDir}/../modules/02_processing/scripts/aggregate_profiles.py \\
+        --input $input_file \\
+        --output level6_${params.input_name}_${feature_type}.parquet
     """
 }

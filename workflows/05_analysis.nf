@@ -70,7 +70,7 @@ process level2_analysis {
 
     script:
     """
-    marimo export html ${projectDir}/modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py \
+    marimo export html ${params.base_dir}/modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py \
     -o 1_analysis_formated_data_marimo_${path_data_level2.baseName}.html \
     -- \
     --name ${params.input_name} \
@@ -94,7 +94,7 @@ process level3_analysis {
 
     script:
     """
-    marimo export html ${projectDir}/modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py \
+    marimo export html ${params.base_dir}/modules/08_reporting/notebooks/1_analysis_formated_data.marimo.py \
     -o 1_analysis_formated_data_marimo_${path_data_level3.baseName}.html \
     -- \
     --name ${params.input_name} \
@@ -118,7 +118,7 @@ process level4_analysis {
     script:
     """
     marimo export html \
-    ${projectDir}/modules/08_reporting/notebooks/2F_analysis_processed_data.marimo.py \
+    ${params.base_dir}/modules/08_reporting/notebooks/2F_analysis_processed_data.marimo.py \
     -o 2F_analysis_processed_data_marimo_${path_data_level4.baseName}.html \
     -- \
     --name ${params.input_name} \

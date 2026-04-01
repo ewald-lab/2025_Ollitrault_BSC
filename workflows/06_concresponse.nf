@@ -132,7 +132,7 @@ workflow concresponse_workflow_feature_wise {
         input_data_level4
         input_data_level5
     main:
-        ch_compounds = Channel.fromPath("${projectDir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
+        ch_compounds = Channel.fromPath("${params.base_dir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
                               .splitText()
                               .map { it.trim() }
         
@@ -170,7 +170,7 @@ workflow concresponse_workflow_bayesian_inference {
         input_data_level4
         input_data_level5
     main:
-        ch_compounds = Channel.fromPath("${projectDir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
+        ch_compounds = Channel.fromPath("${params.base_dir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
                             .splitText()
                             .map { it.trim() }
         // 1. compute distance
@@ -230,11 +230,11 @@ process compute_distances_R {
     path "distance_${params.input_name}_${distance_R}.parquet"
 
     script:
-    def gmd_path = "${projectDir}/modules/06_concresponse/scripts/gmd_functions.R"
-    def cmd_path = "${projectDir}/modules/06_concresponse/scripts/cmd_functions.R"
+    def gmd_path = "${params.base_dir}/modules/06_concresponse/scripts/gmd_functions.R"
+    def cmd_path = "${params.base_dir}/modules/06_concresponse/scripts/cmd_functions.R"
     def categories = params.categories.join(',')
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/compute_distances.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/compute_distances.R \
         ${input_file} \
         distance_${params.input_name}_${distance_R}.parquet \
         ${params.concentration_response.cover_var} \
@@ -292,7 +292,7 @@ process compile_distances {
 
     script:
     """
-    python ${projectDir}/modules/06_concresponse/scripts/compile_dist.py \
+    python ${params.base_dir}/modules/06_concresponse/scripts/compile_dist.py \
         --inputs ${input_files.collect { it }.join(' ')} \
         --output "distances_${params.input_name}.parquet" \
         --transform "${params.concentration_response.transform}"
@@ -317,7 +317,7 @@ process fit_curves {
         path "pods_${params.input_name}_cp.parquet"
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/fit_curves.R \
         ${input_file} \
         pods_${params.input_name}_cp.parquet \
         ${params.concentration_response.num_sds} \
@@ -346,7 +346,7 @@ process fit_curves_meta {
         tuple val(meta_nm), path("pods_${params.input_name}_${meta_nm}.parquet")
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_meta.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/fit_curves_meta.R \
         ${input_file} \
         pods_${params.input_name}_${meta_nm}.parquet \
         ${params.concentration_response.num_sds} \
@@ -377,7 +377,7 @@ process select_pod {
     path("pods_${params.input_name}_cp_filter.parquet")
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/select_pod.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/select_pod.R \
         ${input_file_bmds} \
         "pods_${params.input_name}_cp_filter.parquet" \
         ${params.concentration_response.filter_sd_residuals} # whether to filter by the SD of the residuals (TRUE or FALSE)
@@ -404,7 +404,7 @@ process transform_back_log10concentration {
     def metadata_flag = is_metadata_pods ? "--is_metadata_pods" : ""
 
     """
-    python3 ${projectDir}/modules/06_concresponse/scripts/transform_back_log10concentration.py \
+    python3 ${params.base_dir}/modules/06_concresponse/scripts/transform_back_log10concentration.py \
         --input_pods ${input_file} \
         --input_metadata ${input_file_metadata} \
         --output pods_${params.input_name}_${meta_nm}_original_conc.parquet \
@@ -434,7 +434,7 @@ process transform_log10concentration {
     path "${path_dt_pod.baseName}_original_conc.parquet"
 
     """
-    python3 ${projectDir}/modules/06_concresponse/scripts/transform_log10concentration.py \
+    python3 ${params.base_dir}/modules/06_concresponse/scripts/transform_log10concentration.py \
         --input_level4 ${input_file} \
         --input_file ${path_dt_pod} \
         --output ${path_dt_pod.baseName}_original_conc.parquet \
@@ -460,7 +460,7 @@ process plot_meta_curve_fits {
     path "plots_pods_meta_${params.input_name}_${meta_nm}.pdf"
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/plot_meta_curve.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/plot_meta_curve.R \
         ${input_file_meta_pods} \
         ${input_file} \
         "plots_pods_meta_${params.input_name}_${meta_nm}.pdf" \
@@ -521,7 +521,7 @@ process plot_cp_curve_fits {
     path "plots_pods_cp_${params.input_name}.pdf"
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/plot_cp_curve.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/plot_cp_curve.R \
         ${cp_pod_path} \
         '${meta_pods_path.join(",")}' \
         ${dist_path} \
@@ -549,7 +549,7 @@ process analysis_concresponse_report {
     script:
     """
     marimo export html \
-    ${projectDir}/modules/08_reporting/notebooks/5_analysis_concresponse.marimo.py \
+    ${params.base_dir}/modules/08_reporting/notebooks/5_analysis_concresponse.marimo.py \
     -o 5_analysis_concresponse_marimo_${params.input_name}.html \
     -- \
         --name ${params.input_name} \\
@@ -573,7 +573,7 @@ process select_feature_selection_interdependence_score {
 
     """
     echo test3
-    python ${projectDir}/modules/06_concresponse/scripts/select_features_interdependence_scores.py \\
+    python ${params.base_dir}/modules/06_concresponse/scripts/select_features_interdependence_scores.py \\
         --input_path ${input_file} \\
         --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
         --ctrl ${params.control} \\
@@ -595,7 +595,7 @@ process fit_curves_feature_wise_permutation {
 
 
     """
-    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
         n_active_permutation_${params.input_name}_${compound}.txt \\
         ${params.concentration_response.num_sds} \\
@@ -643,7 +643,7 @@ process fit_curves_feature_wise {
         
     """
     echo yesss
-    Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
         pod_${params.input_name}_${compound}.parquet \\
         ${params.concentration_response.num_sds} \\
@@ -702,7 +702,7 @@ process fit_curves_bayesian_inferences {
 
     """
     echo yes
-    Rscript ${projectDir}/modules/06_concresponse/scripts/bayesian_inference_toxicr.R \
+    Rscript ${params.base_dir}/modules/06_concresponse/scripts/bayesian_inference_toxicr.R \
         ${input_file} \
         pods_${params.input_name}_cp_${compound}.parquet \
         ${params.control} \

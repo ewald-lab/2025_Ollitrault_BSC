@@ -35,7 +35,7 @@ process evaluate_3a_replicate_reproducibility {
 
     script:
     """
-    python ${projectDir}/01_analysis/3A_data_evaluation_replicate_reproducibility.py \\
+    python ${params.base_dir}/01_analysis/3A_data_evaluation_replicate_reproducibility.py \\
         --input $input_file \\
         --output 3a_replicate_reproducibility_${params.input_name} 
     """
@@ -65,7 +65,7 @@ process evaluate_3b_precision_recall {
     script:
     """
     echo test 2
-    python ${projectDir}/01_analysis/3B_data_evaluation_precision_recall.py \\
+    python ${params.base_dir}/01_analysis/3B_data_evaluation_precision_recall.py \\
         --input $input_file \\
         --output 3b_precision_recall_grp_${grouping}_feature_${prefix_feature} \\
         --grouping ${grouping} \\
@@ -92,7 +92,7 @@ process evaluate_3c_grit {
 
     script:
     """
-    python ${projectDir}/01_analysis/3C_data_evaluation_grit.py \\
+    python ${params.base_dir}/01_analysis/3C_data_evaluation_grit.py \\
         --input $input_file \\
         --output 3c_grit_${params.input_name} \\
         --control ${params.control}
@@ -119,7 +119,7 @@ process evaluate_3d_ap_map {
 
     script:
     """
-    python ${projectDir}/01_analysis/3D_data_evaluation_map.py \\
+    python ${params.base_dir}/01_analysis/3D_data_evaluation_map.py \\
         --input $input_file \\
         --output 3d_map_${params.input_name} \\
         --control ${params.control}

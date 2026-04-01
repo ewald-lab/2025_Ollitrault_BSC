@@ -34,7 +34,7 @@ def main():
     df = pd.concat([df_bsc, df_axiom], ignore_index=True)
 
     # --- Columns ---
-    features = [c for c in df.columns if c.startswith("Feature_")]
+    features = [c for c in df_bsc.columns if c.startswith("Feature_")]
     metadata = [c for c in df.columns if c.startswith("Metadata_")]
 
     # --- Run Harmony ---

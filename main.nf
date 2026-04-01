@@ -19,6 +19,7 @@ def today = new Date()
 def formattedDate = today.format('yyyyMMdd')   // e.g., 20260204
 params.run_code = "run_${formattedDate}_" + UUID.randomUUID().toString()[0..7] 
 
+params.base_dir = "${projectDir}/.."
 
 workflow {
     input_path = Channel.fromPath(params.input_path)

@@ -38,10 +38,10 @@ process format_dino {
         def metadata_arg = ""
 
         if (params.input_name == 'bsc') {
-            script_path = "${projectDir}/modules/01_preprocessing/scripts/format_bsc_dino.py"
+            script_path = "${params.base_dir}/modules/01_preprocessing/scripts/format_bsc_dino.py"
         }
         else if (params.input_name == 'axiom') {
-            script_path = "${projectDir}/modules/01_preprocessing/scripts/format_axiom_oasis_dino.py"
+            script_path = "${params.base_dir}/modules/01_preprocessing/scripts/format_axiom_oasis_dino.py"
             if (metadata_file != "NO_FILE") {
                 metadata_arg = "--metadata ${metadata_file}"
             }
@@ -72,7 +72,7 @@ process compute_log10conc {
 
     script:
         """
-        python ${projectDir}/modules/01_preprocessing/scripts/log10_concentration.py \\
+        python ${params.base_dir}/modules/01_preprocessing/scripts/log10_concentration.py \\
             --input ${input_file} \\
             --output level2_${params.input_name}_log10conc.parquet \\
             --control ${params.control}
