@@ -642,6 +642,7 @@ process fit_curves_feature_wise {
         path "pod_${params.input_name}_${compound}_feature_wise.parquet", emit: pod_feature_wise
         
     """
+    echo yesss
     Rscript ${projectDir}/modules/06_concresponse/scripts/fit_curves_features_wise.R \\
         ${input_file} \\
         pod_${params.input_name}_${compound}.parquet \\

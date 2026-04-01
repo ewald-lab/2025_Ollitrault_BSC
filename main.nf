@@ -41,8 +41,8 @@ workflow {
     }
     
     // evaluation_results = evaluation_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    // concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    concresponse_results = concresponse_workflow_feature_wise(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    // concresponse_results = concresponse_workflow_feature_wise(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
     // concresponse_results = concresponse_workflow_bayesian_inference(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
     
     if (params.input_name == "axiom") {
@@ -60,7 +60,7 @@ workflow {
                 tuple(label, file)
             }
             .filter { it != null }
-        // classification_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level6, compute_meta_pods)
+        classification_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level6, compute_meta_pods)
     }
 
     analysis_workflow(postprocessed_data.path_data_level2 , postprocessed_data.path_data_level3, postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)

@@ -69,6 +69,7 @@ process binary_classification {
     tag { "${label_file.baseName}" }
 
     label 'gpu'
+    time '24h'
 
     publishDir "modules/07_classification/outputs/", mode: 'copy', pattern: '*.parquet'
     publishDir "modules/07_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'  // Changed!
