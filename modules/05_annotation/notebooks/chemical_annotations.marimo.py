@@ -28,17 +28,17 @@ def _(mo):
 @app.cell
 def _(pd):
     # Load cell painting bsc data
-    df_level5 = pd.read_parquet("02_processed_data/level5_bsc.parquet")
+    df_level5 = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
     meta_cols_compounds = [c for c in df_level5.columns if c.startswith("Metadata_compound")]
     # Get only unique chemicals annotations 
     df_level5_compounds = df_level5[meta_cols_compounds].drop_duplicates()
-    return df_level5, df_level5_compounds
+    return (df_level5_compounds,)
 
 
 @app.cell
 def _(pd):
     # Load bsc chemical annotation data
-    df_bsc_annotations = pd.read_csv("00_inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
+    df_bsc_annotations = pd.read_csv("00.first_analysis_module/00_inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
     return (df_bsc_annotations,)
 
 
@@ -124,6 +124,12 @@ def _(df_merge_cp_cp_annotations_iso):
 
 @app.cell
 def _(df_merge_cp_cp_annotations_iso):
+    df_merge_cp_cp_annotations_iso
+    return
+
+
+@app.cell
+def _(df_merge_cp_cp_annotations_iso):
     df_merge_cp_cp_annotations_iso[['Metadata_compound_name', 'Metadata_compound_smiles',
            'Metadata_compound_inchi', 'Metadata_compound',
            'Metadata_compound_target', 'Metadata_compound_pathway',
@@ -137,13 +143,7 @@ def _(df_merge_cp_cp_annotations_iso):
            'MW (g/mol)', 'Concentration (mg/g) ',
            'Concentration notes\n* denotes the sum of constituent quantification from isomers\n**there are multiple constituents that eluted at the same time, assuming maximum concencentration for each',
            'Lab', 'IUPAC name', 'Constituent CAS', 'INCHI Key', 'PubChem ID',
-           'Canonical SMILES', 'SMILES']].to_csv("03_tables/cellpainting_bsc_annotations_merged.tsv", sep="\t")
-    return
-
-
-@app.cell
-def _(df_level5, df_merge_cp_cp_annotations_iso):
-    df_level5[df_level5["Metadata_compound"].isin(df_merge_cp_cp_annotations_iso["Metadata_compound"].unique())]
+           'Canonical SMILES', 'SMILES']].to_csv("modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv", sep="\t")
     return
 
 

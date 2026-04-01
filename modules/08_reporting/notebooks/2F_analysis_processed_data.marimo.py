@@ -34,7 +34,7 @@ def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
     parser.add_argument("--name", type=str, default="Default")
-    parser.add_argument("--input_path", type=str, default="02_processed_data/level4a_axiom.parquet")
+    parser.add_argument("--input_path", type=str, default="modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     parser.add_argument("--control", type=str, default="s0617825")
     parser.add_argument("--metadata_cell_viability", nargs="+", default=["Metadata_mtt_normalized", "Metadata_ldh_normalized"])
 
@@ -51,6 +51,10 @@ def _(argparse, mo, sys):
 @app.cell
 def _(args, pd):
     df_level4 = pd.read_parquet(args.input_path)
+    if True:
+        df_level4 = df_level4.groupby("Metadata_plate").filter(
+            lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
+        )
     return (df_level4,)
 
 
@@ -379,7 +383,7 @@ def _(
     for ax in axes.flat[n_plates:]:
         ax.axis("off")
 
-    fig.suptitle("Plate concentration layouts (DMSO in gray)", y=1.02)
+    #fig.suptitle("Plate concentration layouts (DMSO in gray)", y=1.02)
     fig.tight_layout()
 
     fig
@@ -555,18 +559,23 @@ def _(mo):
 
 
 @app.cell
-def _(args, df_level4, plt, sns):
+def _(args, df_level4, math, np, plt, sns):
     for _column_metadata in args.metadata_cell_viability:
-        # Create a common color map
         _cmap = sns.color_palette("coolwarm", as_cmap=True)
-        # Compute global min and max across all data
         _vmin = df_level4[_column_metadata].min()
         _vmax = df_level4[_column_metadata].max()
-        for _plate, _df_plate in df_level4.groupby("Metadata_plate"):
-            _df_plate = _df_plate.copy()
-            _df_plate["viability_values"] = _df_plate[_column_metadata]
 
-            # Pivot for heatmap
+        _plates = sorted(df_level4["Metadata_plate"].unique())
+        _n_plates = len(_plates)
+        _ncols = 4
+        _nrows = math.ceil(_n_plates / _ncols)
+
+        _fig, _axes = plt.subplots(_nrows, _ncols, figsize=(_ncols * 6, _nrows * 4))
+        _axes = np.array(_axes).flatten()
+
+        for _i, _plate in enumerate(_plates):
+            _df_plate = df_level4[df_level4["Metadata_plate"] == _plate].copy()
+            _df_plate["viability_values"] = _df_plate[_column_metadata]
             plate_map_metadata = (
                 _df_plate.pivot(
                     index="Metadata_row",
@@ -576,26 +585,30 @@ def _(args, df_level4, plt, sns):
                 .sort_index()
                 .sort_index(axis=1)
             )
-
-            plt.figure(figsize=(10, 6))
-
-            _ax = sns.heatmap(
+            sns.heatmap(
                 plate_map_metadata,
+                ax=_axes[_i],
                 cmap=_cmap,
                 vmin=_vmin,
                 vmax=_vmax,
+                cbar=(_i == _n_plates - 1),   # only last plate gets colorbar
                 cbar_kws={"label": _column_metadata},
                 linewidths=0.5,
                 linecolor="gray",
             )
+            _axes[_i].set_title(f"Plate {_plate}", fontsize=10, fontweight="bold")
+            _axes[_i].set_xlabel("Column", fontsize=8)
+            _axes[_i].set_ylabel("Row", fontsize=8)
+            _axes[_i].tick_params(labelsize=7)
 
-            # --- Aesthetic details ---
-            plt.title(f"Plate {_plate} — {_column_metadata}")
-            plt.xlabel("Column")
-            plt.ylabel("Row")
-            plt.tight_layout()
-            plt.show()
-        print("------------------------------------------------------------------------------------------------------------------------")
+        # Hide unused axes
+        for _j in range(_i + 1, len(_axes)):
+            _axes[_j].set_visible(False)
+
+        _fig.suptitle(_column_metadata, fontsize=13, fontweight="bold", y=1.01)
+        plt.tight_layout()
+        plt.show()
+        print("-" * 120)
     return
 
 

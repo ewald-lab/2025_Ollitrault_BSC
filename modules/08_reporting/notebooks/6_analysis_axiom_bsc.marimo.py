@@ -16,10 +16,13 @@ def _():
     import plotly.express as px
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
+    import matplotlib.ticker as ticker
     import matplotlib.gridspec as gridspec
     from matplotlib.gridspec import GridSpec
+    import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
     from sklearn.preprocessing import StandardScaler
-    from matplotlib.colors import ListedColormap
+    from matplotlib.colors import ListedColormap, LogNorm
     import seaborn as sns
     from tqdm import tqdm
     from plotnine import (
@@ -27,10 +30,28 @@ def _():
         geom_jitter,
         labs, theme, element_text, scale_x_discrete, scale_y_log10, geom_text, facet_grid, element_rect, geom_rect, scale_x_continuous
     )
+
+    from adjustText import adjust_text
+    from scipy.stats import mannwhitneyu, kruskal, wilcoxon
+    from itertools import combinations
+    import plotly.graph_objects as go
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from rdkit import DataStructs
+    from sklearn.metrics.pairwise import cosine_similarity
+    import dataframe_image as dfi
     return (
+        AllChem,
+        Chem,
+        DataStructs,
         ListedColormap,
+        LogNorm,
         StandardScaler,
+        adjust_text,
         aes,
+        combinations,
+        cosine_similarity,
+        dfi,
         element_rect,
         element_text,
         facet_grid,
@@ -40,8 +61,13 @@ def _():
         geom_text,
         ggplot,
         glob,
+        go,
+        kruskal,
         labs,
+        mannwhitneyu,
+        mlines,
         mo,
+        mpatches,
         mticker,
         np,
         os,
@@ -53,8 +79,10 @@ def _():
         sns,
         theme,
         theme_classic,
+        ticker,
         tqdm,
         umap,
+        wilcoxon,
     )
 
 
@@ -72,27 +100,23 @@ def _(mo):
 
 @app.cell
 def _(pd):
-    test = pd.read_parquet("modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet")
-    test.columns
-    return
-
-
-@app.cell
-def _():
-    import polars as pl
-    test2 = pl.read_parquet("modules/01_preprocessing/outputs/level2_bsc.parquet")
-    test2.columns
-    return
-
-
-@app.cell
-def _(pd):
     # Cell Painting profiles
     df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
+    if True:
+        df_level4_bsc = df_level4_bsc.groupby("Metadata_plate").filter(
+            lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
+        )
     df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
     df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_filtered.parquet")
+    df_level5_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_all_features_filtered.parquet")
     df_level6_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_all_features_filtered.parquet")
-    return df_level4_bsc, df_level5_bsc, df_level6_bsc, df_level6_bsc_all
+    return (
+        df_level4_bsc,
+        df_level5_bsc,
+        df_level5_bsc_all,
+        df_level6_bsc,
+        df_level6_bsc_all,
+    )
 
 
 @app.cell
@@ -106,6 +130,18 @@ def _(pd):
 
 
 @app.cell
+def _(df_bsc_annotations):
+    dic_botanicals_scode_name = (
+        df_bsc_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+    dic_botanicals_scode_name
+    return (dic_botanicals_scode_name,)
+
+
+@app.cell
 def _(pd):
     # POD Cell Painting
     df_bsc_cp_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
@@ -114,6 +150,53 @@ def _(pd):
     # POD Metadata LDH
     df_bsc_ldh_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
     return df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod
+
+
+@app.cell
+def _(glob, pd):
+    # POD Cell Painting feature wise
+    path_pattern_bsc_interdependence_score = "modules/06_concresponse/outputs/interdependence_score/feature_selection_interdependence_score_bsc_*.txt"
+
+    # Get all matching files
+    _files = glob.glob(path_pattern_bsc_interdependence_score)
+
+    print(f"Found {len(_files)} files.")
+
+    # Read and concatenate
+    df_bsc_interdependence_score = pd.concat(
+        [pd.read_csv(f) for f in _files],
+        ignore_index=True
+    )
+
+    print(f"Final dataframe shape: {df_bsc_interdependence_score.shape}")
+    return (df_bsc_interdependence_score,)
+
+
+@app.cell
+def _(glob, pd):
+    # POD Cell Painting feature wise
+    path_pattern_feature_wise = "modules/06_concresponse/outputs/pods/feature_wise/*feature_wise_original_conc.parquet"
+
+    # Get all matching files
+    _files = glob.glob(path_pattern_feature_wise)
+
+    print(f"Found {len(_files)} files.")
+
+    # Read and concatenate
+    df_bsc_cp_pod_all_featurewise = pd.concat(
+        [pd.read_parquet(f) for f in _files],
+        ignore_index=True
+    )
+
+    print(f"Final dataframe shape: {df_bsc_cp_pod_all_featurewise.shape}")
+    return (df_bsc_cp_pod_all_featurewise,)
+
+
+@app.cell
+def _():
+    with open("modules/06_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold.txt") as _f:
+        feature_wise_permutation_threshold = float(_f.read().strip())
+    return (feature_wise_permutation_threshold,)
 
 
 @app.cell
@@ -234,6 +317,236 @@ def _(mo):
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Concentraation range""")
+    return
+
+
+@app.cell
+def _(dfi, np, os, pd):
+    _data = {
+        "Plant name": [
+            "Asian ginseng", "Ashwagandha", "Comfrey", "Green tea extract",
+            "Blue cohosh", "Goldenseal", "Milk thistle", "Kava",
+            "Kratom", "Usnea", "Yohimbe", "Aristolochia", "Ephedra"
+        ],
+        "N constituents tested": [13, 10, 9, 9, 7, 7, 7, 6, 5, 5, 5, 3, 1],
+        "Min (µM)":  [0.05, 0.023, 0.05, 0.57, 0.57, 0.57, 0.76, 0.027, 0.096, 0.38, 0.29, 0.38, 0.29],
+        "Max (µM)":  [110,  50,    110,  1200, 1200, 1200, 1700, 60,    210,   830,  620,  830,  620],
+    }
+
+    _df_plants = pd.DataFrame(_data)
+
+    # ── Log-scale normalisation for bar width ─────────────────────────────────────
+    _global_log_min = np.log10(_df_plants["Min (µM)"].min())
+    _global_log_max = np.log10(_df_plants["Max (µM)"].max())
+
+    def _range_bar(_row):
+        _log_min = np.log10(_row["Min (µM)"])
+        _log_max = np.log10(_row["Max (µM)"])
+        # normalise to 0-100% of the column width
+        _left  = (_log_min - _global_log_min) / (_global_log_max - _global_log_min) * 100
+        _width = (_log_max - _log_min)        / (_global_log_max - _global_log_min) * 100
+        _span  = _row["Max (µM)"] / _row["Min (µM)"]
+        return (
+            f'<div style="position:relative; height:16px; background:#f0f0f0; '
+            f'border-radius:4px; width:100%;">'
+            f'<div style="position:absolute; left:{_left:.1f}%; width:{_width:.1f}%; '
+            f'height:100%; background:linear-gradient(90deg,#52b788,#1a6b3c); '
+            f'border-radius:4px; opacity:0.85;"></div>'
+            f'<span style="position:absolute; left:50%; transform:translateX(-50%); '
+            f'font-size:10px; line-height:16px; color:#333; white-space:nowrap;">'
+            f'{_row["Min (µM)"]:.3g} – {_row["Max (µM)"]:.3g} µM</span>'
+            f'</div>'
+        )
+
+    _df_plants["Concentration range (µM)"] = _df_plants.apply(_range_bar, axis=1)
+    _df_display = _df_plants[["Plant name", "N constituents tested", "Concentration range (µM)"]].copy()
+
+    _styled = (
+        _df_display.style
+        .background_gradient(
+            subset=["N constituents tested"],
+            cmap="YlGn",
+            vmin=0,
+            vmax=_df_plants["N constituents tested"].max()
+        )
+        .set_properties(**{
+            "font-size": "12px",
+            "text-align": "center",
+            "border": "1px solid #e0e0e0",
+            "padding": "6px 12px",
+        })
+        .set_properties(subset=["Plant name"], **{"text-align": "left", "font-weight": "bold"})
+        .set_properties(subset=["Concentration range (µM)"], **{"min-width": "220px", "padding": "4px 8px"})
+        .format({"Concentration range (µM)": lambda _x: _x})  # keep raw HTML
+        .set_table_styles([
+            {"selector": "thead th", "props": [
+                ("background-color", "#2c6e49"),
+                ("color", "white"),
+                ("font-size", "12px"),
+                ("font-weight", "bold"),
+                ("text-align", "center"),
+                ("padding", "8px 12px"),
+                ("border-bottom", "2px solid #1a4731"),
+            ]},
+            {"selector": "tbody tr:nth-child(even)", "props": [
+                ("background-color", "#f7f7f7"),
+            ]},
+            {"selector": "tbody tr:hover", "props": [
+                ("background-color", "#d4edda"),
+            ]},
+            {"selector": "table", "props": [
+                ("border-collapse", "collapse"),
+                ("width", "70%"),
+                ("margin", "auto"),
+            ]},
+        ])
+        .hide(axis="index")
+        .set_caption("Botanical constituents tested in Cell Painting assay")
+        .set_table_styles([{
+            "selector": "caption",
+            "props": [
+                ("font-size", "14px"),
+                ("font-weight", "bold"),
+                ("color", "#2c6e49"),
+                ("padding-bottom", "10px"),
+            ]
+        }], overwrite=False)
+    )
+    dfi.export(
+        _styled,
+        os.path.expanduser("~/Downloads/botanical_constituents_table.png"),
+        dpi=200,
+        table_conversion="chrome"  # or "matplotlib" if chrome not available
+    )
+    _styled
+    return
+
+
+@app.cell
+def _(
+    df_bsc_all_pod_annotations,
+    df_level5_bsc,
+    df_level6_bsc,
+    dic_botanicals_scode_name,
+    plt,
+):
+    # ── 1. Rebuild _df_level6_bsc_plantscode ─────────────────────────────────────
+    _df_level6_bsc_plantscode = df_level6_bsc.merge(
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant scode", "Plant name", "Constituent"]],
+        on="Metadata_compound", how="left"
+    )
+    _compound_to_plant_name = (
+        df_bsc_all_pod_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+    _mask = _df_level6_bsc_plantscode["Constituent"].isna()
+    _df_level6_bsc_plantscode.loc[_mask, "Constituent"] = (
+        _df_level6_bsc_plantscode.loc[_mask, "Metadata_compound"].map(_compound_to_plant_name)
+    )
+
+    # ── 2. Classify compounds ─────────────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+    _df_conc = df_level5_bsc[["Metadata_compound", "Metadata_concentration"]].drop_duplicates().copy()
+    _df_conc = _df_conc[_df_conc["Metadata_compound"] != "s0617825"]
+    _df_conc["Group"] = _df_conc["Metadata_compound"].apply(
+        lambda _c: "Botanical" if _c in _botanical_scodes else "Constituent"
+    )
+
+    # ── 3. Aggregate min/max/doses ────────────────────────────────────────────────
+    _constituent_lookup = (
+        _df_level6_bsc_plantscode[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    _df_agg = (
+        _df_conc.groupby(["Metadata_compound", "Group"])["Metadata_concentration"]
+        .agg(Min="min", Max="max", N="count")
+        .reset_index()
+    )
+    _df_agg["Label"] = _df_agg.apply(
+        lambda _r: dic_botanicals_scode_name.get(_r["Metadata_compound"])
+                   if _r["Group"] == "Botanical"
+                   else _constituent_lookup.get(_r["Metadata_compound"], _r["Metadata_compound"]),
+        axis=1
+    )
+
+    _df_bot = _df_agg[_df_agg["Group"] == "Botanical"].sort_values("Min").reset_index(drop=True)
+    _df_con = _df_agg[_df_agg["Group"] == "Constituent"].sort_values("Min").reset_index(drop=True)
+
+    # ── 4. Draw function ──────────────────────────────────────────────────────────
+    def _draw_barplot(_ax, _df, _color, _title):
+        _bar_height = 0.5
+        for _i, _row in _df.iterrows():
+            _left = _row["Min"]
+            _width = _row["Max"] - _row["Min"]
+
+            # bar spanning min to max
+            _ax.barh(
+                _i, _width, left=_left,
+                height=_bar_height, color=_color,
+                alpha=0.7, edgecolor="black", linewidth=0.4
+            )
+            # dot at min
+            _ax.scatter(_row["Min"], _i, color="black", s=20, zorder=5)
+            # dot at max
+            _ax.scatter(_row["Max"], _i, color="black", s=20, zorder=5)
+
+            # min value text (left of bar)
+            _ax.text(
+                _row["Min"], _i + _bar_height * 0.6,
+                f'{_row["Min"]:.2g} µM',
+                ha="left", va="bottom", fontsize=6.5, color="black"
+            )
+            # max value text (right of bar)
+            _ax.text(
+                _row["Max"], _i + _bar_height * 0.6,
+                f'{_row["Max"]:.2g} µM',
+                ha="right", va="bottom", fontsize=6.5, color="black"
+            )
+            # N doses text (inside bar)
+            if _width > 0:
+                _ax.text(
+                    _left + _width / 2, _i,
+                    f'n={_row["N"]}',
+                    ha="center", va="center", fontsize=6, color="white", fontweight="bold"
+                )
+
+        _ax.set_yticks(range(len(_df)))
+        _ax.set_yticklabels(_df["Label"], fontsize=8)
+        _ax.set_xscale("log")
+        _ax.set_xlabel("Concentration (µM, log scale)", fontsize=10)
+        _ax.set_title(_title, fontsize=11, fontweight="bold")
+        _ax.grid(axis="x", linestyle="--", alpha=0.4)
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
+        _ax.set_ylim(-0.8, len(_df) - 0.2)
+
+    # ── 5. Plot ───────────────────────────────────────────────────────────────────
+    _n_bot = len(_df_bot)
+    _n_con = len(_df_con)
+    _fig, (_ax_bot, _ax_con) = plt.subplots(
+        1, 2,
+        figsize=(20, max(_n_bot, _n_con) * 0.4 + 3)  # auto height based on n compounds
+    )
+
+    _draw_barplot(_ax_bot, _df_bot, "#2ca02c", "Botanicals — concentration range")
+    _draw_barplot(_ax_con, _df_con, "#1f77b4", "Constituents — concentration range")
+
+    plt.suptitle("Tested concentration ranges (Cell Painting)", fontsize=13, y=1.01)
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## UMAP level 4 filtered colored by botanicals""")
     return
 
@@ -247,8 +560,8 @@ def _(all_selected_features, df_level4_bsc, pd, umap):
     _concentration = df_level4_bsc["Metadata_concentration"].astype(float)
     # --- 2. Run UMAP for 2D projection
     reducer_bsc_4 = umap.UMAP(
-        n_neighbors=15,          # local neighborhood size
-        min_dist=0.1,            # controls cluster tightness
+        n_neighbors=50,          # local neighborhood size
+        min_dist=0.3,            # controls cluster tightness
         metric="cosine",      # or 'cosine' for morphology data
         random_state=42
     )
@@ -265,38 +578,56 @@ def _(all_selected_features, df_level4_bsc, pd, umap):
 
 
 @app.cell
-def _(df_umap_bsc_4, list_botanicals, px):
-    # Create a plotting category:
-    # botanicals keep their name, others become "Other"
-    df_umap_bsc_4["plot_group"] = df_umap_bsc_4["Metadata_compound"].where(
-        df_umap_bsc_4["Metadata_compound"].isin(list_botanicals),
-        "Other"
+def _(df_umap_bsc_4, dic_botanicals_scode_name, px):
+    # ── 1. Replace codes with actual botanical names ──────────────────────────────
+    # (Assumes you have a mapping dict like: code -> full name)
+    df_umap_bsc_4["Botanical_Name"] = df_umap_bsc_4["Metadata_compound"].map(dic_botanicals_scode_name)
+
+    # ── 2. Create plotting group: botanicals vs others ────────────────────────────
+    df_umap_bsc_4["plot_group"] = df_umap_bsc_4["Botanical_Name"].where(
+        df_umap_bsc_4["Botanical_Name"].isin(dic_botanicals_scode_name.values()),
+        "Constituents"
     )
 
+    # ── 3. Define color palette (consistent with your previous figures) ───────────
+    BOTANICAL_COLORS = {
+        name: color for name, color in zip(
+            dic_botanicals_scode_name.values(),
+            px.colors.qualitative.Set2
+        )
+    }
+    BOTANICAL_COLORS["Constituents"] = "lightgrey"
+
+    # ── 4. Plot ──────────────────────────────────────────────────────────────────
     _fig = px.scatter(
         df_umap_bsc_4.sample(frac=1, random_state=42).reset_index(drop=True),
         x="UMAP_1",
         y="UMAP_2",
         color="plot_group",
-        title="UMAP of Level 4 BSC Cell Painting Profiles",
+        title="UMAP of Level 4 Cell Painting Profiles",
         opacity=0.8,
         width=850,
         height=650,
-        color_discrete_sequence=px.colors.qualitative.Set2
+        color_discrete_map=BOTANICAL_COLORS
     )
 
-    # Force "Other" to gray
+    # ── 5. Improve marker style ───────────────────────────────────────────────────
     _fig.update_traces(
-        selector=dict(name="Other"),
-        marker=dict(color="lightgray")
+        marker=dict(size=6, line=dict(width=0))
     )
 
+    # ── 6. Layout styling (match your previous matplotlib style) ──────────────────
     _fig.update_layout(
-        template="plotly_white",
-        legend_title_text="BSC",
+        template="simple_white",
+        legend_title_text="",
         xaxis_title="UMAP 1",
-        yaxis_title="UMAP 2"
+        yaxis_title="UMAP 2",
+        font=dict(size=12, color="black"),
     )
+
+    # Remove gridlines for cleaner look
+    _fig.update_xaxes(showgrid=False, zeroline=False)
+    _fig.update_yaxes(showgrid=False, zeroline=False)
 
     _fig.show()
     return
@@ -525,7 +856,7 @@ def _(df_bsc_all_pod, df_umap_bsc_6, list_botanicals, np, px):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## POD Cell Painting VS MT VS LDH""")
+    mo.md(r"""## POD Cell Painting VS MT VS LDH [Mahalanobis distance + FastBMD]""")
     return
 
 
@@ -2171,6 +2502,3548 @@ def _(
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Features Interdependence score""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Per botanicals""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_interdependence_score,
+    dic_botanicals_scode_name,
+    list_botanicals,
+    np,
+    plt,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":        "#e41a1c",
+        "ER":         "#377eb8",
+        "AGP":        "#4daf4a",
+        "RNA":        "#984ea3",
+        "Mito":       "#ff7f00",
+        "Brightfield":"#a65628",
+    }
+
+    # Feature columns: only cp_POD_um rows have a feature column
+    # Extract category from feature name for each row
+    def _get_category(feature_name):
+        for _cat in _categories:
+            if _cat in str(feature_name):
+                return _cat
+        return None
+    # ── Filter to botanicals ──────────────────────────────────────────────────────
+    _df_inter = df_bsc_interdependence_score[
+        df_bsc_interdependence_score["Metadata_compound"].isin(list_botanicals)
+    ].copy()
+    _df_inter["Metadata_compound"] = _df_inter["Metadata_compound"].map(
+        lambda x: dic_botanicals_scode_name.get(x, x)
+    )
+
+    # ── Assign category from feature column ───────────────────────────────────────
+    _df_inter["category"] = _df_inter["feature"].apply(_get_category)
+
+    # ── Count features per compound per category ──────────────────────────────────
+    _df_inter_counts = (
+        _df_inter[_df_inter["category"].notna()]
+        .groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n")
+    )
+
+    # Pivot
+    _df_inter_pivot = (
+        _df_inter_counts.pivot(index="Metadata_compound", columns="category", values="n")
+        .fillna(0)
+    )
+    for _cat in _categories:
+        if _cat not in _df_inter_pivot.columns:
+            _df_inter_pivot[_cat] = 0
+    _df_inter_pivot = _df_inter_pivot[_categories]
+
+    # Order by total count
+    _df_inter_pivot["total"] = _df_inter_pivot.sum(axis=1)
+    _df_inter_pivot = _df_inter_pivot.sort_values("total", ascending=True)
+    _df_inter_pivot = _df_inter_pivot.drop(columns="total")
+
+    _compounds_inter = _df_inter_pivot.index.values
+    _y_pos = np.arange(len(_compounds_inter))
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(8, max(4, len(_compounds_inter) * 0.4)))
+
+    _left = np.zeros(len(_compounds_inter))
+    for _cat in _categories:
+        _vals_bar = _df_inter_pivot[_cat].values
+        _ax.barh(_y_pos, _vals_bar, left=_left,
+                 color=_cat_colors[_cat], height=0.6, alpha=0.85, label=_cat)
+        _left += _vals_bar
+
+    # Total label at end of each bar
+    for _i, _total in enumerate(_left):
+        _ax.text(_total + 0.5, _i, str(int(_total)), va="center", fontsize=8)
+
+    _ax.set_yticks(_y_pos)
+    _ax.set_yticklabels(_compounds_inter, fontsize=10)
+    _ax.set_xlabel("N features", fontsize=11)
+    _ax.set_title("Interdependence score — feature count per channel per botanical", fontsize=12)
+    _ax.legend(fontsize=9, loc="lower right")
+    _ax.tick_params(axis="x", labelsize=9)
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Per constituents""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_interdependence_score,
+    list_botanicals,
+    np,
+    plt,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":        "#e41a1c",
+        "ER":         "#377eb8",
+        "AGP":        "#4daf4a",
+        "RNA":        "#984ea3",
+        "Mito":       "#ff7f00",
+        "Brightfield":"#a65628",
+    }
+
+    def _get_category(feature_name):
+        for _cat in _categories:
+            if _cat in str(feature_name):
+                return _cat
+
+    # ── Filter to constituents ────────────────────────────────────────────────────
+    _df_inter = df_bsc_interdependence_score[
+        ~df_bsc_interdependence_score["Metadata_compound"].isin(list_botanicals)
+    ].copy()
+
+    # ── Assign category ───────────────────────────────────────────────────────────
+    _df_inter["category"] = _df_inter["feature"].apply(_get_category)
+
+    # ── Count features per constituent per category ───────────────────────────────
+    _df_inter_counts = (
+        _df_inter[_df_inter["category"].notna()]
+        .groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n")
+    )
+    _df_inter_pivot = (
+        _df_inter_counts.pivot(index="Metadata_compound", columns="category", values="n")
+        .fillna(0)
+    )
+    for _cat in _categories:
+        if _cat not in _df_inter_pivot.columns:
+            _df_inter_pivot[_cat] = 0
+    _df_inter_pivot = _df_inter_pivot[_categories]
+
+    # ── Order constituents by botanical then name ─────────────────────────────────
+    _annot_inter = df_bsc_annotations[
+        ~df_bsc_annotations["Metadata_compound"].isin(list_botanicals)
+    ].copy()
+    _plant_order_inter = [p for p in list_botanicals if p in _annot_inter["Plant scode"].values]
+    _plant_to_rank_inter = {p: i for i, p in enumerate(_plant_order_inter)}
+    _annot_inter["_plant_rank"] = _annot_inter["Plant scode"].map(_plant_to_rank_inter)
+
+    _primary_plant_inter = (
+        _annot_inter.sort_values("_plant_rank")
+        .drop_duplicates(subset="Metadata_compound", keep="first")
+        [["Metadata_compound", "Constituent", "_plant_rank"]]
+        .sort_values(["_plant_rank", "Constituent"])
+    )
+
+    _compounds_inter = _primary_plant_inter["Metadata_compound"].values
+    _constituent_labels_inter = _primary_plant_inter["Constituent"].values
+    _x_pos_inter = np.arange(len(_compounds_inter)) * 0.6
+
+    # ── Reorder pivot to match constituent order ──────────────────────────────────
+    _df_inter_pivot = (
+        _primary_plant_inter[["Metadata_compound"]]
+        .merge(_df_inter_pivot.reset_index(), on="Metadata_compound", how="left")
+        .fillna(0)
+        .set_index("Metadata_compound")[_categories]
+    )
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(8, max(6, len(_compounds_inter) * 0.20)))
+
+    _left = np.zeros(len(_compounds_inter))
+    for _cat in _categories:
+        _vals_bar = _df_inter_pivot[_cat].values
+        _ax.barh(_x_pos_inter, _vals_bar, left=_left,
+                 color=_cat_colors[_cat], height=0.3, alpha=0.85, label=_cat)
+        _left += _vals_bar
+
+    for _i, _total in enumerate(_left):
+        _ax.text(_total * 1.05, _x_pos_inter[_i], str(int(_total)), va="center", fontsize=6)
+
+    _ax.set_yticks(_x_pos_inter)
+    _ax.set_yticklabels(_constituent_labels_inter, fontsize=9)
+    _ax.set_xlabel("N features", fontsize=11)
+    _ax.set_title("Interdependence score — feature count per channel per constituent", fontsize=12)
+    _ax.legend(fontsize=9, loc="lower right")
+    _ax.tick_params(axis="x", labelsize=9)
+
+    plt.tight_layout()
+    _ax.set_yticks(_x_pos_inter)
+    _ax.set_yticklabels(_constituent_labels_inter, fontsize=9)
+    plt.draw()
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## POD Cell Painting VS MT VS LDH [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD CP MT LDH Table""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_all_pod_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    df_level6_bsc,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    pd,
+):
+    # ── 1. CP PAC global per compound ─────────────────────────────────────────────
+    _df_cp_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid    = _n_active[_n_active >= feature_wise_permutation_threshold].index
+
+    # All compounds ever seen in the featurewise data (pass or not)
+    _all_compounds_fw = _df_cp_passed["Metadata_compound"].unique()
+
+    _df_cp_valid = _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)].copy()
+
+    _cp_pac_series = (
+        _df_cp_valid
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .rename("CP PAC (µM)")
+    )
+    # Compounds that exist but didn't pass threshold → NaN in CP PAC
+    _cp_pac_series = _cp_pac_series.reindex(
+        pd.Index(_all_compounds_fw).union(_cp_pac_series.index)
+    )
+
+    # ── 2. CP PAC per compound per category ───────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    _df_cp_valid["category"] = _df_cp_valid["gene.id"].apply(_get_category)
+
+    _df_pac_cat = (
+        _df_cp_valid[_df_cp_valid["category"].notna()]
+        .groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .unstack(level="category")
+        .rename(columns={_cat: f"PAC {_cat} (µM)" for _cat in _categories})
+    )
+    # Reindex to include all compounds (NaN for those below threshold)
+    _df_pac_cat = _df_pac_cat.reindex(_cp_pac_series.index)
+
+    # ── 3. MTT POD per compound ───────────────────────────────────────────────────
+    _mtt_series = (
+        df_bsc_mtt_pod[df_bsc_mtt_pod["all.pass"] == True]
+        .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .min()
+        .rename("MTT POD (µM)")
+    )
+
+    # ── 4. LDH POD per compound ───────────────────────────────────────────────────
+    _ldh_series = (
+        df_bsc_ldh_pod[df_bsc_ldh_pod["all.pass"] == True]
+        .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .min()
+        .rename("LDH POD (µM)")
+    )
+
+    # ── 5. Rebuild compound display names ─────────────────────────────────────────
+    _df_level6_bsc_plantscode = df_level6_bsc.merge(
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant scode", "Plant name", "Constituent"]],
+        on="Metadata_compound", how="left"
+    )
+    _compound_to_plant_name = (
+        df_bsc_all_pod_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+    _mask = _df_level6_bsc_plantscode["Constituent"].isna()
+    _df_level6_bsc_plantscode.loc[_mask, "Constituent"] = (
+        _df_level6_bsc_plantscode.loc[_mask, "Metadata_compound"].map(_compound_to_plant_name)
+    )
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+    _constituent_lookup = (
+        _df_level6_bsc_plantscode[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    # ── 6. Merge all into one table ───────────────────────────────────────────────
+    # Union of all compound IDs across all sources
+    _all_cpd_ids = (
+        set(_cp_pac_series.index)
+        | set(_mtt_series.index)
+        | set(_ldh_series.index)
+    )
+    _all_cpd_index = pd.Index(sorted(_all_cpd_ids))
+
+    _df_table = (
+        pd.concat([
+            _cp_pac_series.reindex(_all_cpd_index),
+            _df_pac_cat.reindex(_all_cpd_index),
+            _mtt_series.reindex(_all_cpd_index),
+            _ldh_series.reindex(_all_cpd_index),
+        ], axis=1)
+        .reset_index()
+        .rename(columns={"index": "Compound ID"})
+    )
+
+    _df_table["Group"] = _df_table["Compound ID"].apply(
+        lambda _c: "Botanical" if _c in _botanical_scodes else "Constituent"
+    )
+    _df_table["Name"] = _df_table["Compound ID"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c) if _c in _botanical_scodes
+                   else _constituent_lookup.get(_c, _c)
+    )
+
+    # ── Flag compounds below threshold ───────────────────────────────────────────
+    _df_table["Below threshold"] = _df_table["Compound ID"].apply(
+        lambda _c: "✗" if _c in _all_compounds_fw and _c not in _valid else ""
+    )
+
+    # ── 7. Reorder + sort ─────────────────────────────────────────────────────────
+    _cat_pac_cols = [f"PAC {_cat} (µM)" for _cat in _categories if f"PAC {_cat} (µM)" in _df_table.columns]
+    _col_order    = (
+        ["Group", "Compound ID", "Name", "Below threshold", "CP PAC (µM)"]
+        + _cat_pac_cols
+        + ["MTT POD (µM)", "LDH POD (µM)"]
+    )
+    _df_table = (
+        _df_table[_col_order]
+        .sort_values(["Group", "CP PAC (µM)"])
+        .reset_index(drop=True)
+    )
+
+    # ── 8. Style ──────────────────────────────────────────────────────────────────
+    def _color_group(_val):
+        return "background-color: #d4edda" if _val == "Botanical" else "background-color: #d0e8f7"
+
+    def _color_threshold(_val):
+        return "background-color: #ffe0e0; color: #cc0000; font-weight: bold" if _val == "✗" else ""
+
+    def _fmt(_val):
+        if pd.isna(_val): return "—"
+        return f"{_val:.3g}"
+
+    _gradient_cols = ["CP PAC (µM)"] + _cat_pac_cols + ["MTT POD (µM)", "LDH POD (µM)"]
+    _fmt_dict      = {_col: _fmt for _col in _gradient_cols}
+
+    _styled = (
+        _df_table.style
+        .format(_fmt_dict)
+        .applymap(_color_group,      subset=["Group"])
+        .applymap(_color_threshold,  subset=["Below threshold"])
+        .set_properties(**{"font-size": "10px", "text-align": "center"})
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("font-size", "10px"), ("text-align", "center"),
+                ("background-color", "#f0f0f0"), ("font-weight", "bold"),
+                ("white-space", "nowrap")
+            ]},
+            {"selector": "td:nth-child(3)", "props": [("text-align", "left")]},
+        ])
+        .highlight_null(color="#f5f5f5")
+    )
+
+    for _col in _gradient_cols:
+        _col_vals = pd.to_numeric(_df_table[_col], errors="coerce").dropna()
+        if len(_col_vals) > 0:
+            _styled = _styled.background_gradient(
+                subset=[_col], cmap="RdYlGn",
+                vmin=_col_vals.min(), vmax=_col_vals.max()
+            )
+
+    _styled
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting VS MT VS LDH - All cytotoxicity [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(
+    combinations,
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    feature_wise_permutation_threshold,
+    mannwhitneyu,
+    mticker,
+    np,
+    plt,
+):
+    # ── 1. CP PAC ─────────────────────────────────────────────────────────────────
+    _df_cp_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid = _n_active[_n_active >= feature_wise_permutation_threshold].index
+    _cp_pac = (
+        _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)]
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .values
+    )
+
+    # ── 2. MTT POD ────────────────────────────────────────────────────────────────
+    _mtt_vals = (
+        df_bsc_mtt_pod[df_bsc_mtt_pod["all.pass"] == True]
+        .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .min()
+        .values
+    )
+
+    # ── 3. LDH POD ────────────────────────────────────────────────────────────────
+    _ldh_vals = (
+        df_bsc_ldh_pod[df_bsc_ldh_pod["all.pass"] == True]
+        .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .min()
+        .values
+    )
+
+    # ── 4. Pairwise Mann-Whitney U with Bonferroni correction ────────────────────
+    _data   = [_cp_pac, _mtt_vals, _ldh_vals]
+    _labels = ["CP PAC", "MTT POD", "LDH POD"]
+    _colors = ["steelblue", "darkorange", "green"]
+
+    _pairs = list(combinations(range(3), 2))  # (0,1), (0,2), (1,2)
+    _n_tests = len(_pairs)
+
+    _pvals = {}
+    for _i, _j in _pairs:
+        _, _p = mannwhitneyu(_data[_i], _data[_j], alternative="two-sided")
+        _p_corrected = min(_p * _n_tests, 1.0)  # Bonferroni
+        _pvals[(_i, _j)] = _p_corrected
+
+    def _stars(_p):
+        if _p < 0.001: return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else: return "ns"
+
+    # ── 5. Plot ───────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(6, 6))
+
+    _bp = _ax.boxplot(
+        _data,
+        positions=range(1, 4),
+        patch_artist=True,
+        vert=True,
+        widths=0.5,
+        flierprops=dict(marker=""),
+        medianprops=dict(color="black", linewidth=1.5),
+        whiskerprops=dict(linewidth=1),
+        capprops=dict(linewidth=1),
+    )
+    for _patch, _color in zip(_bp["boxes"], _colors):
+        _patch.set_facecolor(_color)
+        _patch.set_alpha(0.35)
+
+    for _i, (_v, _color) in enumerate(zip(_data, _colors), start=1):
+        _x = np.random.normal(_i, 0.08, size=len(_v))
+        _ax.scatter(_x, _v, color=_color, s=30, alpha=0.7, zorder=3)
+
+    _ax.set_yscale("log")
+    _ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.set_xticks(range(1, 4))
+    _ax.set_xticklabels(_labels, fontsize=11)
+    _ax.set_ylabel("POD (μM, log scale)", fontsize=11)
+    _ax.set_title("CP PAC vs MTT vs LDH POD\n(Mann-Whitney U, Bonferroni corrected)", fontsize=11)
+
+    # ── 6. Significance brackets ──────────────────────────────────────────────────
+    _y_max = max(max(_v) for _v in _data)
+    _y_top = np.log10(_y_max)
+    _bracket_gap = 0.18  # gap between brackets in log space
+
+    for _k, (_i, _j) in enumerate(_pairs):
+        _p = _pvals[(_i, _j)]
+        _sig = _stars(_p)
+        _x1, _x2 = _i + 1, _j + 1
+        _y = 10 ** (_y_top + _bracket_gap * (_k + 1))
+
+        # horizontal bracket
+        _ax.plot([_x1, _x1, _x2, _x2], [_y * 0.85, _y, _y, _y * 0.85],
+                 lw=1.0, color="black")
+        # stars + p-value
+        _ax.text(
+            (_x1 + _x2) / 2, _y * 1.02,
+            f"{_sig}  (p={_p:.3f})",
+            ha="center", va="bottom", fontsize=8
+        )
+
+    plt.draw()
+    _ax.set_ylim(top=10 ** (_y_top + _bracket_gap * (_n_tests + 1.5)))
+
+    for _i, _v in enumerate(_data, start=1):
+        _ax.text(_i, _ax.get_ylim()[0] * 0.7, f"n={len(_v)}",
+                 ha="center", va="top", fontsize=8, color="dimgrey")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(
+    Path,
+    combinations,
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    feature_wise_permutation_threshold,
+    mticker,
+    np,
+    plt,
+    wilcoxon,
+):
+    # ── 1. CP PAC ─────────────────────────────────────────────────────────────────
+    _df_cp_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid = _n_active[_n_active >= feature_wise_permutation_threshold].index
+    _cp_passed_filtered = _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)]
+
+    # ── 2. MTT POD ────────────────────────────────────────────────────────────────
+    _mtt_passed = df_bsc_mtt_pod[df_bsc_mtt_pod["all.pass"] == True]
+
+    # ── 3. LDH POD ────────────────────────────────────────────────────────────────
+    _ldh_passed = df_bsc_ldh_pod[df_bsc_ldh_pod["all.pass"] == True]
+
+    # ── 4. Keep only compounds present in ALL THREE ───────────────────────────────
+    _common_compounds = (
+        set(_cp_passed_filtered["Metadata_compound"].unique()) &
+        set(_mtt_passed["Metadata_compound"].unique()) &
+        set(_ldh_passed["Metadata_compound"].unique())
+    )
+    print(f"Common compounds across CP PAC, MTT, LDH: {len(_common_compounds)}")
+
+    # ── Ensure identical compound order for pairing ───────────────────────────────
+    _common_sorted = sorted(_common_compounds)
+
+    _cp_pac = (
+        _cp_passed_filtered[_cp_passed_filtered["Metadata_compound"].isin(_common_sorted)]
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reindex(_common_sorted)
+        .values
+    )
+    _mtt_vals = (
+        _mtt_passed[_mtt_passed["Metadata_compound"].isin(_common_sorted)]
+        .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .min()
+        .reindex(_common_sorted)
+        .values
+    )
+    _ldh_vals = (
+        _ldh_passed[_ldh_passed["Metadata_compound"].isin(_common_sorted)]
+        .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .min()
+        .reindex(_common_sorted)
+        .values
+    )
+
+    # ── Sanity check ──────────────────────────────────────────────────────────────
+    assert len(_cp_pac) == len(_mtt_vals) == len(_ldh_vals) == len(_common_sorted), \
+        "Arrays have different lengths — pairing is broken"
+    assert not any(np.isnan(_cp_pac)) and not any(np.isnan(_mtt_vals)) and not any(np.isnan(_ldh_vals)), \
+        "NaNs detected after reindex — some compounds missing from a group"
+
+    # ── Pairwise Wilcoxon signed-rank with Bonferroni correction ─────────────────
+    _data    = [_cp_pac, _mtt_vals, _ldh_vals]
+    _labels  = ["CP PAC", "MTT POD", "LDH POD"]
+    _colors  = ["steelblue", "darkorange", "green"]
+    _pairs   = list(combinations(range(3), 2))
+    _n_tests = len(_pairs)
+    _pvals   = {}
+    for _i, _j in _pairs:
+        _, _p = wilcoxon(_data[_i], _data[_j], alternative="two-sided")
+        _pvals[(_i, _j)] = min(_p * _n_tests, 1.0)
+
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+
+    # ── 6. Plot ───────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(6, 6))
+
+    _bp = _ax.boxplot(
+        _data,
+        positions=range(1, 4),
+        patch_artist=True,
+        vert=True,
+        widths=0.5,
+        flierprops=dict(marker=""),
+        medianprops=dict(color="black", linewidth=1.5),
+        whiskerprops=dict(linewidth=1),
+        capprops=dict(linewidth=1),
+    )
+
+    # ── Box colors ────────────────────────────────────────────────────────────────
+    for _patch, _color in zip(_bp["boxes"], _colors):
+        _patch.set_facecolor(_color)
+        _patch.set_alpha(0.35)
+
+    # ── Scatter points ────────────────────────────────────────────────────────────
+    for _i, (_v, _color) in enumerate(zip(_data, _colors), start=1):
+        _x = np.random.normal(_i, 0.08, size=len(_v))
+        _ax.scatter(_x, _v, color=_color, s=25, alpha=0.6, zorder=3)
+
+    # ── Significance brackets (IMPROVED) ──────────────────────────────────────────
+    _y_max = max(max(_v) for _v in _data)
+    _y_top = np.log10(_y_max)
+    _bracket_gap = 0.2
+
+    for _k, (_i, _j) in enumerate(_pairs):
+        _p = _pvals[(_i, _j)]
+        _sig = _stars(_p)
+        _n = len(_data[_i])  # paired, so same n
+
+        _x1, _x2 = _i + 1, _j + 1
+        _y = 10 ** (_y_top + _bracket_gap * (_k + 1))
+
+        _ax.plot(
+            [_x1, _x1, _x2, _x2],
+            [_y * 0.88, _y, _y, _y * 0.88],
+            lw=0.9,
+            color="black"
+        )
+
+        _ax.text(
+            (_x1 + _x2) / 2,
+            _y * 1.02,
+            f"{_sig}  p={_p:.3f} (n={_n})",
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            fontstyle="italic",
+        )
+
+    # ── Axes ─────────────────────────────────────────────────────────────────────
+    _ax.set_yscale("log")  # IMPORTANT: first
+
+    _ax.set_xlim(0.5, 3.5)
+    _ax.set_ylim(top=10 ** (_y_top + _bracket_gap * (len(_pairs) + 2)))
+
+    _ax.set_ylabel("Concentration (μM)", fontsize=11)
+
+    # X labels with n
+    _ax.set_xticks(range(1, 4))
+    _ax.set_xticklabels(
+        [f"{lab}" for lab, vals in zip(_labels, _data)],
+        fontsize=10
+    )
+
+    # ── Y ticks (FIXED: visible dashes at 1,10,100,1000) ─────────────────────────
+    _ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.tick_params(axis="y", which="major", colors="black", length=0, direction="out", labelsize=9)
+    _ax.tick_params(axis="y", which="minor", colors="grey",  length=0, direction="out", labelsize=6)
+
+    # X ticks
+    _ax.tick_params(axis="x", which="major", length=5, width=1, direction="out")
+
+    # ── Style ─────────────────────────────────────────────────────────────────────
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+
+    _ax.spines["left"].set_color("black")
+    _ax.spines["left"].set_linewidth(0.5)
+
+    _ax.spines["bottom"].set_color("black")
+    _ax.spines["bottom"].set_linewidth(0.5)
+
+    _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
+
+    plt.tight_layout()
+
+    plt.savefig(
+        Path.home() / "Downloads" / "boxplot_cp_mtt_ldh.png",
+        dpi=200,
+        bbox_inches="tight"
+    )
+
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting  - Botanicals [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    list_botanicals,
+    np,
+    pd,
+    plt,
+    ticker,
+):
+    # Filter to botanicals and rename
+    _df_passed = df_bsc_cp_pod_all_featurewise[df_bsc_cp_pod_all_featurewise["all.pass"] == True]
+    _df_passed = _df_passed[_df_passed["Metadata_compound"].isin(list_botanicals)].copy()
+    _df_passed["Metadata_compound"] = _df_passed["Metadata_compound"].map(lambda x: dic_botanicals_scode_name.get(x, x))
+
+    _df_all = df_bsc_cp_pod_all_featurewise[df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(list_botanicals)].copy()
+    _df_all["Metadata_compound"] = _df_all["Metadata_compound"].map(lambda x: dic_botanicals_scode_name.get(x, x))
+
+    _mtt_lookup = df_bsc_mtt_pod[
+        (df_bsc_mtt_pod["all.pass"] == True) & (df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
+    ].set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+    _mtt_lookup.index = _mtt_lookup.index.map(lambda x: dic_botanicals_scode_name.get(x, x))
+
+    _ldh_lookup = df_bsc_ldh_pod[
+        (df_bsc_ldh_pod["all.pass"] == True) & (df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
+    ].set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+    _ldh_lookup.index = _ldh_lookup.index.map(lambda x: dic_botanicals_scode_name.get(x, x))
+
+    _df_counts = _df_all.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _compounds = _df_counts["Metadata_compound"].values
+    _x_pos = np.arange(len(_compounds))
+
+    # Compute PAC only on passed features
+    _df_pac = _df_passed.groupby("Metadata_compound")["cp_POD_um"].quantile(0.05, interpolation="linear").reset_index(name="PAC")
+
+    _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(16, max(6, len(_compounds) * 0.4)),
+                                        sharey=True,
+                                        gridspec_kw={"width_ratios": [4, 1]})
+    _legend_mtt_added = False
+    _legend_ldh_added = False
+
+    for _i, _compound in enumerate(_compounds):
+        _vals = _df_passed[_df_passed["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _pac_row = _df_pac[_df_pac["Metadata_compound"] == _compound]["PAC"].values
+
+        if len(_vals) == 0:
+            _ax1.scatter([0], [_i], alpha=0.4, color="grey", s=15, zorder=2, marker="x")
+        else:
+            _pac = _pac_row[0]
+            _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+            _ax1.scatter(_vals, _jitter, alpha=0.4, color="steelblue", s=15, zorder=2)
+            _ax1.boxplot(_vals, positions=[_i], widths=0.4, patch_artist=True, vert=False,
+                        boxprops=dict(facecolor="lightblue", alpha=0.5),
+                        flierprops=dict(marker=""), medianprops=dict(color="navy"),
+                        zorder=3)
+            _ax1.plot([_pac, _pac], [_i - 0.3, _i + 0.3], color="red", linewidth=1.5, zorder=4)
+
+        # MTT line
+        if _compound in _mtt_lookup.index:
+            _mtt_val = _mtt_lookup[_compound]
+            if pd.notna(_mtt_val):
+                _label = "MTT POD" if not _legend_mtt_added else None
+                _ax1.plot([_mtt_val, _mtt_val], [_i - 0.3, _i + 0.3], color="darkorange", linewidth=1.5, zorder=5, label=_label)
+                _legend_mtt_added = True
+
+        # LDH line
+        if _compound in _ldh_lookup.index:
+            _ldh_val = _ldh_lookup[_compound]
+            if pd.notna(_ldh_val):
+                _label = "LDH POD" if not _legend_ldh_added else None
+                _ax1.plot([_ldh_val, _ldh_val], [_i - 0.3, _i + 0.3], color="green", linewidth=1.5, zorder=5, label=_label)
+                _legend_ldh_added = True
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_compounds, fontsize=8)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per compound BMD (log)")
+    _ax1.plot([], [], color="red", linewidth=1.5, label="PAC (5th percentile)")
+    _ax1.legend(fontsize=8)
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # Bar plot — count of passing features per compound (0 if none)
+    _df_counts_passed = _df_passed.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _df_counts = _df_counts.merge(_df_counts_passed.rename(columns={"n_rows": "n_passed"}), on="Metadata_compound", how="left").fillna({"n_passed": 0})
+    _df_counts["n_passed"] = _df_counts["n_passed"].astype(int)
+
+    _ax2.barh(_x_pos, _df_counts["n_passed"], color="steelblue", alpha=0.7, height=0.4)
+    for _i, _v in enumerate(_df_counts["n_passed"]):
+        _ax2.text(_v * 1.05, _i, str(_v), va="center", fontsize=7)
+    _ax2.axvline(x=feature_wise_permutation_threshold, color="black", linewidth=1.5, label="Permutation threshold")
+    _ax2.legend(fontsize=8)
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Count")
+    _ax2.set_xscale("log")
+    _ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax2.tick_params(axis="x", rotation=45, labelsize=8)
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting  - Botanicals per Categories [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(df_bsc_cp_pod_all_featurewise):
+    df_bsc_cp_pod_all_featurewise
+    return
+
+
+@app.cell
+def _(
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    list_botanicals,
+    mlines,
+    np,
+    pd,
+    plt,
+    ticker,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":        "#e41a1c",
+        "ER":         "#377eb8",
+        "AGP":        "#4daf4a",
+        "RNA":        "#984ea3",
+        "Mito":       "#ff7f00",
+        "Brightfield":"#a65628",
+    }
+
+    # Feature columns: only cp_POD_um rows have a feature column
+    # Extract category from feature name for each row
+    def _get_category(feature_name):
+        for _cat in _categories:
+            if _cat in str(feature_name):
+                return _cat
+        return None
+
+    # ── Filter to botanicals ──────────────────────────────────────────────────────
+    _df_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _df_passed = _df_passed[_df_passed["Metadata_compound"].isin(list_botanicals)].copy()
+    _df_passed["Metadata_compound"] = _df_passed["Metadata_compound"].map(
+        lambda x: dic_botanicals_scode_name.get(x, x)
+    )
+
+    _df_all = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(list_botanicals)
+    ].copy()
+    _df_all["Metadata_compound"] = _df_all["Metadata_compound"].map(
+        lambda x: dic_botanicals_scode_name.get(x, x)
+    )
+
+    # ── Assign category from feature column name ──────────────────────────────────
+    # feature name is stored in a column e.g. "feature" — adjust if column name differs
+    _df_passed["category"] = _df_passed["gene.id"].apply(_get_category)
+    _df_all["category"] = _df_all["gene.id"].apply(_get_category)
+
+    # ── Order compounds ───────────────────────────────────────────────────────────
+    _df_counts = _df_all.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _compounds = _df_counts["Metadata_compound"].values
+    _x_pos = np.arange(len(_compounds))
+
+    # ── PAC per compound (all features, for boxplot) ──────────────────────────────
+    _df_pac_all = (
+        _df_passed.groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC")
+    )
+
+    # ── PAC per compound per category ────────────────────────────────────────────
+    _df_pac_cat = (
+        _df_passed[_df_passed["category"].notna()]
+        .groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC_cat")
+    )
+
+    # ── Feature counts per compound per category (for stacked bar) ───────────────
+    _df_cat_counts = (
+        _df_passed[_df_passed["category"].notna()]
+        .groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n")
+    )
+    # Pivot for stacking
+    _df_cat_pivot = (
+        _df_cat_counts.pivot(index="Metadata_compound", columns="category", values="n")
+        .reindex(_compounds)
+        .fillna(0)
+    )
+    # Ensure all categories present
+    for _cat in _categories:
+        if _cat not in _df_cat_pivot.columns:
+            _df_cat_pivot[_cat] = 0
+    _df_cat_pivot = _df_cat_pivot[_categories]
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _fig, (_ax1, _ax2) = plt.subplots(
+        1, 2, figsize=(16, max(6, len(_compounds) * 0.4)),
+        sharey=True,
+        gridspec_kw={"width_ratios": [4, 1]}
+    )
+
+    # Boxplot + jittered dots per compound
+    for _i, _compound in enumerate(_compounds):
+        _vals = _df_passed[_df_passed["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _cats = _df_passed[_df_passed["Metadata_compound"] == _compound]["category"].values
+
+        if len(_vals) == 0:
+            _ax1.scatter([0], [_i], alpha=0.4, color="grey", s=15, zorder=2, marker="x")
+        else:
+            # Boxplot (all features, grey)
+            _ax1.boxplot(
+                _vals, positions=[_i], widths=0.35, patch_artist=True, vert=False,
+                boxprops=dict(facecolor="lightgrey", alpha=0.4),
+                flierprops=dict(marker=""),
+                medianprops=dict(color="black", linewidth=1.2),
+                whiskerprops=dict(linewidth=0.8),
+                capprops=dict(linewidth=0.8),
+                zorder=2
+            )
+            # Jittered dots colored by category — vectorized
+            _jitter = np.random.normal(0, 0.07, size=len(_vals))
+
+            # Grey transparent layer for all points
+            _ax1.scatter(
+                _vals, _i + _jitter,
+                alpha=0.15, color="grey", s=12, zorder=2
+            )
+
+        # PAC lines per category
+        for _cat in _categories:
+            _pac_row = _df_pac_cat[
+                (_df_pac_cat["Metadata_compound"] == _compound) &
+                (_df_pac_cat["category"] == _cat)
+            ]["PAC_cat"].values
+            if len(_pac_row) == 0 or pd.isna(_pac_row[0]):
+                continue
+            _ax1.plot(
+                [_pac_row[0], _pac_row[0]], [_i - 0.3, _i + 0.3],
+                color=_cat_colors[_cat], linewidth=1.5, zorder=4,
+                label=f"{_cat} PAC" if _i == 0 else None
+            )
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_compounds, fontsize=8)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per botanical — colored by channel")
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # Legend for categories
+    _handles = [
+        mlines.Line2D([0], [0], color=_cat_colors[_cat], linewidth=2, label=f"{_cat} PAC")
+        for _cat in _categories
+    ] 
+    _ax1.legend(handles=_handles, fontsize=7, loc="lower right", ncol=2)
+
+    # ── ax2: stacked bar — n features per category ───────────────────────────────
+    _left = np.zeros(len(_compounds))
+    for _cat in _categories:
+        _vals_bar = _df_cat_pivot[_cat].values
+        _ax2.barh(_x_pos, _vals_bar, left=_left, color=_cat_colors[_cat],
+                  height=0.5, alpha=0.85, label=_cat)
+        _left += _vals_bar
+
+    _ax2.axvline(x=feature_wise_permutation_threshold, color="black",
+                 linewidth=1.5, linestyle="--", label="Threshold")
+    for _i, _total in enumerate(_left):
+        _ax2.text(_total + 0.5, _i, str(int(_total)), va="center", fontsize=7)
+
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Features\nper channel")
+    _ax2.set_xscale("log")
+    _ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax2.tick_params(axis="x", rotation=45, labelsize=8)
+    _ax2.legend(fontsize=7, loc="lower right")
+
+    plt.tight_layout()
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_compounds, fontsize=8)
+    plt.draw()
+    _fig.subplots_adjust(wspace=0.05)
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting - Constituents [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(df_bsc_annotations):
+    df_bsc_annotations
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    list_botanicals,
+    np,
+    os,
+    pd,
+    plt,
+    ticker,
+):
+    # Build constituent list filtered to those in df_bsc_cp_pod_all_featurewise
+    _constituents_in_data = df_bsc_cp_pod_all_featurewise["Metadata_compound"].unique()
+    _annot = df_bsc_annotations[df_bsc_annotations["Metadata_compound"].isin(_constituents_in_data)].copy()
+
+    # Assign each constituent to its first plant following list_botanicals order
+    _plant_order = [p for p in list_botanicals if p in _annot["Plant scode"].values]
+    _plant_to_rank = {p: i for i, p in enumerate(_plant_order)}
+    _annot["_plant_rank"] = _annot["Plant scode"].map(_plant_to_rank)
+
+    # Primary plant = lowest rank in list_botanicals
+    _primary_plant = (
+        _annot.sort_values("_plant_rank")
+        .drop_duplicates(subset="Metadata_compound", keep="first")
+        [["Metadata_compound", "Plant scode", "Plant name", "Constituent", "_plant_rank"]]
+        .rename(columns={"Plant scode": "primary_plant_scode", "Plant name": "primary_plant_name"})
+    )
+
+    # Sort constituents: by primary plant rank, then constituent name
+    _primary_plant = _primary_plant.sort_values(["_plant_rank", "Constituent"])
+    _compounds = _primary_plant["Metadata_compound"].values
+    _constituent_labels = _primary_plant["Constituent"].values
+    #_x_pos = np.arange(len(_compounds))
+    spacing = 0.6   # try 0.5–0.7
+    _x_pos = np.arange(len(_compounds)) * spacing
+
+    # All plants per constituent (for colored markers)
+    _constituent_to_plants = (
+        _annot.groupby("Metadata_compound")["Plant name"].apply(list).to_dict()
+    )
+
+    # Color palette per plant
+    _unique_plants = [dic_botanicals_scode_name[p] for p in _plant_order]
+    _plant_colors = dict(zip(_unique_plants, plt.cm.tab20.colors[:len(_unique_plants)]))
+
+    # Filter passed features to constituents only
+    _df_passed = df_bsc_cp_pod_all_featurewise[
+        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
+        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_compounds))
+    ].copy()
+
+    _df_all = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_compounds)
+    ].copy()
+
+    _mtt_lookup = df_bsc_mtt_pod[
+        (df_bsc_mtt_pod["all.pass"] == True) & (df_bsc_mtt_pod["Metadata_compound"].isin(_compounds))
+    ].set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+
+    _ldh_lookup = df_bsc_ldh_pod[
+        (df_bsc_ldh_pod["all.pass"] == True) & (df_bsc_ldh_pod["Metadata_compound"].isin(_compounds))
+    ].set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+
+    _df_pac = _df_passed.groupby("Metadata_compound")["cp_POD_um"].quantile(0.05, interpolation="linear").reset_index(name="PAC")
+    _df_counts = _df_all.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _df_counts_passed = _df_passed.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _df_counts = _df_counts.merge(_df_counts_passed.rename(columns={"n_rows": "n_passed"}), on="Metadata_compound", how="left").fillna({"n_passed": 0})
+    _df_counts["n_passed"] = _df_counts["n_passed"].astype(int)
+    # Reorder to match _compounds
+    _df_counts = _primary_plant[["Metadata_compound"]].merge(_df_counts, on="Metadata_compound", how="left").fillna({"n_passed": 0})
+    _df_counts["n_passed"] = _df_counts["n_passed"].astype(int)
+
+    _fig, (_ax1, _ax2, _ax3) = plt.subplots(1, 3, figsize=(16, max(6, len(_compounds) * 0.20)),
+                                              sharey=True,
+                                              gridspec_kw={"width_ratios": [3, 1, 0.2]})
+
+    _legend_mtt_added = False
+    _legend_ldh_added = False
+    for _i, _compound in enumerate(_compounds):
+        _y = _x_pos[_i]
+        _vals = _df_passed[_df_passed["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _pac_row = _df_pac[_df_pac["Metadata_compound"] == _compound]["PAC"].values
+        if len(_vals) == 0:
+            _ax1.scatter([0], [_y], alpha=0.4, color="grey", s=8, zorder=2, marker="x")
+        else:
+            _pac = _pac_row[0]
+            _jitter = np.random.normal(_y, 0.04, size=len(_vals))
+            _ax1.scatter(_vals, _jitter, alpha=0.3, color="steelblue", s=4, zorder=2)
+            _ax1.boxplot(_vals, positions=[_y], widths=0.15, patch_artist=True, vert=False,
+                        boxprops=dict(facecolor="lightblue", alpha=0.5),
+                        flierprops=dict(marker=""), medianprops=dict(color="navy", linewidth=0.8),
+                        whiskerprops=dict(linewidth=0.6), capprops=dict(linewidth=0.6),
+                        zorder=3)
+            _ax1.plot([_pac, _pac], [_y - 0.15, _y + 0.15], color="red", linewidth=1.0, zorder=4)
+        if _compound in _mtt_lookup.index:
+            _mtt_val = _mtt_lookup[_compound]
+            if pd.notna(_mtt_val):
+                _label = "MTT POD" if not _legend_mtt_added else None
+                _ax1.plot([_mtt_val, _mtt_val], [_y - 0.15, _y + 0.15], color="darkorange", linewidth=1.0, zorder=5, label=_label)
+                _legend_mtt_added = True
+        if _compound in _ldh_lookup.index:
+            _ldh_val = _ldh_lookup[_compound]
+            if pd.notna(_ldh_val):
+                _label = "LDH POD" if not _legend_ldh_added else None
+                _ax1.plot([_ldh_val, _ldh_val], [_y - 0.15, _y + 0.15], color="green", linewidth=1.0, zorder=5, label=_label)
+                _legend_ldh_added = True
+        _plants_for_compound = _constituent_to_plants.get(_compound, [])
+        for _j, _plant_name in enumerate(_plants_for_compound):
+            _color = _plant_colors.get(_plant_name, "grey")
+            _ax3.scatter([_j], [_y], color=_color, s=20, zorder=3, marker="s")
+    # Ensure labels align with _compounds order
+    _label_map = dict(zip(_primary_plant["Metadata_compound"], _primary_plant["Constituent"]))
+    _constituent_labels = [_label_map[c] for c in _compounds]
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_constituent_labels, fontsize=9)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per constituent (log)")
+    _ax1.plot([], [], color="red", linewidth=1.5, label="PAC (5th percentile)")
+    _ax1.legend(fontsize=8)
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # Bar plot
+    _ax2.barh(_x_pos, _df_counts["n_passed"], color="steelblue", alpha=0.7, height=0.4)
+    for _i, _v in enumerate(_df_counts["n_passed"]):
+        _y = _x_pos[_i]
+        _ax2.text(_v * 1.05, _y, str(_v), va="center", fontsize=7)
+    _ax2.axvline(x=feature_wise_permutation_threshold, color="black", linewidth=1.5, label="Permutation threshold")
+    _ax2.legend(fontsize=8)
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Count")
+    _ax2.set_xscale("log")
+    _ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax2.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # Plant marker legend panel
+    _ax3.set_xlim(-0.5, 4)
+    _ax3.set_yticks(_x_pos)
+    _ax3.set_yticklabels([])
+    _ax3.set_xticks([])
+    _ax3.set_title("Plant")
+    for _plant_name, _color in _plant_colors.items():
+        _ax3.scatter([], [], color=_color, s=40, marker="s", label=_plant_name)
+    _ax3.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.2, 1), frameon=True)
+    _ax3.axis("off")
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_constituent_labels, fontsize=9)
+    plt.draw()  # force render before save
+    _fig.subplots_adjust(wspace=0.02)
+    _fig.savefig(os.path.expanduser("~/Downloads/constituent_POD_distribution.pdf"))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting  - Constituents per categories [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    list_botanicals,
+    np,
+    os,
+    pd,
+    plt,
+    ticker,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":        "#e41a1c",
+        "ER":         "#377eb8",
+        "AGP":        "#4daf4a",
+        "RNA":        "#984ea3",
+        "Mito":       "#ff7f00",
+        "Brightfield":"#a65628",
+    }
+
+    # Feature columns: only cp_POD_um rows have a feature column
+    # Extract category from feature name for each row
+    def _get_category(feature_name):
+        for _cat in _categories:
+            if _cat in str(feature_name):
+                return _cat
+        return None
+    # Build constituent list filtered to those in df_bsc_cp_pod_all_featurewise
+    _constituents_in_data = df_bsc_cp_pod_all_featurewise["Metadata_compound"].unique()
+    _annot = df_bsc_annotations[df_bsc_annotations["Metadata_compound"].isin(_constituents_in_data)].copy()
+
+    # Assign each constituent to its first plant following list_botanicals order
+    _plant_order = [p for p in list_botanicals if p in _annot["Plant scode"].values]
+    _plant_to_rank = {p: i for i, p in enumerate(_plant_order)}
+    _annot["_plant_rank"] = _annot["Plant scode"].map(_plant_to_rank)
+
+    # Primary plant = lowest rank in list_botanicals
+    _primary_plant = (
+        _annot.sort_values("_plant_rank")
+        .drop_duplicates(subset="Metadata_compound", keep="first")
+        [["Metadata_compound", "Plant scode", "Plant name", "Constituent", "_plant_rank"]]
+        .rename(columns={"Plant scode": "primary_plant_scode", "Plant name": "primary_plant_name"})
+    )
+
+    # Sort constituents: by primary plant rank, then constituent name
+    _primary_plant = _primary_plant.sort_values(["_plant_rank", "Constituent"])
+    _compounds = _primary_plant["Metadata_compound"].values
+    _constituent_labels = _primary_plant["Constituent"].values
+    #_x_pos = np.arange(len(_compounds))
+    _spacing = 0.6   # try 0.5–0.7
+    _x_pos = np.arange(len(_compounds)) * _spacing
+
+    # All plants per constituent (for colored markers)
+    _constituent_to_plants = (
+        _annot.groupby("Metadata_compound")["Plant name"].apply(list).to_dict()
+    )
+
+    # Color palette per plant
+    _unique_plants = [dic_botanicals_scode_name[p] for p in _plant_order]
+    _plant_colors = dict(zip(_unique_plants, plt.cm.tab20.colors[:len(_unique_plants)]))
+
+    # Filter passed features to constituents only
+    _df_passed = df_bsc_cp_pod_all_featurewise[
+        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
+        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_compounds))
+    ].copy()
+
+    _df_all = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_compounds)
+    ].copy()
+    # ── Assign category ───────────────────────────────────────────────────────────
+    _df_passed["category"] = _df_passed["gene.id"].apply(_get_category)
+    _df_all["category"] = _df_all["gene.id"].apply(_get_category)
+
+    # ── PAC per constituent per category ─────────────────────────────────────────
+    _df_pac_cat = (
+        _df_passed[_df_passed["category"].notna()]
+        .groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC_cat")
+    )
+
+    # ── Feature counts per constituent per category ───────────────────────────────
+    _df_cat_counts = (
+        _df_passed[_df_passed["category"].notna()]
+        .groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n")
+    )
+    _df_cat_pivot = (
+        _df_cat_counts.pivot(index="Metadata_compound", columns="category", values="n")
+        .fillna(0)
+    )
+    for _cat in _categories:
+        if _cat not in _df_cat_pivot.columns:
+            _df_cat_pivot[_cat] = 0
+    _df_cat_pivot = _df_cat_pivot[_categories]
+    # Reorder to match _compounds
+    _df_cat_pivot = (
+        _primary_plant[["Metadata_compound"]]
+        .merge(_df_cat_pivot.reset_index(), on="Metadata_compound", how="left")
+        .fillna(0)
+        .set_index("Metadata_compound")[_categories]
+    )
+
+    # ── Figure ────────────────────────────────────────────────────────────────────
+    _fig, (_ax1, _ax2, _ax3) = plt.subplots(
+        1, 3, figsize=(16, max(6, len(_compounds) * 0.20)),
+        sharey=True,
+        gridspec_kw={"width_ratios": [3, 1, 0.2]}
+    )
+
+    _legend_cat_added = set()
+
+    for _i, _compound in enumerate(_compounds):
+        _y = _x_pos[_i]
+        _vals = _df_passed[_df_passed["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _cats = _df_passed[_df_passed["Metadata_compound"] == _compound]["category"].values
+
+        if len(_vals) == 0:
+            _ax1.scatter([0], [_y], alpha=0.4, color="grey", s=8, zorder=2, marker="x")
+        else:
+            # Boxplot (grey outline)
+            _ax1.boxplot(
+                _vals, positions=[_y], widths=0.15, patch_artist=True, vert=False,
+                boxprops=dict(facecolor="lightgrey", alpha=0.3),
+                flierprops=dict(marker=""),
+                medianprops=dict(color="black", linewidth=0.8),
+                whiskerprops=dict(linewidth=0.6),
+                capprops=dict(linewidth=0.6),
+                zorder=2
+            )
+            # Grey transparent dots underneath
+            _jitter = np.random.normal(0, 0.04, size=len(_vals))
+            _ax1.scatter(_vals, _y + _jitter, alpha=0.15, color="grey", s=4, zorder=2)
+
+            # Colored dots by category
+            _cats_arr = np.array(_cats)
+            for _cat in _categories:
+                _mask = _cats_arr == _cat
+                if _mask.sum() == 0:
+                    continue
+                _ax1.scatter(
+                    _vals[_mask], _y + _jitter[_mask],
+                    alpha=0.5, color=_cat_colors[_cat], s=4, zorder=3
+                )
+
+            # PAC lines per category
+            for _cat in _categories:
+                _pac_row = _df_pac_cat[
+                    (_df_pac_cat["Metadata_compound"] == _compound) &
+                    (_df_pac_cat["category"] == _cat)
+                ]["PAC_cat"].values
+                if len(_pac_row) == 0 or pd.isna(_pac_row[0]):
+                    continue
+                _label = _cat if _cat not in _legend_cat_added else None
+                _ax1.plot(
+                    [_pac_row[0], _pac_row[0]], [_y - 0.12, _y + 0.12],
+                    color=_cat_colors[_cat], linewidth=1.0, zorder=4, label=_label
+                )
+                _legend_cat_added.add(_cat)
+
+        # Plant markers ax3
+        for _j, _plant_name in enumerate(_constituent_to_plants.get(_compound, [])):
+            _color = _plant_colors.get(_plant_name, "grey")
+            _ax3.scatter([_j], [_y], color=_color, s=20, zorder=3, marker="s")
+
+    # ── ax1 formatting ────────────────────────────────────────────────────────────
+    _label_map = dict(zip(_primary_plant["Metadata_compound"], _primary_plant["Constituent"]))
+    _constituent_labels = [_label_map[c] for c in _compounds]
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_constituent_labels, fontsize=9)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per constituent — colored by channel")
+    _ax1.legend(fontsize=7, loc="lower right", ncol=2)
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # ── ax2: stacked bar per category ────────────────────────────────────────────
+    _left = np.zeros(len(_compounds))
+    for _cat in _categories:
+        _vals_bar = _df_cat_pivot[_cat].values
+        _ax2.barh(_x_pos, _vals_bar, left=_left,
+                  color=_cat_colors[_cat], height=0.3, alpha=0.85, label=_cat)
+        _left += _vals_bar
+    _ax2.axvline(x=feature_wise_permutation_threshold, color="black",
+                 linewidth=1.2, linestyle="--", label="Threshold")
+    for _i, _total in enumerate(_left):
+        _y = _x_pos[_i]
+        _ax2.text(_total * 1.05, _y, str(int(_total)), va="center", fontsize=6)
+    _ax2.legend(fontsize=6, loc="lower right")
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Count")
+    _ax2.set_xscale("log")
+    _ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax2.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # ── ax3: plant marker panel ───────────────────────────────────────────────────
+    _ax3.set_xlim(-0.5, 4)
+    _ax3.set_yticks(_x_pos)
+    _ax3.set_yticklabels([])
+    _ax3.set_xticks([])
+    _ax3.set_title("Plant")
+    for _plant_name, _color in _plant_colors.items():
+        _ax3.scatter([], [], color=_color, s=40, marker="s", label=_plant_name)
+    _ax3.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.2, 1), frameon=True)
+    _ax3.axis("off")
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_constituent_labels, fontsize=9)
+    plt.draw()
+    _fig.subplots_adjust(wspace=0.02)
+    _fig.savefig(os.path.expanduser("~/Downloads/constituent_POD_distribution.pdf"))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### POD Cell Painting - Botanicals VS Constituents [Feature wise + FastBMD]""")
+    return
+
+
+@app.cell
+def _(df_bsc_annotations):
+    df_bsc_annotations[df_bsc_annotations["Plant name"] == "Asian ginseng"]
+    return
+
+
+@app.cell
+def _(
+    Line2D,
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    list_botanicals,
+    mpatches,
+    mticker,
+    np,
+    pd,
+    plt,
+):
+    # ── 1. PAC per constituent ────────────────────────────────────────────────────
+    _constituents_in_data = (
+        df_bsc_cp_pod_all_featurewise["Metadata_compound"]
+        .unique()
+    )
+    _constituents_in_data = [c for c in _constituents_in_data if c not in list_botanicals]
+
+    _annot = df_bsc_annotations[
+        df_bsc_annotations["Metadata_compound"].isin(_constituents_in_data)
+    ].copy()
+
+    _df_const_passed = df_bsc_cp_pod_all_featurewise[
+        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
+        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_constituents_in_data))
+    ]
+
+    # Keep only constituents with n active features > threshold
+    _n_active = (
+        _df_const_passed.groupby("Metadata_compound")["cp_POD_um"]
+        .count()
+        .reset_index(name="n_active")
+    )
+    _active_compounds = _n_active.loc[
+        _n_active["n_active"] > feature_wise_permutation_threshold,
+        "Metadata_compound"
+    ].values
+
+    _constituent_pac = (
+        _df_const_passed[_df_const_passed["Metadata_compound"].isin(_active_compounds)]
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC")
+    )
+
+    _pac_lookup = _constituent_pac.set_index("Metadata_compound")["PAC"].to_dict()
+    len(_pac_lookup)
+    # ── 2. PAC per botanical ──────────────────────────────────────────────────────
+    _df_bot_passed = df_bsc_cp_pod_all_featurewise[
+        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
+        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(list_botanicals))
+    ]
+
+    _n_active_bot = (
+        _df_bot_passed.groupby("Metadata_compound")["cp_POD_um"]
+        .count()
+        .reset_index(name="n_active")
+    )
+    _active_botanicals = _n_active_bot.loc[
+        _n_active_bot["n_active"] > feature_wise_permutation_threshold,
+        "Metadata_compound"
+    ].values
+
+    _botanical_pac_dict = (
+        _df_bot_passed[_df_bot_passed["Metadata_compound"].isin(_active_botanicals)]
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .to_dict()
+    )
+    # ── MTT and LDH POD per botanical ────────────────────────────────────────────
+    _mtt_pac_dict = (
+        df_bsc_mtt_pod[
+            (df_bsc_mtt_pod["all.pass"] == True) &
+            (df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .min()
+        .to_dict()
+    )
+
+    _ldh_pac_dict = (
+        df_bsc_ldh_pod[
+            (df_bsc_ldh_pod["all.pass"] == True) &
+            (df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .min()
+        .to_dict()
+    )
+    # ── 3. Map constituents to their botanicals ───────────────────────────────────
+    _constituent_to_plants = _annot.groupby("Metadata_compound")["Plant scode"].apply(list).to_dict()
+
+    _rows = []
+    for _compound, _plants in _constituent_to_plants.items():
+        if _compound not in _pac_lookup:
+            continue
+        for _plant in _plants:
+            if _plant in list_botanicals:
+                _rows.append({
+                    "Metadata_compound": _compound,
+                    "Plant name": dic_botanicals_scode_name[_plant],
+                    "Plant scode": _plant,
+                    "PAC": _pac_lookup[_compound]
+                })
+    _df_long = pd.DataFrame(_rows)
+
+    # ── 4. Order botanicals by median constituent PAC ─────────────────────────────
+    _order = (
+        _df_long.groupby("Plant name")["PAC"]
+        .median()
+        .sort_values()
+        .index.tolist()
+    )
+
+    # ── 5. Colors ─────────────────────────────────────────────────────────────────
+    _cmap = plt.cm.tab20
+    _plant_colors = {plant: _cmap(_i % _cmap.N) for _i, plant in enumerate(_order)}
+    # ── Custom botanical colors ───────────────────────────────────────────────────
+    _plant_colors = {
+        "Kratom":"#e6194B",
+        "Ashwagandha":"#3cb44b",
+        "Comfrey":"#ffe119",
+        "Usnea":"#4363d8",
+        "Asian ginseng":"#f58231",
+        "Blue cohosh":"#42d4f4",
+        "Yohimbe":"#f032e6",
+        "Kava":"#fabed4",
+        "Milk thistle":"#469990",
+        "Goldenseal":"#dcbeff",
+        "Aristolochia":"#9A6324",
+        "Green tea extract":"#fffac8",
+        "Ephedra":"#800000",
+    }
+    # ── 6. Plot ───────────────────────────────────────────────────────────────────
+    _data_ordered = [
+        _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
+        for _plant in _order
+    ]
+
+    _fig, (_ax, _ax2) = plt.subplots(1, 2, figsize=(14, 8),
+                                       sharey=True,
+                                       gridspec_kw={"width_ratios": [3, 1]})
+
+    _bp = _ax.boxplot(
+        _data_ordered,
+        positions=range(1, len(_order) + 1),
+        patch_artist=True,
+        vert=False,
+        widths=0.5,
+        flierprops=dict(marker=""),
+        medianprops=dict(color="black", linewidth=1.5),
+        whiskerprops=dict(linewidth=1),
+        capprops=dict(linewidth=1),
+    )
+
+    # Color boxes
+    for _patch, _plant in zip(_bp["boxes"], _order):
+        _patch.set_facecolor(_plant_colors[_plant])
+        _patch.set_alpha(0.4)
+
+    # Jittered constituent dots
+    for _i, _plant in enumerate(_order, start=1):
+        _y = _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
+        if len(_y) == 0:
+            continue
+        _x = np.random.normal(_i, 0.08, size=len(_y))
+        _ax.plot(_y, _x, "o", alpha=0.55, markersize=5, color=_plant_colors[_plant])
+
+    _legend_cp_added = False
+    _legend_mtt_added = False
+    _legend_ldh_added = False
+
+    for _i, _plant in enumerate(_order, start=1):
+        _scode = next((k for k, v in dic_botanicals_scode_name.items() if v == _plant), None)
+        if _scode is None:
+            continue
+        _y_cp = _botanical_pac_dict.get(_scode)
+        if _y_cp is not None and pd.notna(_y_cp):
+            _ax.plot([_y_cp, _y_cp], [_i - 0.35, _i + 0.35],
+             color="steelblue", linewidth=2.5, solid_capstyle="round",
+             linestyle="--",
+             label="CP PAC" if not _legend_cp_added else None)
+            _legend_cp_added = True
+        _y_mtt = _mtt_pac_dict.get(_scode)
+        if _y_mtt is not None and pd.notna(_y_mtt):
+            _ax.plot([_y_mtt, _y_mtt], [_i - 0.35, _i + 0.35],
+             color="darkorange", linewidth=2.5, solid_capstyle="round",
+             linestyle="--",
+             label="MTT POD" if not _legend_mtt_added else None)
+            _legend_mtt_added = True
+        _y_ldh = _ldh_pac_dict.get(_scode)
+        if _y_ldh is not None and pd.notna(_y_ldh):
+            _ax.plot([_y_ldh, _y_ldh], [_i - 0.35, _i + 0.35],
+             color="green", linewidth=2.5, solid_capstyle="round",
+             linestyle="--",
+             label="LDH POD" if not _legend_ldh_added else None)
+            _legend_ldh_added = True
+
+    _ax.set_yticks(range(1, len(_order) + 1))
+    _ax.set_yticklabels(_order, fontsize=14)
+    _ax.tick_params(axis="y", labelleft=True)
+    _ax.set_xscale("log")
+    _ax.xaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.xaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax.xaxis.set_minor_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+
+    _ax.tick_params(axis="x", which="major", colors="black", length=0, direction="out", labelsize=12, labelrotation=30)
+    _ax.tick_params(axis="x", which="minor", colors="grey",  length=0, direction="out", labelsize=10, labelrotation=30)
+
+    #_ax.set_ylabel("Botanical")
+    _ax.set_xlabel("Concentration (μM)", fontsize=16)
+    #_ax.set_title("Constituent PAC distribution per botanical")
+    _ax.set_ylim(0.5, len(_order) + 0.5)
+
+    _legend_handles = [
+        Line2D([0], [0], color="steelblue",        linewidth=2, linestyle="--", label="CP PAC"),
+        Line2D([0], [0], color="darkorange", linewidth=2, linestyle="--", label="MT POD"),
+        Line2D([0], [0], color="green",      linewidth=2, linestyle="--", label="LDH POD"),
+        Line2D([0], [0], marker="o", color="grey", markersize=6,
+               linestyle="none", label="Constituent CP PAC"),
+    ]
+    _ax.legend(
+        handles=_legend_handles,
+        loc="lower right",
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=12,
+        borderpad=0.8,
+    )
+
+    # ── ax2: active vs total constituents per botanical ───────────────────────────
+    # Total known constituents per botanical (from annotations, regardless of data)
+    _total_known = (
+        df_bsc_annotations[df_bsc_annotations["Plant scode"].isin(list_botanicals)]
+        .groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    # Active = has a PAC (all.pass == True AND present in _pac_lookup)
+    _active_counts = (
+        _df_long.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    for _i, _plant in enumerate(_order, start=1):
+        _scode = next((k for k, v in dic_botanicals_scode_name.items() if v == _plant), None)
+        if _scode is None:
+            continue
+        _color = _plant_colors[_plant]
+        _total = _total_known.get(_scode, 0)
+        _active = _active_counts.get(_scode, 0)
+
+        _ax2.barh(_i, _total, color="lightgrey", height=0.5, zorder=2)
+        _ax2.barh(_i, _active, color=_color, height=0.5, alpha=0.85, zorder=3)
+        _ax2.tick_params(axis="x", labelsize=12)
+        _ax2.text(_total + 0.3, _i, f"{_active}/{_total}", va="center", fontsize=10)  # was 7
+
+    _ax2.set_yticks(range(1, len(_order) + 1))
+    _ax2.set_yticklabels([])
+    _ax2.set_xlabel("Number of constituents", fontsize=16)
+    #_ax2.set_title("Active / total")
+
+    # Shared legend for ax2
+    _ax2.barh([], [], color="lightgrey", label="Total")
+    _ax2.barh([], [], color="grey", alpha=0.85, label="Active (CP PAC)")
+
+    _legend_handles2 = [
+        mpatches.Patch(color="lightgrey", label="Total known"),
+        mpatches.Patch(color="grey", alpha=0.85, label="Active (CP PAC)"),
+    ]
+    _ax2.legend(
+        handles=_legend_handles2,
+        loc="lower right",
+        bbox_to_anchor=(1, 0.074),
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=12,
+        borderpad=0.8,
+    )
+
+    plt.tight_layout()
+    _ax.set_yticks(range(1, len(_order) + 1))
+    _ax.set_yticklabels(_order, fontsize=9)
+    _ax.set_facecolor("white")
+    _ax2.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+    _ax.set_yticklabels(_order, fontsize=16)
+    for _a in [_ax, _ax2]:
+        _a.spines["top"].set_visible(False)
+        _a.spines["right"].set_visible(False)
+        _a.spines["left"].set_visible(True)
+        _a.spines["left"].set_color("black")
+        _a.spines["bottom"].set_color("black")
+        _a.spines["bottom"].set_linewidth(0.5)
+        _a.spines["left"].set_linewidth(0.5)
+    plt.draw()
+    _fig.subplots_adjust(wspace=0.05)
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## POD feature wise cytotoxicity""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    dic_botanicals_scode_name,
+    list_botanicals,
+    np,
+    pd,
+    plt,
+    ticker,
+):
+    # ── Build constituent MTT/LDH toxicity lookup ─────────────────────────────────
+    _const_mtt_lookup = (
+        df_bsc_mtt_pod[df_bsc_mtt_pod["all.pass"] == True]
+        .set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .to_dict()
+    )
+    _const_ldh_lookup = (
+        df_bsc_ldh_pod[df_bsc_ldh_pod["all.pass"] == True]
+        .set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .to_dict()
+    )
+    _mtt_pac_dict = (
+        df_bsc_mtt_pod[
+            (df_bsc_mtt_pod["all.pass"] == True) &
+            (df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .to_dict()
+    )
+
+    _ldh_pac_dict = (
+        df_bsc_ldh_pod[
+            (df_bsc_ldh_pod["all.pass"] == True) &
+            (df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .to_dict()
+    )
+    # ── Build rows: one per (botanical, constituent, endpoint) ────────────────────
+    _rows = []
+    for _scode in list_botanicals:
+        _plant_name = dic_botanicals_scode_name.get(_scode, _scode)
+
+        # Botanical POD
+        _bot_mtt = _mtt_pac_dict.get(_scode)
+        _bot_ldh = _ldh_pac_dict.get(_scode)
+
+        # Constituents of this botanical
+        _constituents = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ]["Metadata_compound"].unique()
+
+        for _cmpd in _constituents:
+            _cname = df_bsc_annotations[
+                df_bsc_annotations["Metadata_compound"] == _cmpd
+            ]["Constituent"].iloc[0]
+            _rows.append({
+                "botanical":       _plant_name,
+                "botanical_scode": _scode,
+                "constituent":     _cname,
+                "constituent_scode": _cmpd,
+                "bot_mtt":         _bot_mtt,
+                "bot_ldh":         _bot_ldh,
+                "const_mtt":       _const_mtt_lookup.get(_cmpd),
+                "const_ldh":       _const_ldh_lookup.get(_cmpd),
+            })
+
+    _df_plot = pd.DataFrame(_rows)
+
+    # ── Keep only botanicals that are toxic in at least one endpoint ──────────────
+    _toxic_botanicals = _df_plot[
+        _df_plot["bot_mtt"].notna() | _df_plot["bot_ldh"].notna()
+    ]["botanical"].unique()
+    _df_plot = _df_plot[_df_plot["botanical"].isin(_toxic_botanicals)].copy()
+
+    # Order botanicals by MTT POD (then LDH)
+    _bot_order = (
+        _df_plot.drop_duplicates("botanical")
+        .sort_values(["bot_mtt", "bot_ldh"])
+        ["botanical"].tolist()
+    )
+
+    # ── Color: constituent toxic (POD ≤ botanical POD) vs not ─────────────────────
+    def _dot_color(const_val, bot_val):
+        if pd.isna(const_val):
+            return "lightgrey"   # no toxicity data
+        if pd.isna(bot_val):
+            return "steelblue"   # constituent toxic but botanical not tested
+        return "crimson" if const_val <= bot_val else "steelblue"
+
+    _df_plot["color_mtt"] = _df_plot.apply(lambda r: _dot_color(r["const_mtt"], r["bot_mtt"]), axis=1)
+    _df_plot["color_ldh"] = _df_plot.apply(lambda r: _dot_color(r["const_ldh"], r["bot_ldh"]), axis=1)
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _n_bot = len(_bot_order)
+    _fig, (_ax_mtt, _ax_ldh) = plt.subplots(
+        1, 2,
+        figsize=(16, max(5, _n_bot * 0.6)),
+        sharey=True
+    )
+
+    for _ax, _endpoint, _bot_col, _const_col, _color_col in [
+        (_ax_mtt, "MTT", "bot_mtt", "const_mtt", "color_mtt"),
+        (_ax_ldh, "LDH", "bot_ldh", "const_ldh", "color_ldh"),
+    ]:
+        for _i, _plant in enumerate(_bot_order):
+            _sub = _df_plot[_df_plot["botanical"] == _plant]
+            _bot_val = _sub[_bot_col].iloc[0]
+
+            # Botanical reference line
+            if pd.notna(_bot_val):
+                _ax.axvline(_bot_val, ymin=(_i) / _n_bot, ymax=(_i + 1) / _n_bot,
+                            color="black", linewidth=1.2, linestyle="--", zorder=2)
+                _ax.plot([_bot_val], [_i], marker="D", color="black",
+                         markersize=6, zorder=4, label="Botanical POD" if _i == 0 else None)
+
+            # Constituent dots
+            for _, _row in _sub.iterrows():
+                _val = _row[_const_col]
+                if pd.isna(_val):
+                    continue
+                _jitter = np.random.uniform(-0.25, 0.25)
+                _ax.scatter([_val], [_i + _jitter],
+                            color=_row[_color_col], s=30, alpha=0.8, zorder=3,
+                            edgecolors="white", linewidths=0.3)
+
+        _ax.set_yticks(range(_n_bot))
+        _ax.set_yticklabels(_bot_order, fontsize=9)
+        _ax.set_xscale("log")
+        _ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+        _ax.tick_params(axis="x", rotation=45, labelsize=8)
+        _ax.set_xlabel("POD (μM, log scale)", fontsize=9)
+        _ax.set_title(f"{_endpoint} — Botanical POD vs Constituent POD", fontsize=10)
+        _ax.set_ylim(-0.5, _n_bot - 0.5)
+
+        # Legend
+        from matplotlib.lines import Line2D
+        _handles = [
+            Line2D([0], [0], marker="D", color="black", linestyle="--", markersize=6, label="Botanical POD"),
+            Line2D([0], [0], marker="o", color="crimson",   linestyle="", markersize=6, label="Constituent ≤ botanical (more/equally toxic)"),
+            Line2D([0], [0], marker="o", color="steelblue", linestyle="", markersize=6, label="Constituent > botanical (less toxic)"),
+            Line2D([0], [0], marker="o", color="lightgrey", linestyle="", markersize=6, label="No constituent data"),
+        ]
+        _ax.legend(handles=_handles, fontsize=7, loc="lower right")
+
+    plt.tight_layout()
+    _fig.subplots_adjust(wspace=0.05)
+    _fig
+    return (Line2D,)
+
+
+@app.cell
+def _(
+    Line2D,
+    Path,
+    df_bsc_annotations,
+    df_bsc_ldh_pod,
+    df_bsc_mtt_pod,
+    dic_botanicals_scode_name,
+    list_botanicals,
+    mticker,
+    np,
+    pd,
+    plt,
+):
+    _mtt_pac_dict = (
+        df_bsc_mtt_pod[
+            (df_bsc_mtt_pod["all.pass"] == True) &
+            (df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .to_dict()
+    )
+
+    _ldh_pac_dict = (
+        df_bsc_ldh_pod[
+            (df_bsc_ldh_pod["all.pass"] == True) &
+            (df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .to_dict()
+    )
+
+    _const_mtt_lookup = (
+        df_bsc_mtt_pod[df_bsc_mtt_pod["all.pass"] == True]
+        .set_index("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .to_dict()
+    )
+    _const_ldh_lookup = (
+        df_bsc_ldh_pod[df_bsc_ldh_pod["all.pass"] == True]
+        .set_index("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .to_dict()
+    )
+
+    # ── Build long dataframe ──────────────────────────────────────────────────────
+    _rows = []
+    for _scode in list_botanicals:
+        _plant_name = dic_botanicals_scode_name.get(_scode, _scode)
+        _bot_mtt = _mtt_pac_dict.get(_scode)
+        _bot_ldh = _ldh_pac_dict.get(_scode)
+
+        if pd.isna(_bot_mtt) and pd.isna(_bot_ldh):
+            continue
+
+        _constituents = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ][["Metadata_compound", "Constituent"]].drop_duplicates()
+
+        for _, _crow in _constituents.iterrows():
+            _cmpd  = _crow["Metadata_compound"]
+            _cname = _crow["Constituent"]
+            _c_mtt = _const_mtt_lookup.get(_cmpd)
+            _c_ldh = _const_ldh_lookup.get(_cmpd)
+            if pd.isna(_c_mtt) and pd.isna(_c_ldh):
+                continue
+            _rows.append({
+                "botanical":       _plant_name,
+                "botanical_scode": _scode,
+                "constituent":     _cname,
+                "bot_mtt":         _bot_mtt,
+                "bot_ldh":         _bot_ldh,
+                "const_mtt":       _c_mtt,
+                "const_ldh":       _c_ldh,
+            })
+
+    _df_plot = pd.DataFrame(_rows)
+
+    # ── Order botanicals by MTT POD, constituents by min POD within botanical ─────
+    _bot_order = (
+        _df_plot.drop_duplicates("botanical")
+        .sort_values(["bot_mtt", "bot_ldh"])
+        ["botanical"].tolist()
+    )
+
+    _df_plot["_min_pod"] = _df_plot[["const_mtt", "const_ldh"]].min(axis=1)
+
+    _rows_ordered = []
+    for _plant in _bot_order:
+        _sub = _df_plot[_df_plot["botanical"] == _plant].sort_values("_min_pod", ascending=False)
+        _rows_ordered.append(_sub)
+    _df_sorted = pd.concat(_rows_ordered).reset_index(drop=True)
+    _df_sorted["_y"] = np.arange(len(_df_sorted))
+
+    # ── Colors (CUSTOM BOTANICAL PALETTE) ─────────────────────────────────────────
+    _mtt_color = "darkorange"
+    _ldh_color = "green"
+
+    _plant_bg_colors = {
+        "Kratom":"#e6194B",
+        "Ashwagandha":"#3cb44b",
+        "Comfrey":"#ffe119",
+        "Usnea":"#4363d8",
+        "Asian ginseng":"#f58231",
+        "Blue cohosh":"#42d4f4",
+        "Yohimbe":"#f032e6",
+        "Kava":"#fabed4",
+        "Milk thistle":"#469990",
+        "Goldenseal":"#dcbeff",
+        "Aristolochia":"#9A6324",
+        "Green tea extract":"#fffac8",
+        "Ephedra":"#800000",
+    }
+
+    # fallback if new plant appears
+    _default_color = "#cccccc"
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _n = len(_df_sorted)
+    _fig, _ax = plt.subplots(figsize=(12, max(2, _n * 0.20)))
+
+    # ── Background bands + botanical lines ────────────────────────────────────────
+    for _pi, _plant in enumerate(_bot_order):
+        _grp = _df_sorted[_df_sorted["botanical"] == _plant]
+        _y_min = _grp["_y"].min() - 0.5
+        _y_max = _grp["_y"].max() + 0.5
+        _y_mid = (_y_min + _y_max) / 2
+
+        _color = _plant_bg_colors.get(_plant, _default_color)
+
+        # Background band
+        _ax.axhspan(_y_min, _y_max, color=_color, alpha=0.08, zorder=0)
+
+        # Botanical vertical lines
+        _bot_mtt = _grp["bot_mtt"].iloc[0]
+        _bot_ldh = _grp["bot_ldh"].iloc[0]
+
+        if pd.notna(_bot_mtt):
+            _ax.plot([_bot_mtt, _bot_mtt], [_y_min, _y_max],
+                     color=_mtt_color, linewidth=2, linestyle="--",
+                     alpha=0.8, zorder=2,
+                     label="Botanical MTT POD" if _pi == 0 else None)
+
+        if pd.notna(_bot_ldh):
+            _ax.plot([_bot_ldh, _bot_ldh], [_y_min, _y_max],
+                     color=_ldh_color, linewidth=2, linestyle="--",
+                     alpha=0.8, zorder=2,
+                     label="Botanical LDH POD" if _pi == 0 else None)
+
+        # Botanical label (RIGHT SIDE)
+        _ax.annotate(
+            _plant,
+            xy=(1.01, _y_mid),
+            xycoords=("axes fraction", "data"),
+            fontsize=12,
+            fontweight="bold",
+            va="center",
+            color="black",
+            rotation=30
+        )
+
+    # ── Constituent dots ──────────────────────────────────────────────────────────
+    for _, _row in _df_sorted.iterrows():
+        _y = _row["_y"]
+
+        if pd.notna(_row["const_mtt"]):
+            _ax.scatter(
+                [_row["const_mtt"]], [_y],
+                color=_mtt_color, s=40, zorder=4,
+                alpha=0.9, marker="o",
+                edgecolors="white", linewidths=0.4,
+                label="Constituent MTT" if _y == 0 else None
+            )
+
+        if pd.notna(_row["const_ldh"]):
+            _ax.scatter(
+                [_row["const_ldh"]], [_y],
+                color=_ldh_color, s=40, zorder=4,
+                alpha=0.9, marker="s",
+                edgecolors="white", linewidths=0.4,
+                label="Constituent LDH" if _y == 0 else None
+            )
+
+    # ── Axes formatting ───────────────────────────────────────────────────────────
+    _ax.set_yticks(_df_sorted["_y"])
+    _ax.set_yticklabels(_df_sorted["constituent"], fontsize=10)
+
+    _ax.set_xscale("log")
+
+    # ✅ LOG TICKS (major + minor like your previous plot)
+    _ax.xaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.xaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+
+    _ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.xaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.tick_params(axis="x", which="major", colors="black", length=0, direction="out", labelsize=9, labelrotation=30)
+    _ax.tick_params(axis="x", which="minor", colors="grey",  length=0, direction="out", labelsize=6, labelrotation=30)
+
+    _ax.tick_params(axis="y", which="major", length=3, width=0.8)
+
+    _ax.set_xlabel("Concentration (μM)", fontsize=11)
+
+    _ax.set_ylim(-0.5, _n - 0.5)
+
+    # ── Grid & spines ─────────────────────────────────────────────────────────────
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+
+    _ax.spines["left"].set_linewidth(0.5)
+    _ax.spines["bottom"].set_linewidth(0.5)
+
+    _ax.grid(True, axis="x", linestyle="--", alpha=0.3)
+
+    # ── Legend ────────────────────────────────────────────────────────────────────
+    _handles = [
+        Line2D([0], [0], color=_mtt_color, linewidth=2, linestyle="--", label="Botanical MTT POD"),
+        Line2D([0], [0], color=_ldh_color, linewidth=2, linestyle="--", label="Botanical LDH POD"),
+        Line2D([0], [0], marker="o", color=_mtt_color, linestyle="", markersize=6, label="Constituent MTT POD"),
+        Line2D([0], [0], marker="s", color=_ldh_color, linestyle="", markersize=6, label="Constituent LDH POD"),
+    ]
+
+    _ax.legend(handles=_handles,
+        loc="upper left",
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=9,
+        borderpad=0.8,
+    )
+
+    plt.tight_layout()
+
+    plt.savefig(
+        Path.home() / "Downloads" / "botanical_constituent_plot.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Number Categories feature wise comparison""")
+    return
+
+
+@app.cell
+def _(
+    combinations,
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    kruskal,
+    np,
+    pd,
+    wilcoxon,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+    # ── Filter: all.pass == True + globally valid compounds ───────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _n_total = _df_feat.groupby("Metadata_compound").size()
+    _valid_compounds = _n_total[_n_total >= feature_wise_permutation_threshold].index
+    _df_feat = _df_feat[_df_feat["Metadata_compound"].isin(_valid_compounds)].copy()
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+    _df_feat = _df_feat[_df_feat["category"].notna()].copy()
+
+    # ── Link compounds to botanical / constituent via df_bsc_annotations ──────────
+    _annot = (
+        df_bsc_annotations[["Metadata_compound", "Constituent", "Plant scode"]]
+        .drop_duplicates()
+        .copy()
+    )
+    _annot["Botanical"] = _annot["Plant scode"].map(dic_botanicals_scode_name)
+
+    # ── PAC per compound per category: 5th percentile of cp_POD_um ───────────────
+    _df_pac = (
+        _df_feat.groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC")
+    )
+
+    # ── Pivot: rows = compounds, columns = categories ─────────────────────────────
+    _df_pivot = _df_pac.pivot(
+        index="Metadata_compound", columns="category", values="PAC"
+    ).reindex(columns=_categories)
+
+    # ── ANOVA per compound: Kruskal-Wallis across categories ─────────────────────
+    # (each compound has one PAC per category → use the feature-level values)
+    # ── Define helper first ───────────────────────────────────────────────────────
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+    _anova_rows = []
+
+    for _cpd in _valid_compounds:
+        _sub = _df_feat[_df_feat["Metadata_compound"] == _cpd]
+
+        # Per-category raw POD values for KW test
+        _groups = []
+        _cat_pacs = {}
+        for _cat in _categories:
+            _vals = _sub.loc[_sub["category"] == _cat, "cp_POD_um"].values
+            if len(_vals) >= 2:
+                _groups.append(_vals)
+            _cat_pacs[_cat] = np.quantile(_vals, 0.05) if len(_vals) >= 1 else np.nan
+
+        # Kruskal-Wallis (need at least 2 groups with >=2 values)
+        if len(_groups) >= 2:
+            _kw_stat, _kw_p = kruskal(*_groups)
+        else:
+            _kw_stat, _kw_p = np.nan, np.nan
+
+        # Pairwise Wilcoxon on raw feature values within compound
+        _pair_results = {}
+        _cats_available = [
+            _cat for _cat in _categories
+            if len(_sub.loc[_sub["category"] == _cat, "cp_POD_um"].values) >= 2
+        ]
+        _cpairs = list(combinations(_cats_available, 2))
+        _n_tests = len(_cpairs)
+
+        for _cat_a, _cat_b in _cpairs:
+            _a = _sub.loc[_sub["category"] == _cat_a, "cp_POD_um"].values
+            _b = _sub.loc[_sub["category"] == _cat_b, "cp_POD_um"].values
+            # Trim to same length for Wilcoxon (use min length, sorted)
+            _min_n = min(len(_a), len(_b))
+            try:
+                _, _p = wilcoxon(
+                    np.sort(_a)[:_min_n],
+                    np.sort(_b)[:_min_n],
+                    alternative="two-sided"
+                )
+                _p_corr = min(_p * _n_tests, 1.0)
+            except Exception:
+                _p_corr = np.nan
+            _pair_results[f"{_cat_a} vs {_cat_b}"] = _p_corr
+
+        # Lookup botanical / constituent
+        _annot_row = _annot[_annot["Metadata_compound"] == _cpd]
+        _constituent = _annot_row["Constituent"].iloc[0]   if len(_annot_row) else _cpd
+        _botanical   = _annot_row["Botanical"].iloc[0]     if len(_annot_row) else ""
+        _plant_scode = _annot_row["Plant scode"].iloc[0]   if len(_annot_row) else ""
+
+        _row = {
+            "Botanical":        _botanical,
+            "Plant scode":      _plant_scode,
+            "Constituent":      _constituent,
+            "Metadata_compound": _cpd,
+            "KW_stat":          round(_kw_stat, 3) if not np.isnan(_kw_stat) else np.nan,
+            "KW_p":             _kw_p,
+            "KW_sig":           _stars(_kw_p) if not np.isnan(_kw_p) else "n/a",
+        }
+        # Add PAC per category
+        for _cat in _categories:
+            _row[f"PAC_{_cat}"] = round(_cat_pacs[_cat], 3) if not np.isnan(_cat_pacs.get(_cat, np.nan)) else np.nan
+        # Add pairwise p-values
+        for _pair_key, _pv in _pair_results.items():
+            _row[f"p_{_pair_key}"] = round(_pv, 4) if not np.isnan(_pv) else np.nan
+            _row[f"sig_{_pair_key}"] = _stars(_pv) if not np.isnan(_pv) else "n/a"
+
+        _anova_rows.append(_row)
+
+    _df_anova = (
+        pd.DataFrame(_anova_rows)
+        .sort_values(["Botanical", "Constituent"])
+        .reset_index(drop=True)
+    )
+
+    # ── Display styled table ──────────────────────────────────────────────────────
+    _pac_cols  = [f"PAC_{_cat}" for _cat in _categories]
+    _sig_cols  = [c for c in _df_anova.columns if c.startswith("sig_")]
+    _p_cols    = [c for c in _df_anova.columns if c.startswith("p_")]
+    _id_cols   = ["Botanical", "Constituent", "KW_stat", "KW_p", "KW_sig"]
+    _show_cols = _id_cols + _pac_cols + _sig_cols
+
+    _df_display = _df_anova[_show_cols].copy()
+
+    def _color_sig(_val):
+        _cmap = {"***": "background-color: #d73027; color: white; font-weight: bold",
+                 "**":  "background-color: #fc8d59; font-weight: bold",
+                 "*":   "background-color: #fee090",
+                 "ns":  "background-color: #f0f0f0; color: #999",
+                 "n/a": "color: #cccccc"}
+        return _cmap.get(str(_val), "")
+
+    def _color_pac(_val):
+        if pd.isna(_val): return "color: #cccccc"
+        return ""
+
+    def _color_kw(_val):
+        try:
+            _p = float(_val)
+            if _p < 0.001:  return "background-color: #d73027; color: white; font-weight: bold"
+            elif _p < 0.01: return "background-color: #fc8d59; font-weight: bold"
+            elif _p < 0.05: return "background-color: #fee090"
+            else:           return "background-color: #f0f0f0; color: #999"
+        except:
+            return ""
+
+    _styled = (
+        _df_display.style
+        .format({
+            **{_c: lambda x: f"{x:.2f}" if not pd.isna(x) else "—" for _c in _pac_cols},
+            "KW_stat": lambda x: f"{x:.2f}" if not pd.isna(x) else "—",
+            "KW_p":    lambda x: f"{x:.2e}" if not pd.isna(x) else "—",
+        })
+        .applymap(_color_sig, subset=_sig_cols + ["KW_sig"])
+        .applymap(_color_pac, subset=_pac_cols)
+        .applymap(_color_kw,  subset=["KW_p"])
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("background-color", "#2c3e50"), ("color", "white"),
+                ("font-weight", "bold"), ("font-size", "11px"),
+                ("text-align", "center"), ("padding", "6px")
+            ]},
+            {"selector": "td", "props": [
+                ("font-size", "10px"), ("padding", "4px 8px"), ("text-align", "center")
+            ]},
+            {"selector": "tr:nth-child(even)", "props": [("background-color", "#f7f7f7")]},
+            {"selector": "tr:hover", "props": [("background-color", "#eaf4fb")]},
+        ])
+        .set_caption(
+            f"ANOVA-style results: Kruskal-Wallis + pairwise Wilcoxon per compound "
+            f"(Bonferroni corrected) — {len(_df_anova)} compounds"
+        )
+    )
+
+    _styled
+    return
+
+
+@app.cell
+def _():
+    import math
+    return (math,)
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    list_botanicals,
+    math,
+    np,
+    os,
+    plt,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    # ── Filter: all.pass == True ──────────────────────────────────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+    _df_feat = _df_feat[_df_feat["category"].notna()].copy()
+
+    # ── Feature count per compound per category ───────────────────────────────────
+    _df_feat_count = (
+        _df_feat.groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n_features")
+    )
+    _df_feat_pivot = (
+        _df_feat_count.pivot(
+            index="Metadata_compound", columns="category", values="n_features"
+        )
+        .reindex(columns=_categories)
+        .fillna(0)
+        .astype(int)
+    )
+
+    # ── Build ordered row index: botanicals + constituents ────────────────────────
+    _rows_ordered = []
+    for _scode in list_botanicals:
+        _plant_name   = dic_botanicals_scode_name.get(_scode, _scode)
+        _const_scodes = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ][["Metadata_compound", "Constituent"]].drop_duplicates()
+
+        _const_rows = []
+        for _, _crow in _const_scodes.iterrows():
+            if _crow["Metadata_compound"] in _df_feat_pivot.index:
+                _const_rows.append((_crow["Metadata_compound"], f"  {_crow['Constituent']}"))
+
+        _has_botanical = _scode in _df_feat_pivot.index
+        if not _has_botanical and len(_const_rows) == 0:
+            continue
+
+        if _has_botanical:
+            _rows_ordered.append((_scode, _plant_name, True))
+        for _s, _lbl in _const_rows:
+            _rows_ordered.append((_s, _lbl, False))
+
+    _ordered_scodes = [r[0] for r in _rows_ordered]
+    _ordered_labels = [r[1] for r in _rows_ordered]
+    _is_botanical   = [r[2] for r in _rows_ordered]
+
+    # ── Build matrix row by row (avoids duplicate index issue) ────────────────────
+    _mat_ordered = np.array([
+        _df_feat_pivot.loc[_s].values if _s in _df_feat_pivot.index
+        else np.zeros(len(_categories), dtype=int)
+        for _s in _ordered_scodes
+    ], dtype=float)
+
+    # ── Shared color scale ────────────────────────────────────────────────────────
+    _vmax      = np.nanpercentile(np.where(_mat_ordered == 0, np.nan, _mat_ordered), 95)
+    _cmap_feat = plt.cm.YlOrRd
+
+    # ── Split into two panels ─────────────────────────────────────────────────────
+    _half        = math.ceil(len(_rows_ordered) / 2)
+    _panels_rows = [_rows_ordered[:_half], _rows_ordered[_half:]]
+
+    # ── Figure ────────────────────────────────────────────────────────────────────
+    _n_cols     = len(_categories)
+    _fig, _axes = plt.subplots(1, 2, figsize=(14, max(8, _half * 0.22)), sharey=False)
+
+    for _pi, (_ax, _panel_rows) in enumerate(zip(_axes, _panels_rows)):
+
+        _p_scodes = [r[0] for r in _panel_rows]
+        _p_labels = [r[1] for r in _panel_rows]
+        _p_is_bot = [r[2] for r in _panel_rows]
+
+        # Global indices into _mat_ordered for this panel
+        _global_offset = _half * _pi
+        _p_mat = _mat_ordered[_global_offset: _global_offset + len(_panel_rows)]
+
+        # ── y positions ───────────────────────────────────────────────────────────
+        _p_y_pos = []
+        _gap     = 0.8
+        _y       = 0.0
+        for _i, (_lbl, _is_bot) in enumerate(zip(_p_labels, _p_is_bot)):
+            if _is_bot and _i > 0:
+                _y += _gap
+            _p_y_pos.append(_y)
+            _y += 1.0
+        _p_y_pos      = np.array(_p_y_pos)
+        _total_height = _p_y_pos[-1] + 1.0
+
+        # ── Draw rows ─────────────────────────────────────────────────────────────
+        for _ri, (_y, _is_bot) in enumerate(zip(_p_y_pos, _p_is_bot)):
+            _row_vals        = _p_mat[_ri:_ri+1, :]
+            _row_vals_masked = np.where(_row_vals == 0, np.nan, _row_vals)
+            _ax.pcolormesh(
+                np.arange(_n_cols + 1),
+                np.array([_y, _y + 1.0]),
+                _row_vals_masked,
+                cmap=_cmap_feat,
+                edgecolors="white",
+                linewidth=0.4,
+                vmin=0, vmax=_vmax
+            )
+            if _is_bot:
+                _ax.axhspan(_y, _y + 1.0, color="#d0d0d0", alpha=0.6, zorder=0)
+            else:
+                _ax.axhspan(_y, _y + 1.0, color="#f7f7f7", alpha=0.3, zorder=0)
+
+            for _ci in range(_n_cols):
+                _val = int(_p_mat[_ri, _ci])
+                if _val == 0:
+                    continue
+                _text_color = "white" if _val > _vmax * 0.7 else "black"
+                _ax.text(
+                    _ci + 0.5, _y + 0.5, str(_val),
+                    ha="center", va="center",
+                    fontsize=6.5, color=_text_color
+                )
+
+        # ── Botanical spans ───────────────────────────────────────────────────────
+        _bot_spans_p = []
+        _cur_lbl     = None
+        _cur_y_start = None
+        _cur_y_end   = None
+        for _y, _lbl, _is_bot in zip(_p_y_pos, _p_labels, _p_is_bot):
+            if _is_bot:
+                if _cur_lbl is not None:
+                    _bot_spans_p.append((_cur_lbl, _cur_y_start, _cur_y_end))
+                _cur_lbl     = _lbl
+                _cur_y_start = _y
+                _cur_y_end   = _y + 1.0
+            else:
+                if _cur_lbl is not None:
+                    _cur_y_end = _y + 1.0
+        if _cur_lbl is not None:
+            _bot_spans_p.append((_cur_lbl, _cur_y_start, _cur_y_end))
+
+        # ── Separator lines + brackets ────────────────────────────────────────────
+        for _bi, (_lbl, _y_start, _y_end) in enumerate(_bot_spans_p):
+            if _bi > 0:
+                _ax.axhline(
+                    _y_start - _gap / 2,
+                    color="#333333", linewidth=1.8, linestyle="-", zorder=6
+                )
+            _const_ys = [
+                _y for _y, _lbl2, _is_bot in zip(_p_y_pos, _p_labels, _p_is_bot)
+                if not _is_bot and _y >= _y_start and _y < _y_end
+            ]
+
+        # ── y axis ────────────────────────────────────────────────────────────────
+        _ax.set_yticks(_p_y_pos + 0.5)
+        _ax.set_yticklabels(_p_labels, fontsize=7)
+        for _tick, _is_bot in zip(_ax.get_yticklabels(), _p_is_bot):
+            if _is_bot:
+                _tick.set_fontweight("bold")
+                _tick.set_fontsize(8.5)
+                _tick.set_color("#111111")
+            else:
+                _tick.set_fontsize(6.5)
+                _tick.set_color("#555555")
+                _tick.set_fontstyle("italic")
+        _ax.set_ylim(0, _total_height)
+        _ax.invert_yaxis()
+
+        # ── x axis ────────────────────────────────────────────────────────────────
+        _ax.set_xticks(np.arange(_n_cols) + 0.5)
+        _ax.set_xticklabels(_categories, fontsize=9, fontweight="bold",
+                            rotation=45, ha="left")
+        for _tick, _cat in zip(_ax.get_xticklabels(), _categories):
+            _tick.set_color(_cat_colors[_cat])
+        _ax.xaxis.set_label_position("top")
+        _ax.xaxis.tick_top()
+        _ax.set_xlim(0, _n_cols)
+        _ax.set_title(
+            f"N features per CP category — panel {_pi + 1}",
+            fontsize=10, fontweight="bold", pad=30
+        )
+
+        # Colorbar on last panel only
+        if _pi == 1:
+            _sm   = plt.cm.ScalarMappable(cmap=_cmap_feat, norm=plt.Normalize(vmin=0, vmax=_vmax))
+            _cbar = _fig.colorbar(_sm, ax=_ax, shrink=0.3, pad=0.02, aspect=20)
+            _cbar.set_label("N features", fontsize=8)
+            _cbar.ax.tick_params(labelsize=7)
+
+    _fig.suptitle(
+        "N features per CP channel category — botanicals and constituents",
+        fontsize=11, fontweight="bold", y=1.01
+    )
+
+    plt.tight_layout()
+    _fig.savefig(
+        os.path.expanduser("~/Downloads/heatmap_n_features_botanicals_2panels.pdf"),
+        bbox_inches="tight", dpi=200
+    )
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## POD Categories feature wise active comparison""")
+    return
+
+
+@app.cell
+def _(
+    Path,
+    combinations,
+    df_bsc_cp_pod_all_featurewise,
+    feature_wise_permutation_threshold,
+    kruskal,
+    mticker,
+    np,
+    plt,
+    wilcoxon,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    # ── Filter: all.pass == True + globally valid compounds ───────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+
+    _n_total = _df_feat.groupby("Metadata_compound").size()
+    _valid_compounds = _n_total[_n_total >= feature_wise_permutation_threshold].index
+    _df_feat = _df_feat[_df_feat["Metadata_compound"].isin(_valid_compounds)].copy()
+
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+    _df_feat = _df_feat[_df_feat["category"].notna()].copy()
+
+    # ── PAC per compound per category: 5th percentile of cp_POD_um ───────────────
+    _df_pac_cat = (
+        _df_feat.groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC_cat")
+    )
+
+    # ── Order categories by median PAC ascending ──────────────────────────────────
+    _cat_order = (
+        _df_pac_cat.groupby("category")["PAC_cat"]
+        .median()
+        .sort_values()
+        .index.tolist()
+    )
+
+    _data_box = [
+        _df_pac_cat.loc[_df_pac_cat["category"] == _cat, "PAC_cat"].values
+        for _cat in _cat_order
+    ]
+
+    # ── Kruskal-Wallis global test ────────────────────────────────────────────────
+    _kw_stat, _kw_p = kruskal(*_data_box)
+    print(f"Kruskal-Wallis: H={_kw_stat:.3f}, p={_kw_p:.4e}")
+
+    # ── Pivot for paired Wilcoxon ─────────────────────────────────────────────────
+    _df_pivot = _df_pac_cat.pivot(
+        index="Metadata_compound", columns="category", values="PAC_cat"
+    )
+
+    # ── Pairwise Wilcoxon signed-rank on common compounds + Bonferroni ────────────
+    _pairs = list(combinations(_cat_order, 2))
+    _n_tests = len(_pairs)
+    _pvals = {}
+    _n_pairs_used = {}
+
+    for _cat_a, _cat_b in _pairs:
+        if _cat_a not in _df_pivot.columns or _cat_b not in _df_pivot.columns:
+            continue
+        _common = _df_pivot[[_cat_a, _cat_b]].dropna()
+        _n_pairs_used[(_cat_a, _cat_b)] = len(_common)
+        if len(_common) < 2:
+            _pvals[(_cat_a, _cat_b)] = 1.0
+            continue
+        _stat, _p = wilcoxon(_common[_cat_a].values, _common[_cat_b].values)
+        _pvals[(_cat_a, _cat_b)] = min(_p * _n_tests, 1.0)
+
+    print(f"\nPairwise Wilcoxon signed-rank (Bonferroni corrected, n tests={_n_tests}):")
+    for (_cat_a, _cat_b), _p in _pvals.items():
+        _n = _n_pairs_used.get((_cat_a, _cat_b), 0)
+        print(f"  {_cat_a:12s} vs {_cat_b:12s} | n_common={_n:3d} | p={_p:.4f}")
+
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+
+    _sig_pairs = [
+        (_cat_order.index(_a), _cat_order.index(_b))
+        for (_a, _b), _p in _pvals.items() if _p < 0.05
+    ]
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(8, 5 + len(_sig_pairs) * 0.25))
+
+    _bp = _ax.boxplot(
+        _data_box,
+        patch_artist=True,
+        vert=True,
+        widths=0.5,
+        flierprops=dict(marker=""),
+        medianprops=dict(color="black", linewidth=1.5),
+        whiskerprops=dict(linewidth=1, linestyle="-"),
+        capprops=dict(linewidth=1),
+    )
+    for _patch, _cat in zip(_bp["boxes"], _cat_order):
+        _patch.set_facecolor(_cat_colors[_cat])
+        _patch.set_alpha(0.6)
+
+    for _i, _cat in enumerate(_cat_order, start=1):
+        _y = _df_pac_cat.loc[_df_pac_cat["category"] == _cat, "PAC_cat"].values
+        _x = np.random.normal(_i, 0.08, size=len(_y))
+        _ax.scatter(_x, _y, color=_cat_colors[_cat], s=20, alpha=0.6,
+                    edgecolors="black", linewidths=0.3, zorder=3)
+
+    _ax.set_yscale("log")
+    _ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.set_xticks(range(1, len(_cat_order) + 1))
+    _ax.set_xticklabels(_cat_order, fontsize=10)
+    _ax.set_ylabel("Concentration (µM)", fontsize=11)
+    _ax.set_title(
+        f"Category-level PAC (5th pct cp_POD_um)\n"
+        f"Kruskal-Wallis H={_kw_stat:.2f}, p={_kw_p:.2e} — "
+        f"pairwise Wilcoxon signed-rank (Bonferroni, paired by compound)",
+        fontsize=9
+    )
+
+    # ── Significance brackets (significant only) ──────────────────────────────────
+    _y_max = max(_v.max() for _v in _data_box)
+    _y_top = np.log10(_y_max)
+    _bracket_gap = 0.2
+
+    for _k, (_i, _j) in enumerate(_sig_pairs):
+        _cat_a, _cat_b = _cat_order[_i], _cat_order[_j]
+        _p = _pvals[(_cat_a, _cat_b)]
+        _n = _n_pairs_used.get((_cat_a, _cat_b), "?")
+        _x1, _x2 = _i + 1, _j + 1
+        _y = 10 ** (_y_top + _bracket_gap * (_k + 1))
+        _ax.plot([_x1, _x1, _x2, _x2], [_y * 0.88, _y, _y, _y * 0.88],
+                 lw=0.9, color="black")
+        _ax.text(
+            (_x1 + _x2) / 2, _y * 1.02,
+            f"{_stars(_p)}  p={_p:.3f} (n={_n})",
+            ha="center", va="bottom", fontsize=7.5
+        )
+
+    _ax.set_ylim(top=10 ** (_y_top + _bracket_gap * (len(_sig_pairs) + 2)))
+
+    _n_per_cat = {_cat: len(_df_pac_cat.loc[_df_pac_cat["category"] == _cat]) for _cat in _cat_order}
+    _ax.set_xticks(range(1, len(_cat_order) + 1))
+    _ax.set_xticklabels(
+        [f"{_cat}\n(n={_n_per_cat[_cat]})" for _cat in _cat_order],
+        fontsize=10,
+    )
+    # ── Y ticks ────────────────────────────────────────────────────────────────────
+    _ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.tick_params(axis="y", which="major", colors="black", length=0, direction="out", labelsize=9)
+    _ax.tick_params(axis="y", which="minor", colors="grey",  length=0, direction="out", labelsize=6)
+    _ax.tick_params(axis="x", which="both",  colors="black", length=4, direction="out")
+
+    # ── Style ──────────────────────────────────────────────────────────────────────
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+    _ax.spines["left"].set_color("black")
+    _ax.spines["left"].set_linewidth(0.5)
+    _ax.spines["bottom"].set_color("black")
+    _ax.spines["bottom"].set_linewidth(0.5)
+    _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
+
+    plt.tight_layout()
+    plt.savefig(Path.home() / "Downloads" / "pac_per_category.png", dpi=300, bbox_inches="tight")
+
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Categories feature wise active comparison""")
+    return
+
+
+@app.cell
+def _(df_bsc_cp_pod_all_featurewise):
+    df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["Metadata_compound"] == "s0654868"
+    ]
+    return
+
+
+@app.cell
+def _(
+    Path,
+    combinations,
+    df_bsc_cp_pod_all_featurewise,
+    feature_wise_permutation_threshold,
+    kruskal,
+    mticker,
+    np,
+    plt,
+    wilcoxon,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    # ── Filter ────────────────────────────────────────────────────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+
+    _n_total = _df_feat.groupby("Metadata_compound").size()
+    _valid_compounds = _n_total[_n_total >= feature_wise_permutation_threshold].index
+    _df_feat = _df_feat[_df_feat["Metadata_compound"].isin(_valid_compounds)].copy()
+
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+
+    _df_feat_counts = (
+        _df_feat[_df_feat["category"].notna()]
+        .groupby(["Metadata_compound", "category"])
+        .size()
+        .reset_index(name="n")
+    )
+
+    _cat_order = (
+        _df_feat_counts.groupby("category")["n"]
+        .median()
+        .sort_values()
+        .index.tolist()
+    )
+
+    # ── Pivot: one row per compound, one col per category ─────────────────────────
+    _df_pivot = (
+        _df_feat_counts
+        .pivot(index="Metadata_compound", columns="category", values="n")
+    )
+
+    # ── Kruskal-Wallis global test ────────────────────────────────────────────────
+    _data_box = [
+        _df_feat_counts.loc[_df_feat_counts["category"] == _cat, "n"].values
+        for _cat in _cat_order
+    ]
+    _kw_stat, _kw_p = kruskal(*_data_box)
+    print(f"Kruskal-Wallis: H={_kw_stat:.3f}, p={_kw_p:.4e}")
+
+    # ── Pairwise Wilcoxon signed-rank on common compounds + Bonferroni ────────────
+    _pairs = list(combinations(_cat_order, 2))
+    _n_tests = len(_pairs)
+    _pvals = {}
+    _n_pairs_used = {}
+
+    for _cat_a, _cat_b in _pairs:
+        if _cat_a not in _df_pivot.columns or _cat_b not in _df_pivot.columns:
+            continue
+        # keep only compounds present in BOTH categories
+        _common = _df_pivot[[_cat_a, _cat_b]].dropna()
+        _n_pairs_used[(_cat_a, _cat_b)] = len(_common)
+        if len(_common) < 2:
+            _pvals[(_cat_a, _cat_b)] = 1.0
+            continue
+        _stat, _p = wilcoxon(_common[_cat_a].values, _common[_cat_b].values)
+        _pvals[(_cat_a, _cat_b)] = min(_p * _n_tests, 1.0)  # Bonferroni
+
+    print(f"\nPairwise Wilcoxon signed-rank (Bonferroni corrected, n tests={_n_tests}):")
+    for (_cat_a, _cat_b), _p in _pvals.items():
+        _n = _n_pairs_used.get((_cat_a, _cat_b), 0)
+        print(f"  {_cat_a:12s} vs {_cat_b:12s} | n_common={_n:3d} | p={_p:.4f}")
+
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+
+    _sig_pairs = [
+        (_cat_order.index(_a), _cat_order.index(_b))
+        for (_a, _b), _p in _pvals.items() if _p < 0.05
+    ]
+
+    # ── Plot ──────────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(8, 5 + len(_sig_pairs) * 0.25))
+
+    _bp = _ax.boxplot(
+        _data_box,
+        patch_artist=True,
+        vert=True,
+        widths=0.5,
+        flierprops=dict(marker="o", markersize=4, alpha=0.4),
+        medianprops=dict(color="black", linewidth=1.5),
+        whiskerprops=dict(linewidth=1),
+        capprops=dict(linewidth=1),
+    )
+
+    for _patch, _cat in zip(_bp["boxes"], _cat_order):
+        _patch.set_facecolor(_cat_colors[_cat])
+        _patch.set_alpha(0.6)
+
+    for _i, _cat in enumerate(_cat_order, start=1):
+        _y = _df_feat_counts.loc[_df_feat_counts["category"] == _cat, "n"].values
+        _x = np.random.normal(_i, 0.08, size=len(_y))
+        _ax.scatter(_x, _y, color=_cat_colors[_cat], s=15, alpha=0.5, zorder=3)
+
+    # ── Significance brackets ──────────────────────────────────────────────────────
+    _y_max = max(_v.max() for _v in _data_box)
+    _y_top = np.log10(_y_max)
+    _bracket_gap = 0.2
+
+    for _k, (_i, _j) in enumerate(_sig_pairs):
+        _cat_a, _cat_b = _cat_order[_i], _cat_order[_j]
+        _p = _pvals[(_cat_a, _cat_b)]
+        _n = _n_pairs_used.get((_cat_a, _cat_b), "?")
+        _x1, _x2 = _i + 1, _j + 1
+        _y = 10 ** (_y_top + _bracket_gap * (_k + 1))
+        _ax.plot([_x1, _x1, _x2, _x2], [_y * 0.88, _y, _y, _y * 0.88], lw=0.9, color="black")
+        _ax.text(
+            (_x1 + _x2) / 2, _y * 1.02,
+            f"{_stars(_p)}  p={_p:.3f} (n={_n})",
+            ha="center", va="bottom", fontsize=7.5, fontstyle="italic",
+        )
+
+    # ── Axes ───────────────────────────────────────────────────────────────────────
+    _ax.set_yscale("log")                          # FIRST
+    _ax.set_xlim(0.5, len(_cat_order) + 0.5)
+    _ax.set_ylim(top=10 ** (_y_top + _bracket_gap * (len(_sig_pairs) + 2)))
+    _ax.set_ylabel("Number of active features", fontsize=11)
+
+    _n_per_cat = {_cat: len(_df_feat_counts.loc[_df_feat_counts["category"] == _cat]) for _cat in _cat_order}
+    _ax.set_xticks(range(1, len(_cat_order) + 1))
+    _ax.set_xticklabels([f"{_cat}\n(n={_n_per_cat[_cat]})" for _cat in _cat_order], fontsize=10)
+
+    # ── Y ticks ────────────────────────────────────────────────────────────────────
+    _ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
+    _ax.yaxis.set_minor_locator(mticker.LogLocator(base=10.0, subs=np.arange(2, 10)))
+    _ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda y, _: f"{y:g}"))
+    _ax.tick_params(axis="y", which="major", colors="black", length=0, direction="out", labelsize=9)
+    _ax.tick_params(axis="y", which="minor", colors="grey",  length=0, direction="out", labelsize=6)
+    _ax.tick_params(axis="x", which="both",  colors="black", length=4, direction="out")
+
+    # ── Style ──────────────────────────────────────────────────────────────────────
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+    _ax.spines["left"].set_color("black")
+    _ax.spines["left"].set_linewidth(0.5)
+    _ax.spines["bottom"].set_color("black")
+    _ax.spines["bottom"].set_linewidth(0.5)
+    _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
+
+    plt.tight_layout()
+    plt.savefig(Path.home() / "Downloads" / "boxplot_features.png", dpi=200, bbox_inches="tight")
+    plt.show()
+    return
+
+
+@app.cell
+def _(
+    LogNorm,
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    kruskal,
+    list_botanicals,
+    np,
+    os,
+    plt,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+
+    # ── Filter: all.pass == True ──────────────────────────────────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+    _df_feat = _df_feat[_df_feat["category"].notna()].copy()
+
+    # ── Valid compounds (threshold filter) ───────────────────────────────────────
+    _n_total         = _df_feat.groupby("Metadata_compound").size()
+    _valid_compounds = _n_total[_n_total >= feature_wise_permutation_threshold].index
+
+    # ── PAC per compound per category (5th pct cp_POD_um) ────────────────────────
+    _df_pac_cat = (
+        _df_feat.groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC_cat")
+    )
+
+    # ── Pivot ─────────────────────────────────────────────────────────────────────
+    _df_pac_pivot = (
+        _df_pac_cat.pivot(
+            index="Metadata_compound", columns="category", values="PAC_cat"
+        )
+        .reindex(columns=_categories)
+    )
+
+    # ── Set to NaN compounds not meeting threshold ────────────────────────────────
+    _invalid = _df_pac_pivot.index.difference(_valid_compounds)
+    _df_pac_pivot.loc[_invalid] = np.nan
+
+    # ── Kruskal-Wallis per compound ───────────────────────────────────────────────
+    _kw_results = {}   # scode -> (stat, p, sig)
+
+    for _cpd in _valid_compounds:
+        _sub    = _df_feat[_df_feat["Metadata_compound"] == _cpd]
+        _groups = []
+        for _cat in _categories:
+            _vals = _sub.loc[_sub["category"] == _cat, "cp_POD_um"].values
+            if len(_vals) >= 2:
+                _groups.append(_vals)
+
+        if len(_groups) >= 2:
+            _kw_stat, _kw_p = kruskal(*_groups)
+        else:
+            _kw_stat, _kw_p = np.nan, np.nan
+        _kw_results[_cpd] = (
+            _kw_stat,
+            _kw_p,
+            _stars(_kw_p) if not np.isnan(_kw_p) else "n/a"
+        )
+
+    # ── Build ordered row index: botanicals + constituents ────────────────────────
+    _rows_ordered = []
+    for _scode in list_botanicals:
+        _plant_name   = dic_botanicals_scode_name.get(_scode, _scode)
+        _const_scodes = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ][["Metadata_compound", "Constituent"]].drop_duplicates()
+
+        _const_rows = []
+        for _, _crow in _const_scodes.iterrows():
+            if _crow["Metadata_compound"] in _df_pac_pivot.index:
+                _const_rows.append((_crow["Metadata_compound"], f"  {_crow['Constituent']}"))
+
+        _has_botanical = _scode in _df_pac_pivot.index
+        if not _has_botanical and len(_const_rows) == 0:
+            continue
+        if _has_botanical:
+            _rows_ordered.append((_scode, _plant_name, True))
+        for _s, _lbl in _const_rows:
+            _rows_ordered.append((_s, _lbl, False))
+
+    _ordered_scodes = [r[0] for r in _rows_ordered]
+    _ordered_labels = [r[1] for r in _rows_ordered]
+    _is_botanical   = [r[2] for r in _rows_ordered]
+
+    # ── Build matrix row by row ───────────────────────────────────────────────────
+    _mat_ordered = np.array([
+        _df_pac_pivot.loc[_s].values if _s in _df_pac_pivot.index
+        else np.full(len(_categories), np.nan)
+        for _s in _ordered_scodes
+    ], dtype=float)
+
+    # ── Color scale ───────────────────────────────────────────────────────────────
+    _vals_flat = _mat_ordered[~np.isnan(_mat_ordered) & (_mat_ordered > 0)]
+    _norm      = LogNorm(
+        vmin=max(np.nanmin(_vals_flat), 0.01),
+        vmax=np.nanpercentile(_vals_flat, 95)
+    )
+    _cmap_feat = plt.cm.RdYlGn
+
+    # ── Split at nearest botanical boundary to midpoint ───────────────────────────
+    _half_target = len(_rows_ordered) // 2
+    _bot_indices = [i for i, r in enumerate(_rows_ordered) if r[2]]
+    _split_idx   = min(_bot_indices, key=lambda i: abs(i - _half_target))
+    _panels_rows = [_rows_ordered[:_split_idx], _rows_ordered[_split_idx:]]
+
+    # ── Figure ────────────────────────────────────────────────────────────────────
+    _n_cols     = len(_categories)
+    _half_n     = max(len(_panels_rows[0]), len(_panels_rows[1]))
+    _fig, _axes = plt.subplots(1, 2, figsize=(16, max(8, _half_n * 0.25)), sharey=False)
+
+    for _pi, (_ax, _panel_rows) in enumerate(zip(_axes, _panels_rows)):
+        _p_labels = [r[1] for r in _panel_rows]
+        _p_is_bot = [r[2] for r in _panel_rows]
+        _p_scodes = [r[0] for r in _panel_rows]
+        _p_start  = 0 if _pi == 0 else _split_idx
+        _p_mat    = _mat_ordered[_p_start: _p_start + len(_panel_rows)]
+
+        # ── y positions ───────────────────────────────────────────────────────────
+        _p_y_pos = []
+        _gap     = 0.8
+        _y       = 0.0
+        for _i, (_lbl, _is_bot) in enumerate(zip(_p_labels, _p_is_bot)):
+            if _is_bot and _i > 0:
+                _y += _gap
+            _p_y_pos.append(_y)
+            _y += 1.0
+        _p_y_pos      = np.array(_p_y_pos)
+        _total_height = _p_y_pos[-1] + 1.0
+
+        # ── Draw heatmap rows ─────────────────────────────────────────────────────
+        for _ri, (_y, _is_bot, _scode) in enumerate(zip(_p_y_pos, _p_is_bot, _p_scodes)):
+            _row_vals = _p_mat[_ri:_ri+1, :]
+            _ax.pcolormesh(
+                np.arange(_n_cols + 1),
+                np.array([_y, _y + 1.0]),
+                _row_vals,
+                cmap=_cmap_feat, norm=_norm,
+                edgecolors="white", linewidth=0.4,
+            )
+            if _is_bot:
+                _ax.axhspan(_y, _y + 1.0, color="#d0d0d0", alpha=0.6, zorder=0)
+            else:
+                _ax.axhspan(_y, _y + 1.0, color="#f7f7f7", alpha=0.3, zorder=0)
+
+            # Cell value annotations
+            for _ci in range(_n_cols):
+                _val = _p_mat[_ri, _ci]
+                if np.isnan(_val):
+                    _ax.text(_ci + 0.5, _y + 0.5, "—",
+                             ha="center", va="center", fontsize=6, color="#bbbbbb")
+                    continue
+                _txt      = f"{_val:.0f}" if _val >= 1 else f"{_val:.2f}"
+                _normed   = float(_norm(_val))
+                _text_col = "white" if _normed > 0.75 else "black"
+                _ax.text(_ci + 0.5, _y + 0.5, _txt,
+                         ha="center", va="center", fontsize=6, color=_text_col)
+
+            # ── KW significance on the right margin ───────────────────────────────
+            if _scode in _kw_results:
+                _, _kw_p, _kw_sig = _kw_results[_scode]
+                if not np.isnan(_kw_p) and _kw_p < 0.05:
+                    _ax.text(
+                        _n_cols + 0.3, _y + 0.5, _kw_sig,
+                        ha="center", va="center",
+                        fontsize=7, fontweight="bold", color="#cc0000"
+                    )
+
+        # ── Botanical spans ───────────────────────────────────────────────────────
+        _bot_spans_p = []
+        _cur_lbl = _cur_y_start = _cur_y_end = None
+        for _y, _lbl, _is_bot in zip(_p_y_pos, _p_labels, _p_is_bot):
+            if _is_bot:
+                if _cur_lbl is not None:
+                    _bot_spans_p.append((_cur_lbl, _cur_y_start, _cur_y_end))
+                _cur_lbl, _cur_y_start, _cur_y_end = _lbl, _y, _y + 1.0
+            else:
+                if _cur_lbl is not None:
+                    _cur_y_end = _y + 1.0
+        if _cur_lbl is not None:
+            _bot_spans_p.append((_cur_lbl, _cur_y_start, _cur_y_end))
+
+        for _bi, (_lbl, _y_start, _y_end) in enumerate(_bot_spans_p):
+            if _bi > 0:
+                _ax.axhline(_y_start - _gap / 2, color="#333333",
+                            linewidth=1.8, linestyle="-", zorder=6)
+            _const_ys = [
+                _y for _y, _l2, _ib in zip(_p_y_pos, _p_labels, _p_is_bot)
+                if not _ib and _y >= _y_start and _y < _y_end
+            ]
+            _has_hdr = any(
+                _ib and _y >= _y_start and _y < _y_end
+                for _y, _ib in zip(_p_y_pos, _p_is_bot)
+            )
+
+        # ── y axis ────────────────────────────────────────────────────────────────
+        _ax.set_yticks(_p_y_pos + 0.5)
+        _ax.set_yticklabels(_p_labels, fontsize=7)
+        for _tick, _is_bot in zip(_ax.get_yticklabels(), _p_is_bot):
+            if _is_bot:
+                _tick.set_fontweight("bold")
+                _tick.set_fontsize(8.5)
+                _tick.set_color("#111111")
+            else:
+                _tick.set_fontsize(6.5)
+                _tick.set_color("#555555")
+                _tick.set_fontstyle("italic")
+        _ax.set_ylim(0, _total_height)
+        _ax.invert_yaxis()
+
+        # ── x axis ────────────────────────────────────────────────────────────────
+        _ax.set_xticks(np.arange(_n_cols) + 0.5)
+        _ax.set_xticklabels(_categories, fontsize=9, fontweight="bold",
+                            rotation=45, ha="left")
+        for _tick, _cat in zip(_ax.get_xticklabels(), _categories):
+            _tick.set_color(_cat_colors[_cat])
+        _ax.xaxis.set_label_position("top")
+        _ax.xaxis.tick_top()
+        _ax.set_xlim(0, _n_cols + 0.8)
+        _ax.set_title(
+            f"PAC (5th pct cp_POD_um) per CP category — panel {_pi + 1}\n"
+            "red * = Kruskal-Wallis significant across categories",
+            fontsize=9, fontweight="bold", pad=30
+        )
+
+        if _pi == 1:
+            _sm   = plt.cm.ScalarMappable(cmap=_cmap_feat, norm=_norm)
+            _cbar = _fig.colorbar(_sm, ax=_ax, shrink=0.3, pad=0.02, aspect=20)
+            _cbar.set_label("PAC — 5th pct cp_POD_um (µM, log)", fontsize=8)
+            _cbar.ax.tick_params(labelsize=7)
+
+    _fig.suptitle(
+        "PAC per CP channel category — botanicals and constituents\n"
+        f"(— = compound below threshold of {feature_wise_permutation_threshold} features)",
+        fontsize=11, fontweight="bold", y=1.01
+    )
+
+    plt.tight_layout()
+    _fig.savefig(
+        os.path.expanduser("~/Downloads/heatmap_pac_category_botanicals.pdf"),
+        bbox_inches="tight", dpi=200
+    )
+    _fig
+    return
+
+
+@app.cell
+def _(
+    combinations,
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    kruskal,
+    mannwhitneyu,
+    math,
+    np,
+    os,
+    pd,
+    plt,
+):
+    # ── Categories and colors ─────────────────────────────────────────────────────
+    _categories = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+    _cat_colors = {
+        "DNA":         "#e41a1c",
+        "ER":          "#377eb8",
+        "AGP":         "#4daf4a",
+        "RNA":         "#984ea3",
+        "Mito":        "#ff7f00",
+        "Brightfield": "#a65628",
+    }
+
+    def _get_category(_feature_name):
+        for _cat in _categories:
+            if _cat in str(_feature_name):
+                return _cat
+        return None
+
+    def _stars(_p):
+        if _p < 0.001:  return "***"
+        elif _p < 0.01: return "**"
+        elif _p < 0.05: return "*"
+        else:           return "ns"
+
+    # ── Filter: all.pass == True ──────────────────────────────────────────────────
+    _df_feat = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _df_feat["category"] = _df_feat["gene.id"].apply(_get_category)
+    _df_feat = _df_feat[_df_feat["category"].notna()].copy()
+
+    # ── Valid compounds (threshold filter) ────────────────────────────────────────
+    _n_total         = _df_feat.groupby("Metadata_compound").size()
+    _valid_compounds = _n_total[_n_total >= feature_wise_permutation_threshold].index
+
+    # ── PAC per compound per category (5th pct cp_POD_um) ────────────────────────
+    _df_pac_cat = (
+        _df_feat.groupby(["Metadata_compound", "category"])["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="PAC_cat")
+    )
+
+    # ── Pivot ─────────────────────────────────────────────────────────────────────
+    _df_pac_pivot = (
+        _df_pac_cat.pivot(
+            index="Metadata_compound", columns="category", values="PAC_cat"
+        )
+        .reindex(columns=_categories)
+    )
+
+    # ── Set to NaN compounds not meeting threshold ────────────────────────────────
+    _invalid = _df_pac_pivot.index.difference(_valid_compounds)
+    _df_pac_pivot.loc[_invalid] = np.nan
+
+    # ── Kruskal-Wallis per compound ───────────────────────────────────────────────
+    _kw_results = {}
+    for _cpd in _valid_compounds:
+        _sub    = _df_feat[_df_feat["Metadata_compound"] == _cpd]
+        _groups = []
+        for _cat in _categories:
+            _vals = _sub.loc[_sub["category"] == _cat, "cp_POD_um"].values
+            if len(_vals) >= 2:
+                _groups.append(_vals)
+        if len(_groups) >= 2:
+            _kw_stat, _kw_p = kruskal(*_groups)
+        else:
+            _kw_stat, _kw_p = np.nan, np.nan
+        _kw_results[_cpd] = (
+            _kw_stat,
+            _kw_p,
+            _stars(_kw_p) if not np.isnan(_kw_p) else "n/a"
+        )
+
+    # ── Significant compounds ─────────────────────────────────────────────────────
+    _sig_compounds = [
+        _cpd for _cpd in _valid_compounds
+        if _cpd in _kw_results
+        and not np.isnan(_kw_results[_cpd][1])
+        and _kw_results[_cpd][1] < 0.05
+    ]
+
+    # ── Pairwise Wilcoxon per significant compound ────────────────────────────────
+    _pw_pmat = {}
+    for _cpd in _sig_compounds:
+        _sub  = _df_feat[_df_feat["Metadata_compound"] == _cpd]
+        _pmat = np.full((len(_categories), len(_categories)), np.nan)
+        _cats_available = [
+            _cat for _cat in _categories
+            if len(_sub.loc[_sub["category"] == _cat, "cp_POD_um"].values) >= 2
+        ]
+        _cpairs  = list(combinations(_cats_available, 2))
+        _n_tests = len(_cpairs)
+        for _cat_a, _cat_b in _cpairs:
+            _i = _categories.index(_cat_a)
+            _j = _categories.index(_cat_b)
+            _a = _sub.loc[_sub["category"] == _cat_a, "cp_POD_um"].values
+            _b = _sub.loc[_sub["category"] == _cat_b, "cp_POD_um"].values
+            try:
+                _, _p = mannwhitneyu(_a, _b, alternative="two-sided")
+                _p_corr = min(_p * _n_tests, 1.0)
+            except Exception:
+                _p_corr = np.nan
+            _pmat[_i, _j] = _p_corr
+            _pmat[_j, _i] = _p_corr
+        _pw_pmat[_cpd] = _pmat
+
+    # ── Link compound to label: constituent + botanical ───────────────────────────
+    _annot_lookup = (
+        df_bsc_annotations[["Metadata_compound", "Constituent", "Plant scode"]]
+        .drop_duplicates()
+        .copy()
+    )
+    _annot_lookup["Botanical"] = _annot_lookup["Plant scode"].map(dic_botanicals_scode_name)
+
+    _cpd_to_label = {}
+    for _cpd in _sig_compounds:
+        _row = _annot_lookup[_annot_lookup["Metadata_compound"] == _cpd]
+        if len(_row) > 0:
+            _constituent = _row["Constituent"].iloc[0]
+            _botanical   = _row["Botanical"].iloc[0]
+            if pd.notna(_botanical) and _botanical:
+                _cpd_to_label[_cpd] = f"{_constituent}\n({_botanical})"
+            else:
+                _cpd_to_label[_cpd] = _constituent
+        else:
+            # botanical extract itself
+            _cpd_to_label[_cpd] = dic_botanicals_scode_name.get(_cpd, _cpd)
+
+    # ── Layout ────────────────────────────────────────────────────────────────────
+    _n_sig       = len(_sig_compounds)
+    _n_cols_grid = min(6, _n_sig)
+    _n_rows_grid = math.ceil(_n_sig / _n_cols_grid)
+
+    _fig, _axes = plt.subplots(
+        _n_rows_grid, _n_cols_grid,
+        figsize=(_n_cols_grid * 2.4, _n_rows_grid * 2.6),
+        squeeze=False
+    )
+
+    _norm_p = plt.Normalize(vmin=0, vmax=0.05)
+    _cmap_p = plt.cm.Reds_r
+
+    for _idx, _cpd in enumerate(_sig_compounds):
+        _ri  = _idx // _n_cols_grid
+        _ci  = _idx % _n_cols_grid
+        _ax  = _axes[_ri][_ci]
+        _pmat = _pw_pmat[_cpd]
+
+        # ── Diagonal: solid category color ───────────────────────────────────────
+        for _ii in range(len(_categories)):
+            _ax.add_patch(plt.Rectangle(
+                (_ii - 0.5, _ii - 0.5), 1, 1,
+                facecolor=_cat_colors[_categories[_ii]],
+                zorder=2, linewidth=0
+            ))
+            _ax.text(_ii, _ii, _categories[_ii][0],
+                     ha="center", va="center",
+                     fontsize=5, color="white", fontweight="bold", zorder=3)
+
+        # ── Upper triangle: solid grey ────────────────────────────────────────────
+        for _ii in range(len(_categories)):
+            for _jj in range(_ii + 1, len(_categories)):
+                _ax.add_patch(plt.Rectangle(
+                    (_jj - 0.5, _ii - 0.5), 1, 1,
+                    facecolor="#cccccc",
+                    zorder=1, linewidth=0
+                ))
+
+        # ── Lower triangle: solid cmap background + text ──────────────────────────
+        for _ii in range(len(_categories)):
+            for _jj in range(len(_categories)):
+                if _ii <= _jj:
+                    continue
+                _val = _pmat[_ii, _jj]
+                if np.isnan(_val):
+                    _ax.add_patch(plt.Rectangle(
+                        (_jj - 0.5, _ii - 0.5), 1, 1,
+                        facecolor="#f0f0f0", zorder=1, linewidth=0
+                    ))
+                    _ax.text(_jj, _ii, "—",
+                             ha="center", va="center",
+                             fontsize=4.5, color="#aaaaaa", zorder=4)
+                    continue
+                _bg   = _cmap_p(_norm_p(_val))
+                _ax.add_patch(plt.Rectangle(
+                    (_jj - 0.5, _ii - 0.5), 1, 1,
+                    facecolor=_bg, zorder=1, linewidth=0
+                ))
+                _sig  = _stars(_val)
+                _tcol = "white" if _val < 0.01 else "black"
+                _ax.text(_jj, _ii, f"{_sig}\n{_val:.3f}",
+                         ha="center", va="center",
+                         fontsize=4.5, color=_tcol, fontweight="bold",
+                         zorder=4, linespacing=1.3)
+
+        # ── Axes ──────────────────────────────────────────────────────────────────
+        _ax.set_xticks(range(len(_categories)))
+        _ax.set_xticklabels(_categories, fontsize=4.5, fontweight="bold",
+                            rotation=45, ha="right")
+        for _tick, _cat in zip(_ax.get_xticklabels(), _categories):
+            _tick.set_color(_cat_colors[_cat])
+
+        _ax.set_yticks(range(len(_categories)))
+        _ax.set_yticklabels(_categories, fontsize=4.5, fontweight="bold")
+        for _tick, _cat in zip(_ax.get_yticklabels(), _categories):
+            _tick.set_color(_cat_colors[_cat])
+
+        _ax.set_xlim(-0.5, len(_categories) - 0.5)
+        _ax.set_ylim(-0.5, len(_categories) - 0.5)
+        _ax.invert_yaxis()
+
+        # ── Title: constituent + botanical + KW result ────────────────────────────
+        _, _kw_p, _kw_sig = _kw_results[_cpd]
+        _cpd_lbl = _cpd_to_label.get(_cpd, _cpd)
+        _title_color = (
+            "#cc0000" if _kw_p < 0.001 else
+            "#e07000" if _kw_p < 0.01  else
+            "#333333"
+        )
+        _ax.set_title(
+            f"{_cpd_lbl}\nKW {_kw_sig} (p={_kw_p:.3f})",
+            fontsize=5, fontweight="bold", pad=3,
+            color=_title_color
+        )
+
+    # ── Hide unused axes ──────────────────────────────────────────────────────────
+    for _idx in range(_n_sig, _n_rows_grid * _n_cols_grid):
+        _axes[_idx // _n_cols_grid][_idx % _n_cols_grid].axis("off")
+
+    # ── Shared colorbar ───────────────────────────────────────────────────────────
+    _sm   = plt.cm.ScalarMappable(cmap=_cmap_p, norm=_norm_p)
+    _cbar = _fig.colorbar(_sm, ax=_axes, shrink=0.3, pad=0.02,
+                          aspect=40, location="right")
+    _cbar.set_label("p-value (Mann-Whitney U, Bonferroni)", fontsize=8)
+    _cbar.set_ticks([0, 0.01, 0.05])
+    _cbar.ax.tick_params(labelsize=7)
+
+    _fig.suptitle(
+        f"Pairwise Mann-Whitney U p-values across CP categories — "
+        f"KW significant compounds (n={_n_sig})\n"
+        "Lower triangle  |  diagonal = category  |  "
+        "* p<0.05  ** p<0.01  *** p<0.001  (Bonferroni corrected)",
+        fontsize=10, fontweight="bold", y=1.01
+    )
+
+    plt.tight_layout()
+    _fig.savefig(
+        os.path.expanduser("~/Downloads/pairwise_pval_grid.png"),
+        bbox_inches="tight", dpi=300
+    )
+    _fig
+    return
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## Phenotypic space Heatmap""")
     return
 
@@ -2200,28 +6073,8 @@ def _(df_bsc_annotations):
 
 
 @app.cell
-def _(df_level6_bsc_plantscode):
-    df_level6_bsc_plantscode["Plant scode"][0]
-    return
-
-
-@app.cell
-def _(df_level6_bsc_plantscode, np):
-    # Replace empty strings with NaN first, then fill with Plant name, then with Metadata_compound
-    df_level6_bsc_plantscode["Plant scode"] = (
-        df_level6_bsc_plantscode["Plant scode"]
-        .replace('', np.nan)
-        .fillna(df_level6_bsc_plantscode["Plant name"])
-        .fillna(df_level6_bsc_plantscode["Metadata_compound"])
-    )
-
-    # Verify - should have no NaN now
-    print(f"Remaining NaN: {df_level6_bsc_plantscode['Plant scode'].isna().sum()}")
-    return
-
-
-@app.cell
 def _(
+    Path,
     StandardScaler,
     all_selected_features,
     df_bsc_all_pod_annotations,
@@ -2253,11 +6106,16 @@ def _(
         .map(_compound_to_plant_name)
     )
     _df_level6_bsc_plantscode["Row_label"] = _df_level6_bsc_plantscode.apply(
-        lambda row: f"{row['Constituent']} ({row['Metadata_compound']})" 
+        lambda row: f"{row['Constituent']}" 
                     if pd.notna(row['Metadata_compound']) and pd.notna(row['Plant name'])
-                    else f"{row['Constituent']} (-- Botanical --)"
+                    else f"{row['Constituent']}"
                     if pd.notna(row['Metadata_compound']) and pd.isna(row['Plant name'])
                     else row['Metadata_compound'],
+        axis=1
+    )
+    _df_level6_bsc_plantscode["Row_label"] = _df_level6_bsc_plantscode.apply(
+        lambda row: "DMSO" if pd.isna(row["Constituent"])
+        else row["Constituent"],
         axis=1
     )
 
@@ -2277,30 +6135,95 @@ def _(
 
     # Create color palette for Plant scode
     unique_plant_scodes = _df_level6_bsc_plantscode["Plant name"].dropna().unique()
-    n_colors = len(unique_plant_scodes)
-    palette = sns.color_palette("tab20", n_colors) if n_colors <= 20 else sns.color_palette("husl", n_colors)
-    plant_scode_colors = dict(zip(unique_plant_scodes, palette))
-
+    #n_colors = len(unique_plant_scodes)
+    #palette = sns.color_palette("tab20", n_colors) if n_colors <= 20 else sns.color_palette("husl", n_colors)
+    #plant_scode_colors = dict(zip(unique_plant_scodes, palette))
+    plant_scode_colors = {
+        "Kratom":              "#e6194B",
+        "Ashwagandha":         "#3cb44b",
+        "Comfrey":             "#ffe119",
+        "Usnea":               "#4363d8",
+        "Asian ginseng":       "#f58231",
+        "Blue cohosh":         "#42d4f4",
+        "Yohimbe":             "#f032e6",
+        "Kava":                "#fabed4",
+        "Milk thistle":        "#469990",
+        "Goldenseal":          "#dcbeff",
+        "Aristolochia":        "#9A6324",
+        "Green tea extract":   "#fffac8",
+        "Ephedra":             "#800000",
+    }
     # Create color annotation for rows
     row_colors = _df_level6_bsc_plantscode["Plant name"].map(plant_scode_colors)
 
     # Create cluster map with row colors
-    sns.set(font_scale=0.7)
+    sns.set(font_scale=1)
     cg = sns.clustermap(
         features_data,
-        method='ward',          # linkage method
-        metric='euclidean',     # distance metric
+        method='average',          # linkage method
+        metric='cosine',     # distance metric
         cmap='RdBu_r',          # Red = high, Blue = low
         vmin=-2,                # force color scale
         vmax=2,
-        figsize=(12, 10),
+        figsize=(14, 12),
         row_cluster=True,
         col_cluster=True,
         xticklabels=False,      # hide column names
         row_colors=row_colors,  # Add color annotation
         yticklabels=row_labels, # Set row labels directly with new labels
-        cbar_pos=(0.02, 0.8, 0.03, 0.15)  # Move colorbar to avoid overlap
+        #cbar_pos=(0.02, 0.8, 0.01, 0.05)  # Move colorbar to avoid overlap
     )
+
+    _botanical_names = set(plant_scode_colors.keys())
+    _compound_to_plant = (
+        _df_level6_bsc_plantscode
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+
+    for _tick in cg.ax_heatmap.get_yticklabels():
+        _label = _tick.get_text()
+        if _label in plant_scode_colors.keys():
+            _tick.set_fontweight("bold")
+            _tick.set_fontsize(8)
+        else:
+            _tick.set_fontsize(7)
+
+    # Move row dendrogram closer and shrink it
+    # Positions
+    _hm_pos  = cg.ax_heatmap.get_position()
+    _rd_pos  = cg.ax_row_dendrogram.get_position()
+    _rc_pos  = cg.ax_row_colors.get_position()
+
+    _new_rd_width = _rd_pos.width * 0.3
+    _new_rc_width = _rc_pos.width * 0.4
+
+    cg.ax_row_colors.set_xticklabels([])
+    cg.ax_row_colors.set_yticklabels([])
+
+    # Dendrogram on the far left
+    cg.ax_row_dendrogram.set_position([
+        _hm_pos.x0 - _new_rd_width - _new_rc_width - 0.002,
+        _rd_pos.y0,
+        _new_rd_width,
+        _rd_pos.height
+    ])
+
+    # Row colors between dendrogram and heatmap
+    cg.ax_row_colors.set_position([
+        _hm_pos.x0 - _new_rc_width - 0.001,
+        _rc_pos.y0,
+        _new_rc_width,
+        _rc_pos.height
+    ])
+
+    # Label the row colors axis
+    #cg.ax_row_colors.set_title("Botanical extracts", fontsize=9, fontweight="bold", pad=4)
+
+    # Hide the column dendrogram (the "tree")
+    cg.ax_col_dendrogram.set_visible(False)
+
+    cg.ax_cbar.set_position((1, 0.3, 0.02, 0.05))
 
     # Adjust rotation if needed
     cg.ax_heatmap.set_yticklabels(cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=7)
@@ -2311,15 +6234,228 @@ def _(
                        for ps in sorted(unique_plant_scodes)]
 
     # Add legend outside the plot
+
     cg.ax_heatmap.legend(
-        handles=legend_elements, 
-        title='Plant name',
-        bbox_to_anchor=(1.35, 1), 
-        loc='upper left',
+        handles=legend_elements,
+        loc="upper left",        # or "best" to let matplotlib decide
+        bbox_to_anchor=(1.2, 1),
         frameon=True,
-        fontsize=6,
-        title_fontsize=7
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=14,
+        borderpad=0.8,
+        title="Botanical extracts",
+        title_fontsize=16,
+    ).get_title().set_fontweight("bold")
+
+    plt.tight_layout()
+    plt.savefig(Path.home() / "Downloads" / "clustermap_level4_bsc.png", format="png", bbox_inches="tight", dpi = 300)
+    plt.show()
+    return (Patch,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Phenotypic space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
+    return
+
+
+@app.cell
+def _(
+    Line2D,
+    LogNorm,
+    adjust_text,
+    all_selected_features,
+    df_bsc_all_pod_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    df_level6_bsc,
+    dic_botanicals_scode_name,
+    feature_wise_permutation_threshold,
+    pd,
+    plt,
+    umap,
+):
+    # ── 1. Rebuild _df_level6_bsc_plantscode ─────────────────────────────────────
+    _df_level6_bsc_plantscode = df_level6_bsc.merge(
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant scode", "Plant name", "Constituent"]],
+        on="Metadata_compound", how="left"
     )
+
+    _compound_to_plant_name = (
+        df_bsc_all_pod_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+
+    _mask = _df_level6_bsc_plantscode["Constituent"].isna()
+    _df_level6_bsc_plantscode.loc[_mask, "Constituent"] = (
+        _df_level6_bsc_plantscode.loc[_mask, "Metadata_compound"].map(_compound_to_plant_name)
+    )
+
+    _mask = _df_level6_bsc_plantscode["Plant name"].isna()
+    _df_level6_bsc_plantscode.loc[_mask, "Plant name"] = (
+        _df_level6_bsc_plantscode.loc[_mask, "Metadata_compound"].map(_compound_to_plant_name)
+    )
+
+    _df_level6_bsc_plantscode["Row_label"] = _df_level6_bsc_plantscode.apply(
+        lambda row: f"{row['Constituent']} ({row['Metadata_compound']})"
+                    if pd.notna(row['Metadata_compound']) and pd.notna(row['Plant name'])
+                    else f"{row['Constituent']} (-- Botanical --)"
+                    if pd.notna(row['Metadata_compound']) and pd.isna(row['Plant name'])
+                    else row['Metadata_compound'],
+        axis=1
+    )
+
+    # ── 2. Build PAC lookup ───────────────────────────────────────────────────────
+    _df_cp_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid = _n_active[_n_active >= feature_wise_permutation_threshold].index
+
+    _cp_pac_series = (
+        _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)]
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+    )
+
+    # ── 3. Prepare feature matrix + group classification ─────────────────────────
+    _df_plot = _df_level6_bsc_plantscode.copy()
+    _df_plot["PAC_cp"] = _df_plot["Metadata_compound"].map(_cp_pac_series)
+
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify(_row):
+        if _row["Metadata_compound"] == "s0617825":
+            return "DMSO"
+        elif _row["Metadata_compound"] in _botanical_scodes:
+            return "Botanical"
+        elif pd.notna(_row["PAC_cp"]):
+            return "Active constituent"
+        else:
+            return "Inactive constituent"
+
+    _df_plot["Group"] = _df_plot.apply(_classify, axis=1)
+
+    # ── 4. UMAP embedding ─────────────────────────────────────────────────────────
+    _features_matrix = _df_plot[all_selected_features].values
+    _reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
+    _embedding = _reducer.fit_transform(_features_matrix)
+    _df_plot["UMAP1"] = _embedding[:, 0]
+    _df_plot["UMAP2"] = _embedding[:, 1]
+
+    # ── 5. Shared color scale across all PAC values ───────────────────────────────
+    _all_pac = _df_plot["PAC_cp"].dropna().values
+    _norm = LogNorm(vmin=_all_pac.min(), vmax=_all_pac.max())
+    _cmap = plt.cm.plasma_r
+
+    # ── 6. Plot ───────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(12, 9))
+
+    _group_config = {
+        "Inactive constituent": ("o",  35, 2),
+        "Active constituent":   ("o",  60, 4),
+        "Botanical":            ("D",  55, 3),
+        "DMSO":                 ("*", 180, 5),
+    }
+
+    # Inactive constituents (grey)
+    _sub_inactive = _df_plot[_df_plot["Group"] == "Inactive constituent"]
+    _mk, _sz, _zo = _group_config["Inactive constituent"]
+    _ax.scatter(
+        _sub_inactive["UMAP1"], _sub_inactive["UMAP2"],
+        c="lightgrey", s=_sz, marker=_mk, alpha=0.4,
+        linewidths=0.3, edgecolors="grey", zorder=_zo,
+        label="Inactive constituent"
+    )
+
+    # Botanicals without PAC (grey diamonds)
+    _sub_bot = _df_plot[_df_plot["Group"] == "Botanical"]
+    _mk, _sz, _zo = _group_config["Botanical"]
+    _has_pac_bot = _sub_bot["PAC_cp"].notna()
+    _ax.scatter(
+        _sub_bot.loc[~_has_pac_bot, "UMAP1"], _sub_bot.loc[~_has_pac_bot, "UMAP2"],
+        c="lightgrey", s=_sz, marker=_mk, alpha=0.6,
+        linewidths=0.4, edgecolors="grey", zorder=_zo
+    )
+
+    # Botanicals with PAC (colored diamonds)
+    if _has_pac_bot.any():
+        _ax.scatter(
+            _sub_bot.loc[_has_pac_bot, "UMAP1"], _sub_bot.loc[_has_pac_bot, "UMAP2"],
+            c=_sub_bot.loc[_has_pac_bot, "PAC_cp"].values, cmap=_cmap, norm=_norm,
+            s=_sz, marker=_mk, alpha=0.85,
+            linewidths=0.4, edgecolors="black", zorder=_zo
+        )
+
+    # Active constituents (colored circles)
+    _sub_active = _df_plot[_df_plot["Group"] == "Active constituent"]
+    _mk, _sz, _zo = _group_config["Active constituent"]
+    _sc = _ax.scatter(
+        _sub_active["UMAP1"], _sub_active["UMAP2"],
+        c=_sub_active["PAC_cp"].values, cmap=_cmap, norm=_norm,
+        s=_sz, marker=_mk, alpha=0.85,
+        linewidths=0.4, edgecolors="black", zorder=_zo,
+        label="Active constituent"
+    )
+
+    # DMSO (black star)
+    _sub_dmso = _df_plot[_df_plot["Group"] == "DMSO"]
+    _mk, _sz, _zo = _group_config["DMSO"]
+    _ax.scatter(
+        _sub_dmso["UMAP1"], _sub_dmso["UMAP2"],
+        c="black", s=_sz, marker=_mk, alpha=1.0,
+        linewidths=0.5, edgecolors="black", zorder=_zo,
+        label="DMSO"
+    )
+
+    # ── 7. Labels for botanicals + active constituents ────────────────────────────
+    _to_label = _df_plot[_df_plot["Group"].isin(["Botanical", "Active constituent"])].copy()
+    _to_label["Label"] = _to_label.apply(
+        lambda _row: dic_botanicals_scode_name.get(_row["Metadata_compound"], _row["Constituent"]),
+        axis=1
+    )
+
+    _texts = []
+    for _, _row in _to_label.iterrows():
+        _texts.append(_ax.text(
+            _row["UMAP1"] + 0.05, _row["UMAP2"] + 0.05, _row["Label"],
+            fontsize=5.5, ha="left", va="bottom"
+        ))
+
+    adjust_text(
+        _texts,
+        ax=_ax,
+        expand_points=(2.0, 2.0),   # push labels away from points
+        expand_text=(1.5, 1.5),     # push labels away from each other
+        arrowprops=dict(arrowstyle="-", color="grey", lw=0.4)
+    )
+
+    # ── 8. Colorbar + legend ──────────────────────────────────────────────────────
+    _cbar = _fig.colorbar(_sc, ax=_ax, pad=0.02, shrink=0.65)
+    _cbar.set_label("CP PAC – 5th pct (µM, log scale)", fontsize=10)
+
+    _legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="lightgrey",
+               markeredgecolor="grey", markersize=7, label="Inactive constituent"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="purple",
+               markeredgecolor="black", markersize=7, label="Active constituent"),
+        Line2D([0], [0], marker="D", color="w", markerfacecolor="purple",
+               markeredgecolor="black", markersize=7, label="Botanical (active)"),
+        Line2D([0], [0], marker="D", color="w", markerfacecolor="lightgrey",
+               markeredgecolor="grey", markersize=7, label="Botanical (no PAC)"),
+        Line2D([0], [0], marker="*", color="w", markerfacecolor="black",
+               markeredgecolor="black", markersize=10, label="DMSO"),
+    ]
+    _ax.legend(handles=_legend_elements, loc="lower right", fontsize=8, frameon=True)
+
+    _ax.set_xlabel("UMAP 1", fontsize=11)
+    _ax.set_ylabel("UMAP 2", fontsize=11)
+    _ax.set_title("Phenotypic space (Cell Painting)\nBotanicals · Active constituents · DMSO", fontsize=13)
 
     plt.tight_layout()
     plt.show()
@@ -2328,12 +6464,450 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Chemical space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
+    mo.md(r"""## Analysis : Heatmap cosine similarity""")
     return
 
 
 @app.cell
-def _():
+def _(mo):
+    mo.md(r"""### Analysis : Heatmap cosine similarity level 4 [OOM Too BIG]""")
+    return
+
+
+@app.cell
+def _(
+    Patch,
+    all_selected_features,
+    cosine_similarity,
+    df_bsc_all_pod_annotations,
+    df_level4_bsc,
+    dic_botanicals_scode_name,
+    np,
+    os,
+    pd,
+    plt,
+    sns,
+):
+    if False:
+        # ── 1. Setup ──────────────────────────────────────────────────────────────────
+        _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+        def _classify_point(_compound):
+            if _compound in ("s0617825", "DMSO"):
+                return "DMSO"
+            elif _compound in _botanical_scodes:
+                return "Botanical"
+            else:
+                return "Compound"
+
+        _df = df_level4_bsc.copy()
+        _df["PointType"] = _df["Metadata_compound"].apply(_classify_point)
+
+        _compound_to_plant = (
+            df_bsc_all_pod_annotations[["Metadata_compound", "Plant name"]]
+            .drop_duplicates()
+            .dropna()
+            .set_index("Metadata_compound")["Plant name"]
+            .to_dict()
+        )
+        _df["Plant name"] = _df["Metadata_compound"].map(lambda _c: _compound_to_plant.get(_c, "—"))
+
+        _constituent_lookup = (
+            df_bsc_all_pod_annotations[["Metadata_compound", "Constituent"]]
+            .drop_duplicates()
+            .dropna(subset=["Constituent"])
+            .set_index("Metadata_compound")["Constituent"]
+            .to_dict()
+        )
+
+        # DisplayName includes concentration
+        _df["DisplayName"] = _df.apply(
+            lambda _r: f"{dic_botanicals_scode_name.get(_r['Metadata_compound'])} @ {_r['Metadata_concentration']:.2g} µM"
+                       if _r["Metadata_compound"] in _botanical_scodes
+                       else f"{_constituent_lookup.get(_r['Metadata_compound'], _r['Metadata_compound'])} @ {_r['Metadata_concentration']:.2g} µM"
+                       if _r["Metadata_compound"] not in ("s0617825", "DMSO")
+                       else f"{_r['Metadata_compound']} @ {_r['Metadata_concentration']:.2g} µM",
+            axis=1
+        )
+
+        # ── 2. Cosine similarity matrix ───────────────────────────────────────────────
+        _X = _df[all_selected_features].values
+        _cos_sim = cosine_similarity(_X)
+        _df_cos = pd.DataFrame(
+            _cos_sim,
+            index=_df["DisplayName"].values,
+            columns=_df["DisplayName"].values,
+        )
+
+        # ── 3. Row color annotations ──────────────────────────────────────────────────
+        _ptype_palette = {
+            "Compound":  "#aec7e8",
+            "Botanical": "#2ca02c",
+            "DMSO":      "#000000",
+        }
+        _unique_plants = [_p for _p in _df["Plant name"].unique() if _p != "—"]
+        _plant_palette = dict(zip(
+            _unique_plants,
+            sns.color_palette("tab20", len(_unique_plants))
+        ))
+        _plant_palette["—"] = "#f0f0f0"
+
+        # Concentration color (log scale)
+        _conc_vals = _df["Metadata_concentration"].values
+        _conc_norm = plt.Normalize(vmin=np.log10(_conc_vals[_conc_vals > 0].min()),
+                                    vmax=np.log10(_conc_vals[_conc_vals > 0].max()))
+        _conc_cmap = plt.cm.YlOrRd
+        _conc_colors = [
+            _conc_cmap(_conc_norm(np.log10(_v))) if _v > 0 else (0.9, 0.9, 0.9, 1.0)
+            for _v in _conc_vals
+        ]
+
+        _row_colors = pd.DataFrame({
+            "Type":          _df["PointType"].map(_ptype_palette).values,
+            "Plant name":    _df["Plant name"].map(_plant_palette).values,
+            "Concentration": _conc_colors,
+        }, index=_df_cos.index)
+
+        _ytick_labels = _df["DisplayName"].values.tolist()
+        _n_rows = len(_df)
+        # ── 4. Clustermap ─────────────────────────────────────────────────────────────
+        sns.set(font_scale=0.65)
+        _cg = sns.clustermap(
+            _df_cos,
+            method="ward",
+            metric="euclidean",
+            cmap="RdBu_r",
+            vmin=-1, vmax=1,
+            figsize=(max(14, _n_rows * 0.1)+2, max(14, _n_rows * 0.1)),
+            row_cluster=True,
+            col_cluster=True,
+            row_colors=_row_colors,
+            xticklabels=False,
+            yticklabels=_ytick_labels,
+            cbar_pos=(0.02, 0.8, 0.03, 0.15),
+        )
+        _cg.ax_heatmap.set_yticklabels(
+            _cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=5
+        )
+        _cg.ax_heatmap.set_xlabel("Well", fontsize=9)
+        _cg.ax_heatmap.set_ylabel("Compound @ Concentration", fontsize=9)
+        _cg.fig.suptitle(
+            "Cosine similarity clustermap — Level 5 BSC profiles (per well)",
+            y=1.01, fontsize=12
+        )
+
+        # ── 5. Legends ────────────────────────────────────────────────────────────────
+        _legend_ptype = [Patch(facecolor=_col, label=_pt) for _pt, _col in _ptype_palette.items()]
+        _legend_plant = [Patch(facecolor=_col, label=_pl) for _pl, _col in _plant_palette.items() if _pl != "—"]
+
+        # Concentration colorbar legend
+        _sm = plt.cm.ScalarMappable(cmap=_conc_cmap, norm=_conc_norm)
+        _sm.set_array([])
+        _cax = _cg.fig.add_axes([0.82, 0.72, 0.03, 0.12])
+        _cg.fig.colorbar(_sm, cax=_cax, orientation="vertical")
+        _cax.set_ylabel("log10 Conc (µM)", fontsize=6)
+        _cax.tick_params(labelsize=5)
+
+        _leg2 = _cg.fig.add_axes([0.82, 0.52, 0.15, 0.15])
+        _leg2.axis("off")
+        _leg2.legend(handles=_legend_ptype, title="Type", loc="upper left",
+                     frameon=True, fontsize=6, title_fontsize=7)
+
+        _leg3 = _cg.fig.add_axes([0.82, 0.20, 0.15, 0.28])
+        _leg3.axis("off")
+        _leg3.legend(handles=_legend_plant, title="Plant name", loc="upper left",
+                     frameon=True, fontsize=6, title_fontsize=7)
+
+        plt.tight_layout()
+        _cg.fig.savefig(os.path.expanduser("~/Downloads/clustermap_level5_bsc.pdf"), bbox_inches="tight", dpi=150)
+        plt.close(_cg.fig)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Analysis : Heatmap cosine similarity level 5""")
+    return
+
+
+@app.cell
+def _(
+    Patch,
+    all_selected_features,
+    cosine_similarity,
+    df_bsc_all_pod_annotations,
+    df_level5_bsc,
+    dic_botanicals_scode_name,
+    np,
+    pd,
+    plt,
+    sns,
+):
+    # ── 1. Setup ──────────────────────────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    _df = df_level5_bsc.copy()
+    _df["PointType"] = _df["Metadata_compound"].apply(_classify_point)
+
+    _compound_to_plant = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+    _df["Plant name"] = _df["Metadata_compound"].map(lambda _c: _compound_to_plant.get(_c, "—"))
+
+    _constituent_lookup = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    # DisplayName includes concentration
+    _df["DisplayName"] = _df.apply(
+        lambda _r: f"{dic_botanicals_scode_name.get(_r['Metadata_compound'])} @ {_r['Metadata_concentration']:.2g} µM"
+                   if _r["Metadata_compound"] in _botanical_scodes
+                   else f"{_constituent_lookup.get(_r['Metadata_compound'], _r['Metadata_compound'])} @ {_r['Metadata_concentration']:.2g} µM"
+                   if _r["Metadata_compound"] not in ("s0617825", "DMSO")
+                   else f"{_r['Metadata_compound']} @ {_r['Metadata_concentration']:.2g} µM",
+        axis=1
+    )
+
+    # ── 2. Cosine similarity matrix ───────────────────────────────────────────────
+    _X = _df[all_selected_features].values
+    _cos_sim = cosine_similarity(_X)
+    _df_cos = pd.DataFrame(
+        _cos_sim,
+        index=_df["DisplayName"].values,
+        columns=_df["DisplayName"].values,
+    )
+
+    # ── 3. Row color annotations ──────────────────────────────────────────────────
+    _ptype_palette = {
+        "Compound":  "#aec7e8",
+        "Botanical": "#2ca02c",
+        "DMSO":      "#000000",
+    }
+    _unique_plants = [_p for _p in _df["Plant name"].unique() if _p != "—"]
+    _plant_palette = dict(zip(
+        _unique_plants,
+        sns.color_palette("tab20", len(_unique_plants))
+    ))
+    _plant_palette["—"] = "#f0f0f0"
+
+    # Concentration color (log scale)
+    _conc_vals = _df["Metadata_concentration"].values
+    _conc_norm = plt.Normalize(vmin=np.log10(_conc_vals[_conc_vals > 0].min()),
+                                vmax=np.log10(_conc_vals[_conc_vals > 0].max()))
+    _conc_cmap = plt.cm.YlOrRd
+    _conc_colors = [
+        _conc_cmap(_conc_norm(np.log10(_v))) if _v > 0 else (0.9, 0.9, 0.9, 1.0)
+        for _v in _conc_vals
+    ]
+
+    _row_colors = pd.DataFrame({
+        "Type":          _df["PointType"].map(_ptype_palette).values,
+        "Plant name":    _df["Plant name"].map(_plant_palette).values,
+        "Concentration": _conc_colors,
+    }, index=_df_cos.index)
+
+    _ytick_labels = _df["DisplayName"].values.tolist()
+    _n_rows = len(_df)
+    # ── 4. Clustermap ─────────────────────────────────────────────────────────────
+    sns.set(font_scale=0.65)
+    _cg = sns.clustermap(
+        _df_cos,
+        method="ward",
+        metric="euclidean",
+        cmap="RdBu_r",
+        vmin=-1, vmax=1,
+        figsize=(max(14, _n_rows * 0.1)+2, max(14, _n_rows * 0.1)),
+        row_cluster=True,
+        col_cluster=True,
+        row_colors=_row_colors,
+        xticklabels=False,
+        yticklabels=_ytick_labels,
+        cbar_pos=(0.02, 0.8, 0.03, 0.15),
+    )
+    _cg.ax_heatmap.set_yticklabels(
+        _cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=5
+    )
+    _cg.ax_heatmap.set_xlabel("Well", fontsize=9)
+    _cg.ax_heatmap.set_ylabel("Compound @ Concentration", fontsize=9)
+    _cg.fig.suptitle(
+        "Cosine similarity clustermap — Level 5 BSC profiles (per well)",
+        y=1.01, fontsize=12
+    )
+
+    # ── 5. Legends ────────────────────────────────────────────────────────────────
+    _legend_ptype = [Patch(facecolor=_col, label=_pt) for _pt, _col in _ptype_palette.items()]
+    _legend_plant = [Patch(facecolor=_col, label=_pl) for _pl, _col in _plant_palette.items() if _pl != "—"]
+
+    # Concentration colorbar legend
+    _sm = plt.cm.ScalarMappable(cmap=_conc_cmap, norm=_conc_norm)
+    _sm.set_array([])
+    _cax = _cg.fig.add_axes([0.82, 0.72, 0.03, 0.12])
+    _cg.fig.colorbar(_sm, cax=_cax, orientation="vertical")
+    _cax.set_ylabel("log10 Conc (µM)", fontsize=6)
+    _cax.tick_params(labelsize=5)
+
+    _leg2 = _cg.fig.add_axes([0.82, 0.52, 0.15, 0.15])
+    _leg2.axis("off")
+    _leg2.legend(handles=_legend_ptype, title="Type", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    _leg3 = _cg.fig.add_axes([0.82, 0.20, 0.15, 0.28])
+    _leg3.axis("off")
+    _leg3.legend(handles=_legend_plant, title="Plant name", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    plt.tight_layout()
+    _cg.fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Analysis : Heatmap cosine similarity level 6""")
+    return
+
+
+@app.cell
+def _(
+    Patch,
+    all_selected_features,
+    cosine_similarity,
+    df_bsc_all_pod_annotations,
+    df_level6,
+    df_level6_bsc,
+    dic_botanicals_scode_name,
+    pd,
+    plt,
+    sns,
+):
+    # ── 1. Cosine similarity matrix ───────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    _df = df_level6_bsc.copy()
+    _df["PointType"] = _df["Metadata_compound"].apply(_classify_point)
+
+    _compound_to_plant = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+    _df["Plant name"] = _df["Metadata_compound"].map(lambda _c: _compound_to_plant.get(_c, "—"))
+    _constituent_lookup = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    _df["DisplayName"] = _df["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c)    if _c in _botanical_scodes
+                   else _constituent_lookup.get(_c, _c)  if _c not in ("s0617825", "DMSO")
+                   else _c
+    )
+    # ── 2. Cosine similarity matrix ───────────────────────────────────────────────
+    _X = _df[all_selected_features].values
+    _cos_sim = cosine_similarity(_X)
+    _df_cos = pd.DataFrame(
+        _cos_sim,
+        index=_df["DisplayName"].values,
+        columns=_df["DisplayName"].values,
+    )
+
+    # ── 3. Row color annotations ──────────────────────────────────────────────────
+    _ptype_palette = {
+        "Compound":  "#aec7e8",
+        "Botanical": "#2ca02c",
+        "DMSO":      "#000000",
+    }
+    _unique_plants = [_p for _p in _df["Plant name"].unique() if _p != "—"]
+    _plant_palette = dict(zip(
+        _unique_plants,
+        sns.color_palette("tab20", len(_unique_plants))
+    ))
+    _plant_palette["—"] = "#f0f0f0"
+
+    _row_colors = pd.DataFrame({
+        "Type":       _df["PointType"].map(_ptype_palette).values,
+        "Plant name": _df["Plant name"].map(_plant_palette).values,
+    }, index=_df_cos.index)
+    _bsc_compounds = set(df_level6[df_level6["Dataset"] == "BSC"]["Metadata_compound"].values)
+
+    _ytick_labels = _df["DisplayName"].values.tolist()
+    # ── 4. Clustermap ─────────────────────────────────────────────────────────────
+    sns.set(font_scale=0.65)
+    _cg = sns.clustermap(
+        _df_cos,
+        method="ward",
+        metric="euclidean",
+        cmap="RdBu_r",
+        vmin=-1, vmax=1,
+        figsize=(14, 12),
+        row_cluster=True,
+        col_cluster=True,
+        row_colors=_row_colors,
+        xticklabels=False,
+        yticklabels=_ytick_labels,
+        cbar_pos=(0.02, 0.8, 0.03, 0.15),
+    )
+    _cg.ax_heatmap.set_yticklabels(
+        _cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=6
+    )
+    _cg.ax_heatmap.set_xlabel("Compound", fontsize=9)
+    _cg.ax_heatmap.set_ylabel("Compound", fontsize=9)
+    _cg.fig.suptitle(
+        "Cosine similarity clustermap — Level 6 compound profiles",
+        y=1.01, fontsize=12
+    )
+
+    # ── 5. Legends ────────────────────────────────────────────────────────────────
+    _legend_ptype   = [Patch(facecolor=_col, label=_pt) for _pt, _col in _ptype_palette.items()]
+    _legend_plant   = [Patch(facecolor=_col, label=_pl) for _pl, _col in _plant_palette.items() if _pl != "—"]
+
+    _leg2 = _cg.fig.add_axes([0.82, 0.55, 0.15, 0.15])
+    _leg2.axis("off")
+    _leg2.legend(handles=_legend_ptype, title="Type", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    _leg3 = _cg.fig.add_axes([0.82, 0.25, 0.15, 0.25])
+    _leg3.axis("off")
+    _leg3.legend(handles=_legend_plant, title="Plant name", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    plt.tight_layout()
+    _cg.fig
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Chemical space colored by POD (Cell Painting) POD (mtt) POD (ldh)""")
     return
 
 
@@ -2386,20 +6960,16 @@ def _(mo):
 
 @app.cell
 def _(pd):
-    df_level4a_axiom = pd.read_parquet("02_processed_data/level4a_axiom.parquet")
-    return (df_level4a_axiom,)
+    df_metadata_compound_oasis = pd.read_csv("modules/01_preprocessing/inputs/v5_oasis_03Sept2024_simple.csv")
+    return (df_metadata_compound_oasis,)
 
 
 @app.cell
-def _(df_level4a_axiom):
-    df_level4a_axiom
-    return
-
-
-@app.cell
-def _(df_level4a_bsc):
-    df_level4a_bsc
-    return
+def _(pd):
+    df_level4a_axiom = pd.read_parquet("modules/02_processing/outputs/level4a_axiom.parquet")
+    df_level5_axiom_all = pd.read_parquet("modules/02_processing/outputs/level5_axiom_all_features.parquet")
+    df_level6_axiom_all = pd.read_parquet("modules/02_processing/outputs/level6_axiom_all_features.parquet")
+    return df_level4a_axiom, df_level5_axiom_all, df_level6_axiom_all
 
 
 @app.cell
@@ -2418,15 +6988,316 @@ def _(df_level4_bsc, df_level4a_axiom, pd):
 
 
 @app.cell
+def _(df_level5_axiom_all, df_level5_bsc_all, pd):
+    # Add source column
+    df_level5_axiom_all["Dataset"] = "AXIOM"
+    df_level5_bsc_all["Dataset"]   = "BSC"
+
+    # Bind rows
+    df_level5 = pd.concat(
+        [df_level5_axiom_all, df_level5_bsc_all],
+        axis=0,
+        ignore_index=True
+    )
+    return (df_level5,)
+
+
+@app.cell
+def _(df_level6_axiom_all, df_level6_bsc_all, pd):
+    # Add source column
+    df_level6_axiom_all["Dataset"] = "AXIOM"
+    df_level6_bsc_all["Dataset"]   = "BSC"
+
+    # Bind rows
+    df_level6 = pd.concat(
+        [df_level6_axiom_all, df_level6_bsc_all],
+        axis=0,
+        ignore_index=True
+    )
+    return (df_level6,)
+
+
+@app.cell
+def _(df_level6):
+    all_features_bsc_axiom = [c for c in df_level6.columns if c.startswith("Feature_")]
+    return (all_features_bsc_axiom,)
+
+
+@app.cell
 def _(mo):
-    mo.md(r"""## Analysis : UMAP""")
+    mo.md(r"""## Analysis : UMAP Chemical space""")
+    return
+
+
+@app.cell
+def _(
+    AllChem,
+    Chem,
+    DataStructs,
+    df_level4_bsc,
+    df_level4a_axiom,
+    df_metadata_compound_oasis,
+    dic_botanicals_scode_name,
+    np,
+    pd,
+    umap,
+):
+
+
+    # ── 1. Build SMILES lookup for Axiom ─────────────────────────────────────────
+    _axiom_oasis_ids = df_level4a_axiom["Metadata_OASIS_ID"].unique()
+    _df_axiom_smiles = (
+        df_metadata_compound_oasis[
+            df_metadata_compound_oasis["OASIS_ID"].isin(_axiom_oasis_ids)
+        ][["OASIS_ID", "SMILES"]]
+        .drop_duplicates()
+        .rename(columns={"OASIS_ID": "Metadata_compound", "SMILES": "SMILES"})
+    )
+    _df_axiom_smiles["Dataset"] = "Axiom"
+
+    # ── 2. Build SMILES lookup for BSC ────────────────────────────────────────────
+    _df_bsc_smiles = (
+        df_level4_bsc[["Metadata_compound", "Metadata_compound_smiles"]]
+        .drop_duplicates()
+        .dropna(subset=["Metadata_compound_smiles"])
+        .rename(columns={"Metadata_compound_smiles": "SMILES"})
+    )
+    _df_bsc_smiles["Dataset"] = "BSC"
+
+    # ── 3. Combine ────────────────────────────────────────────────────────────────
+    df_smiles = (
+        pd.concat([_df_axiom_smiles, _df_bsc_smiles], axis=0, ignore_index=True)
+        .drop_duplicates(subset=["Metadata_compound"])
+        .dropna(subset=["SMILES"])
+        .reset_index(drop=True)
+    )
+
+    # ── 4. Classify point type ────────────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    df_smiles["PointType"] = df_smiles["Metadata_compound"].apply(_classify_point)
+    df_smiles["DisplayName"] = df_smiles["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c, _c) if _c in _botanical_scodes else _c
+    )
+
+    # ── 5. Compute Morgan fingerprints (radius=2, nBits=2048, binary) ─────────────
+    def _smiles_to_fp(_smi):
+        try:
+            _mol = Chem.MolFromSmiles(_smi)
+            if _mol is None:
+                return None
+            return AllChem.GetMorganFingerprintAsBitVect(_mol, radius=2, nBits=2048)
+        except:
+            return None
+
+    df_smiles["FP"] = df_smiles["SMILES"].apply(_smiles_to_fp)
+    df_smiles = df_smiles[df_smiles["FP"].notna()].reset_index(drop=True)
+
+    print(f"Valid structures: {len(df_smiles)}")
+
+    # ── 6. Tanimoto distance matrix ───────────────────────────────────────────────
+    _fps = df_smiles["FP"].tolist()
+    _n = len(_fps)
+    _dist_matrix = np.zeros((_n, _n))
+
+    for _i in range(_n):
+        for _j in range(_i + 1, _n):
+            _sim = DataStructs.TanimotoSimilarity(_fps[_i], _fps[_j])
+            _dist_matrix[_i, _j] = 1 - _sim
+            _dist_matrix[_j, _i] = 1 - _sim
+
+    # ── 7. UMAP on precomputed Tanimoto distance ──────────────────────────────────
+    _reducer = umap.UMAP(
+        n_components=2,
+        metric="precomputed",
+        random_state=42,
+        n_neighbors=15,
+        min_dist=0.1
+    )
+    _embedding = _reducer.fit_transform(_dist_matrix)
+    df_smiles["UMAP_1"] = _embedding[:, 0]
+    df_smiles["UMAP_2"] = _embedding[:, 1]
+    return (df_smiles,)
+
+
+@app.cell
+def _(df_smiles, go):
+    # ── 8. Plot ───────────────────────────────────────────────────────────────────
+    _dataset_colors = {
+        _ds: _col for _ds, _col in zip(
+            df_smiles["Dataset"].unique(),
+            ["#1f77b4", "#ff7f0e"]
+        )
+    }
+
+    _marker_config = {
+        "Compound":  dict(symbol="circle",  size=6,  opacity=0.7),
+        "Botanical": dict(symbol="diamond", size=10, opacity=0.9),
+        "DMSO":      dict(symbol="star",    size=14, opacity=1.0),
+    }
+
+    _fig = go.Figure()
+
+    for _dataset in df_smiles["Dataset"].unique():
+        _df_ds = df_smiles[df_smiles["Dataset"] == _dataset]
+        _color = _dataset_colors[_dataset]
+
+        for _ptype, _mconf in _marker_config.items():
+            _df_sub = _df_ds[_df_ds["PointType"] == _ptype]
+            if _df_sub.empty:
+                continue
+
+            _fig.add_trace(go.Scatter(
+                x=_df_sub["UMAP_1"],
+                y=_df_sub["UMAP_2"],
+                mode="markers",
+                name=f"{_dataset} — {_ptype}",
+                marker=dict(
+                    symbol=_mconf["symbol"],
+                    size=_mconf["size"],
+                    opacity=_mconf["opacity"],
+                    color=_color,
+                    line=dict(width=0.8, color="black") if _ptype != "Compound" else dict(width=0),
+                ),
+                customdata=_df_sub[["Metadata_compound", "DisplayName", "SMILES"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "ID: %{customdata[0]}<br>"
+                    f"Dataset: {_dataset}<br>"
+                    "SMILES: %{customdata[2]}<br>"
+                    "UMAP1: %{x:.2f} | UMAP2: %{y:.2f}"
+                    "<extra></extra>"
+                ),
+            ))
+
+    # Botanical text labels
+    _df_bot = df_smiles[df_smiles["PointType"] == "Botanical"]
+    _fig.add_trace(go.Scatter(
+        x=_df_bot["UMAP_1"],
+        y=_df_bot["UMAP_2"],
+        mode="text",
+        text=_df_bot["DisplayName"],
+        textposition="top center",
+        textfont=dict(size=8, color="black"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    _fig.update_layout(
+        template="plotly_white",
+        title="Chemical space UMAP — Morgan fingerprints (Tanimoto)<br><sup>◆ Botanicals · ★ DMSO · ● Compounds</sup>",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2",
+        legend_title_text="Dataset — Type",
+        width=950,
+        height=700,
+        legend=dict(itemsizing="constant", font=dict(size=10)),
+    )
+
+    _fig.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Analysis : UMAP Cell Painting""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP Cell Painting level 4 Controls""")
+    return
+
+
+@app.cell
+def _(df_level4_bsc, df_level4a_axiom, pd):
+    # Add source column
+    df_level4a_axiom["Dataset"] = "AXIOM"
+    df_level4_bsc["Dataset"]   = "BSC"
+
+    # Bind rows
+    df_level4_control = pd.concat(
+        [df_level4a_axiom[df_level4a_axiom["Metadata_compound"] == "DMSO"], df_level4_bsc[df_level4_bsc["Metadata_compound"] == "s0617825"]],
+        axis=0,
+        ignore_index=True
+    )
+    return (df_level4_control,)
+
+
+@app.cell
+def _(all_selected_features, df_level4_control, pd, umap):
+    # --- 1. Extract features and metadata
+    _X = df_level4_control[all_selected_features].values
+
+    _plates = df_level4_control["Metadata_plate"].astype(str)
+    _concentration = df_level4_control["Metadata_concentration"].astype(float)
+    _log10conc = df_level4_control["Metadata_log10conc"].astype(float)
+    _dataset = df_level4_control["Dataset"].astype(str)
+
+    # --- 2. Run UMAP for 2D projection
+    _reducer = umap.UMAP(
+        n_neighbors=15,          # local neighborhood size
+        min_dist=0.1,            # controls cluster tightness
+        metric="cosine",      # or 'cosine' for morphology data
+        random_state=42
+    )
+
+    _embedding = _reducer.fit_transform(_X)
+
+    # --- 3. Store UMAP coordinates in dataframe
+    df_umap_level4_control = pd.DataFrame(_embedding, columns=["UMAP_1", "UMAP_2"])
+    df_umap_level4_control["Metadata_plate"] = _plates
+    df_umap_level4_control["Metadata_concentration"] = _concentration
+    df_umap_level4_control["Metadata_log10conc"] = _log10conc
+    df_umap_level4_control["Dataset"] = _dataset
+    return (df_umap_level4_control,)
+
+
+@app.cell
+def _(df_umap_level4_control, px):
+    # --- 4. Create interactive Plotly scatter plot
+    _fig = px.scatter(
+        df_umap_level4_control,
+        x="UMAP_1",
+        y="UMAP_2",
+        color="Dataset",
+        title="UMAP of Level 4 Cell Painting Profiles of CONTROLS Colored by Dataset (axiom vs BSC)",
+        opacity=0.8,
+        width=850,
+        height=650,
+        color_discrete_sequence=px.colors.qualitative.Safe  # nice, distinct palette
+    )
+
+    _fig.update_layout(
+        template="plotly_white",
+        legend_title_text="Dataset",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2"
+    )
+
+    _fig.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP Cell Painting level 4""")
     return
 
 
 @app.cell
 def _(all_selected_features, df_level4, pd, umap):
     # --- 1. Extract features and metadata
-    X = df_level4[all_selected_features].values
+    _X = df_level4[all_selected_features].values
 
     _plates = df_level4["Metadata_plate"].astype(str)
     _concentration = df_level4["Metadata_concentration"].astype(float)
@@ -2434,29 +7305,29 @@ def _(all_selected_features, df_level4, pd, umap):
     _dataset = df_level4["Dataset"].astype(str)
 
     # --- 2. Run UMAP for 2D projection
-    reducer = umap.UMAP(
+    _reducer = umap.UMAP(
         n_neighbors=15,          # local neighborhood size
         min_dist=0.1,            # controls cluster tightness
         metric="cosine",      # or 'cosine' for morphology data
         random_state=42
     )
 
-    embedding = reducer.fit_transform(X)
+    _embedding = _reducer.fit_transform(_X)
 
     # --- 3. Store UMAP coordinates in dataframe
-    df_umap = pd.DataFrame(embedding, columns=["UMAP_1", "UMAP_2"])
-    df_umap["Metadata_plate"] = _plates
-    df_umap["Metadata_concentration"] = _concentration
-    df_umap["Metadata_log10conc"] = _log10conc
-    df_umap["Dataset"] = _dataset
-    return (df_umap,)
+    df_umap_level4 = pd.DataFrame(_embedding, columns=["UMAP_1", "UMAP_2"])
+    df_umap_level4["Metadata_plate"] = _plates
+    df_umap_level4["Metadata_concentration"] = _concentration
+    df_umap_level4["Metadata_log10conc"] = _log10conc
+    df_umap_level4["Dataset"] = _dataset
+    return (df_umap_level4,)
 
 
 @app.cell
-def _(df_umap, px):
+def _(df_umap_level4, px):
     # --- 4. Create interactive Plotly scatter plot
     _fig = px.scatter(
-        df_umap,
+        df_umap_level4,
         x="UMAP_1",
         y="UMAP_2",
         color="Dataset",
@@ -2475,6 +7346,419 @@ def _(df_umap, px):
     )
 
     _fig.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP Cell Painting level 5""")
+    return
+
+
+@app.cell
+def _(all_features_bsc_axiom, df_level5, pd, umap):
+    _X = df_level5[all_features_bsc_axiom].values
+
+    _dataset = df_level5["Dataset"].astype(str)
+    _compounds = df_level5["Metadata_compound"].astype(str)
+    # --- 2. Run UMAP for 2D projection
+    _reducer = umap.UMAP(
+        n_neighbors=15,          # local neighborhood size
+        min_dist=0.1,            # controls cluster tightness
+        metric="cosine",      # or 'cosine' for morphology data
+        random_state=42
+    )
+
+    _embedding = _reducer.fit_transform(_X)
+
+    # --- 3. Store UMAP coordinates in dataframe
+    df_umap_level5 = pd.DataFrame(_embedding, columns=["UMAP_1", "UMAP_2"])
+    df_umap_level5["Dataset"] = _dataset
+    df_umap_level5["Metadata_compound"] = _compounds
+    return (df_umap_level5,)
+
+
+@app.cell
+def _(df_umap_level5, dic_botanicals_scode_name, go, px):
+    # ── Classify points ───────────────────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    df_umap_level5["PointType"] = df_umap_level5["Metadata_compound"].apply(_classify_point)
+
+    df_umap_level5["DisplayName"] = df_umap_level5["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c, _c) if _c in _botanical_scodes else _c
+    )
+
+    # ── Color per dataset ─────────────────────────────────────────────────────────
+    _dataset_colors = {
+        _ds: _col for _ds, _col in zip(
+            df_umap_level5["Dataset"].unique(),
+            px.colors.qualitative.Safe
+        )
+    }
+
+    # ── Marker config per point type ──────────────────────────────────────────────
+    _marker_config = {
+        "Compound":  dict(symbol="circle",       size=6,  opacity=0.7),
+        "Botanical": dict(symbol="diamond",      size=10, opacity=0.9),
+        "DMSO":      dict(symbol="star",         size=14, opacity=1.0),
+    }
+
+    # ── Build figure manually with go.Scatter ─────────────────────────────────────
+    _fig = go.Figure()
+
+    for _dataset in df_umap_level5["Dataset"].unique():
+        _df_ds = df_umap_level5[df_umap_level5["Dataset"] == _dataset]
+        _color = _dataset_colors[_dataset]
+
+        for _ptype, _mconf in _marker_config.items():
+            _df_sub = _df_ds[_df_ds["PointType"] == _ptype]
+            if _df_sub.empty:
+                continue
+
+            _fig.add_trace(go.Scatter(
+                x=_df_sub["UMAP_1"],
+                y=_df_sub["UMAP_2"],
+                mode="markers",
+                name=f"{_dataset} — {_ptype}",
+                marker=dict(
+                    symbol=_mconf["symbol"],
+                    size=_mconf["size"],
+                    opacity=_mconf["opacity"],
+                    color=_color,
+                    line=dict(width=0.8, color="black") if _ptype != "Compound" else dict(width=0),
+                ),
+                customdata=_df_sub[["Metadata_compound", "DisplayName"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "ID: %{customdata[0]}<br>"
+                    f"Dataset: {_dataset}<br>"
+                    "UMAP1: %{x:.2f} | UMAP2: %{y:.2f}"
+                    "<extra></extra>"
+                ),
+            ))
+
+    # ── Botanical text labels ─────────────────────────────────────────────────────
+    _df_bot_labels = df_umap_level5[df_umap_level5["PointType"] == "Botanical"]
+    _fig.add_trace(go.Scatter(
+        x=_df_bot_labels["UMAP_1"],
+        y=_df_bot_labels["UMAP_2"],
+        mode="text",
+        text=_df_bot_labels["DisplayName"],
+        textposition="top center",
+        textfont=dict(size=8, color="black"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ── Layout ────────────────────────────────────────────────────────────────────
+    _fig.update_layout(
+        template="plotly_white",
+        title="UMAP of Level 5 Cell Painting Profiles<br><sup>◆ Botanicals · ★ DMSO · ● Compounds</sup>",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2",
+        legend_title_text="Dataset — Type",
+        width=950,
+        height=700,
+        legend=dict(
+            itemsizing="constant",
+            font=dict(size=10),
+        )
+    )
+    # ── Save high-resolution image ────────────────────────────────────────────────
+    import plotly.io as pio
+    from pathlib import Path
+    pio.write_image(_fig, Path.home() / "Downloads" / "umap_level5_axiom_bsc.png", width=950, height=700, scale=6)
+    return (Path,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### UMAP Cell Painting level 6""")
+    return
+
+
+@app.cell
+def _(all_features_bsc_axiom, df_level6, pd, umap):
+    _X = df_level6[all_features_bsc_axiom].values
+
+    _dataset = df_level6["Dataset"].astype(str)
+    _compounds = df_level6["Metadata_compound"].astype(str)
+    # --- 2. Run UMAP for 2D projection
+    _reducer = umap.UMAP(
+        n_neighbors=15,          # local neighborhood size
+        min_dist=0.1,            # controls cluster tightness
+        metric="cosine",      # or 'cosine' for morphology data
+        random_state=42
+    )
+
+    _embedding = _reducer.fit_transform(_X)
+
+    # --- 3. Store UMAP coordinates in dataframe
+    df_umap_level6 = pd.DataFrame(_embedding, columns=["UMAP_1", "UMAP_2"])
+    df_umap_level6["Dataset"] = _dataset
+    df_umap_level6["Metadata_compound"] = _compounds
+    return (df_umap_level6,)
+
+
+@app.cell
+def _(df_umap_level6, dic_botanicals_scode_name, go, px):
+    # ── Classify points ───────────────────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    df_umap_level6["PointType"] = df_umap_level6["Metadata_compound"].apply(_classify_point)
+
+    df_umap_level6["DisplayName"] = df_umap_level6["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c, _c) if _c in _botanical_scodes else _c
+    )
+
+    # ── Color per dataset ─────────────────────────────────────────────────────────
+    _dataset_colors = {
+        _ds: _col for _ds, _col in zip(
+            df_umap_level6["Dataset"].unique(),
+            px.colors.qualitative.Safe
+        )
+    }
+
+    # ── Marker config per point type ──────────────────────────────────────────────
+    _marker_config = {
+        "Compound":  dict(symbol="circle",       size=6,  opacity=0.7),
+        "Botanical": dict(symbol="diamond",      size=10, opacity=0.9),
+        "DMSO":      dict(symbol="star",         size=14, opacity=1.0),
+    }
+
+    # ── Build figure manually with go.Scatter ─────────────────────────────────────
+    _fig = go.Figure()
+
+    for _dataset in df_umap_level6["Dataset"].unique():
+        _df_ds = df_umap_level6[df_umap_level6["Dataset"] == _dataset]
+        _color = _dataset_colors[_dataset]
+
+        for _ptype, _mconf in _marker_config.items():
+            _df_sub = _df_ds[_df_ds["PointType"] == _ptype]
+            if _df_sub.empty:
+                continue
+
+            _fig.add_trace(go.Scatter(
+                x=_df_sub["UMAP_1"],
+                y=_df_sub["UMAP_2"],
+                mode="markers",
+                name=f"{_dataset} — {_ptype}",
+                marker=dict(
+                    symbol=_mconf["symbol"],
+                    size=_mconf["size"],
+                    opacity=_mconf["opacity"],
+                    color=_color,
+                    line=dict(width=0.8, color="black") if _ptype != "Compound" else dict(width=0),
+                ),
+                customdata=_df_sub[["Metadata_compound", "DisplayName"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "ID: %{customdata[0]}<br>"
+                    f"Dataset: {_dataset}<br>"
+                    "UMAP1: %{x:.2f} | UMAP2: %{y:.2f}"
+                    "<extra></extra>"
+                ),
+            ))
+
+    # ── Botanical text labels ─────────────────────────────────────────────────────
+    _df_bot_labels = df_umap_level6[df_umap_level6["PointType"] == "Botanical"]
+    _fig.add_trace(go.Scatter(
+        x=_df_bot_labels["UMAP_1"],
+        y=_df_bot_labels["UMAP_2"],
+        mode="text",
+        text=_df_bot_labels["DisplayName"],
+        textposition="top center",
+        textfont=dict(size=8, color="black"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ── Layout ────────────────────────────────────────────────────────────────────
+    _fig.update_layout(
+        template="plotly_white",
+        title="UMAP of Level 6 Cell Painting Profiles<br><sup>◆ Botanicals · ★ DMSO · ● Compounds</sup>",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2",
+        legend_title_text="Dataset — Type",
+        width=950,
+        height=700,
+        legend=dict(
+            itemsizing="constant",
+            font=dict(size=10),
+        )
+    )
+
+    _fig.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Analysis : Heatmap cosine similarity""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Analysis : Heatmap cosine similarity level 6""")
+    return
+
+
+@app.cell
+def _(
+    Patch,
+    all_features_bsc_axiom,
+    cosine_similarity,
+    df_bsc_all_pod_annotations,
+    df_level6,
+    dic_botanicals_scode_name,
+    pd,
+    plt,
+    sns,
+):
+    # ── 1. Cosine similarity matrix ───────────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    _df = df_level6.copy()
+    _df["PointType"] = _df["Metadata_compound"].apply(_classify_point)
+
+    _compound_to_plant = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+    _df["Plant name"] = _df["Metadata_compound"].map(lambda _c: _compound_to_plant.get(_c, "—"))
+    _constituent_lookup = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    _df["DisplayName"] = _df["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c)    if _c in _botanical_scodes
+                   else _constituent_lookup.get(_c, _c)  if _c not in ("s0617825", "DMSO")
+                   else _c
+    )
+    # ── 2. Cosine similarity matrix ───────────────────────────────────────────────
+    _X = _df[all_features_bsc_axiom].values
+    _cos_sim = cosine_similarity(_X)
+    _df_cos = pd.DataFrame(
+        _cos_sim,
+        index=_df["DisplayName"].values,
+        columns=_df["DisplayName"].values,
+    )
+
+    # ── 3. Row color annotations ──────────────────────────────────────────────────
+    _dataset_palette = dict(zip(
+        _df["Dataset"].unique(),
+        sns.color_palette("Set1", len(_df["Dataset"].unique()))
+    ))
+    _ptype_palette = {
+        "Compound":  "#aec7e8",
+        "Botanical": "#2ca02c",
+        "DMSO":      "#000000",
+    }
+    _unique_plants = [_p for _p in _df["Plant name"].unique() if _p != "—"]
+    _plant_palette = dict(zip(
+        _unique_plants,
+        sns.color_palette("tab20", len(_unique_plants))
+    ))
+    _plant_palette["—"] = "#f0f0f0"
+
+    _row_colors = pd.DataFrame({
+        "Dataset":    _df["Dataset"].map(_dataset_palette).values,
+        "Type":       _df["PointType"].map(_ptype_palette).values,
+        "Plant name": _df["Plant name"].map(_plant_palette).values,
+    }, index=_df_cos.index)
+    _bsc_compounds = set(df_level6[df_level6["Dataset"] == "BSC"]["Metadata_compound"].values)
+
+    _ytick_labels = [
+        _label if _compound in _bsc_compounds else ""
+        for _label, _compound in zip(_df["DisplayName"].values, _df["Metadata_compound"].values)
+    ]
+    _n_rows = len(_df_cos)
+    # ── 4. Clustermap ─────────────────────────────────────────────────────────────
+    sns.set(font_scale=0.65)
+    _cg = sns.clustermap(
+        _df_cos,
+        method="ward",
+        metric="euclidean",
+        cmap="RdBu_r",
+        vmin=-1, vmax=1,
+        figsize=(max(14, _n_rows * 0.1)+2, max(14, _n_rows * 0.1)),
+        row_cluster=True,
+        col_cluster=True,
+        row_colors=_row_colors,
+        xticklabels=False,
+        yticklabels=_ytick_labels,
+        cbar_pos=(0.02, 0.8, 0.03, 0.15),
+    )
+    _cg.ax_heatmap.set_yticklabels(
+        _cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=6
+    )
+    _cg.ax_heatmap.set_xlabel("Compound", fontsize=9)
+    _cg.ax_heatmap.set_ylabel("Compound", fontsize=9)
+    _cg.fig.suptitle(
+        "Cosine similarity clustermap — Level 6 compound profiles",
+        y=1.01, fontsize=12
+    )
+
+    # ── 5. Legends ────────────────────────────────────────────────────────────────
+    _legend_dataset = [Patch(facecolor=_col, label=_ds) for _ds, _col in _dataset_palette.items()]
+    _legend_ptype   = [Patch(facecolor=_col, label=_pt) for _pt, _col in _ptype_palette.items()]
+    _legend_plant   = [Patch(facecolor=_col, label=_pl) for _pl, _col in _plant_palette.items() if _pl != "—"]
+
+    _cg.ax_heatmap.legend(
+        handles=_legend_dataset, title="Dataset",
+        bbox_to_anchor=(1.35, 1.0), loc="upper left",
+        frameon=True, fontsize=6, title_fontsize=7
+    )
+    _leg2 = _cg.fig.add_axes([0.82, 0.55, 0.15, 0.15])
+    _leg2.axis("off")
+    _leg2.legend(handles=_legend_ptype, title="Type", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    _leg3 = _cg.fig.add_axes([0.82, 0.25, 0.15, 0.25])
+    _leg3.axis("off")
+    _leg3.legend(handles=_legend_plant, title="Plant name", loc="upper left",
+                 frameon=True, fontsize=6, title_fontsize=7)
+
+    plt.tight_layout()
+    _cg.fig
+    return
+
+
+@app.cell
+def _():
     return
 
 
@@ -2555,7 +7839,6 @@ def _(df_level6_bsc_all, list_botanicals, loaded_models, pd, tqdm):
     pred_matrix = pred_matrix.reset_index(drop=True)
 
     pred_matrix.head()
-
     return (pred_matrix,)
 
 
@@ -2603,7 +7886,6 @@ def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
     plt.yticks(rotation=0)
     plt.title("Active vs Inactive Predictions")
     plt.show()
-
     return
 
 
@@ -2641,7 +7923,6 @@ def _(
         figsize=(18, 6)
     )
     plt.show()
-
     return
 
 
@@ -2700,11 +7981,6 @@ def _(binary_cmap, compound_to_plant_name, plt, pred_matrix, sns):
     plt.yticks(rotation=0)
     plt.title("Active vs Inactive Predictions (cell level)")
     plt.show()
-    return
-
-
-@app.cell
-def _():
     return
 
 
@@ -2950,6 +8226,347 @@ def _(
         figsize=(18, 16)
     )
     plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Predict BSC & constituents significative""")
+    return
+
+
+@app.cell
+def _():
+    from scipy.cluster.hierarchy import leaves_list
+    from scipy.cluster.hierarchy import leaves_list
+    return (leaves_list,)
+
+
+@app.cell
+def _(pd):
+    df_ttest_results = pd.read_csv("modules/07_classification/outputs/results_performance.csv")
+    df_ttest_results
+    return (df_ttest_results,)
+
+
+@app.cell
+def _(
+    binary_cmap,
+    df_bsc_annotations,
+    df_ttest_results,
+    dic_botanicals_scode_name,
+    leaves_list,
+    linkage,
+    list_botanicals,
+    mpatches,
+    np,
+    os,
+    pd,
+    plt,
+    pred_matrix_all,
+):
+    n_active_filter = 20
+    # ── Filter columns to those present in df_ttest_results["Metadata_Label"] ────
+    _valid_labels = set(df_ttest_results["Metadata_Label"].values)
+
+    # Keep only heatmap columns that appear in df_ttest_results
+    _all_cols_before_filter = list(pred_matrix_all.columns)
+    _all_cols_before_filter = [c for c in _all_cols_before_filter if c != "Metadata_compound"]
+    _filtered_cols = [c for c in _all_cols_before_filter if c in _valid_labels]
+
+    # ── Filter to labels with n_active > n_active_filter ──────────────────────────────────────
+    _active_lookup = df_ttest_results.set_index("Metadata_Label")["Metadata_Count_1"]
+    _filtered_cols = [c for c in _filtered_cols if _active_lookup.get(c, 0) > n_active_filter]
+
+    # Rebuild pred_matrix_all with only filtered columns
+    pred_matrix_filtered = pred_matrix_all[["Metadata_compound"] + _filtered_cols]
+
+    # ── Build ordered row index ───────────────────────────────────────────────────
+    def _cluster_row_indices(data_matrix, indices):
+        """Return row indices reordered by hierarchical clustering, or original if too few."""
+        if len(indices) < 2:
+            return indices
+        sub = data_matrix[indices, :]
+        valid_rows = [i for i, idx in enumerate(indices) if not np.all(np.isnan(sub[i, :]))]
+        if len(valid_rows) < 2:
+            return indices
+        sub_valid = np.nan_to_num(sub[valid_rows, :], nan=0.0)
+        Z = linkage(sub_valid, method="average", metric="jaccard")
+        order = leaves_list(Z)
+        return [indices[valid_rows[o]] for o in order]
+
+    # ── Build ordered row index with clustering within botanical groups ────────────
+    _rows_ordered = []
+
+    # Build a temporary matrix indexed by scode for clustering
+    _all_scodes_in_matrix = list(
+        pred_matrix_filtered.set_index("Metadata_compound").index
+    )
+    _scode_to_rowidx = {s: i for i, s in enumerate(_all_scodes_in_matrix)}
+    _matrix_values = pred_matrix_filtered.set_index("Metadata_compound").values.astype(float)
+
+    for _scode in list_botanicals:
+        _plant_name = dic_botanicals_scode_name.get(_scode, _scode)
+
+        # Collect constituent scodes for this botanical
+        _const_scodes = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ][["Metadata_compound", "Constituent"]].drop_duplicates()
+
+        _const_rows = []
+        for _, _crow in _const_scodes.iterrows():
+            if _crow["Metadata_compound"] in pred_matrix_filtered["Metadata_compound"].values:
+                _const_rows.append((_crow["Metadata_compound"], f"  {_crow['Constituent']}"))
+
+        # Only add the botanical header if it or any constituent is present
+        has_botanical = _scode in pred_matrix_filtered["Metadata_compound"].values
+        if not has_botanical and len(_const_rows) == 0:
+            continue
+
+        if has_botanical:
+            _rows_ordered.append((_scode, _plant_name, True))
+
+        if len(_const_rows) > 0:
+            # Cluster constituents by their activity row vectors
+            _const_matrix_indices = [
+                _scode_to_rowidx[s] for s, _ in _const_rows
+                if s in _scode_to_rowidx
+            ]
+            _clustered_idx = _cluster_row_indices(_matrix_values, _const_matrix_indices)
+
+            # Map back to (scode, label) pairs
+            _idx_to_row = {_scode_to_rowidx[s]: (s, lbl) for s, lbl in _const_rows if s in _scode_to_rowidx}
+            for _ridx in _clustered_idx:
+                _s, _lbl = _idx_to_row[_ridx]
+                _rows_ordered.append((_s, _lbl, False))
+
+    _ordered_scodes = [r[0] for r in _rows_ordered]
+    _ordered_labels = [r[1] for r in _rows_ordered]
+    _is_botanical   = [r[2] for r in _rows_ordered]
+
+    # ── Build heatmap data ────────────────────────────────────────────────────────
+    _heatmap_data = pred_matrix_filtered.set_index("Metadata_compound").reindex(_ordered_scodes)
+    _heatmap_data.index = _ordered_labels
+
+    # ── Assign columns to groups ──────────────────────────────────────────────────
+    _cols = pd.Series(_heatmap_data.columns)
+
+    _mask_cell_free  = _cols.str.contains("NVS|CCTE_GLTED_hIYD", regex=True)
+    _mask_hit_calls  = _cols.str.contains("MTT|LDH|cell_count", regex=True)
+    _mask_cytotoxic  = _cols.str.contains("cell|tissue", regex=True) & ~_mask_hit_calls
+    _mask_cell_based = ~_mask_cell_free & ~_mask_hit_calls & ~_mask_cytotoxic
+
+    _group_order = ["Cell-free", "Cell-based", "Cytotoxic", "Hit calls"]
+    _group_masks = {
+        "Cell-free":  _mask_cell_free.values,
+        "Cell-based": _mask_cell_based.values,
+        "Cytotoxic":  _mask_cytotoxic.values,
+        "Hit calls":  _mask_hit_calls.values,
+    }
+    _SOURCE_COLORS = {
+        "Hits":       "#4C72B0",
+        "Cell-based": "#DD8452",
+        "Cell-free":  "#55A868",
+        "Cytotox":    "#C44E52",
+    }
+    _LABEL_MAP = {
+        "Hits":       "Cytotox",
+        "Cell-based": "ToxCast cell-based",
+        "Cell-free":  "ToxCast cell-free",
+        "Cytotox":    "ToxCast cytotox",
+    }
+
+    # Replace _group_colors with _SOURCE_COLORS mapped via _LABEL_MAP
+    _group_colors = {
+        "Cell-free":  _SOURCE_COLORS["Cell-free"],
+        "Cell-based": _SOURCE_COLORS["Cell-based"],
+        "Cytotoxic":  _SOURCE_COLORS["Cytotox"],
+        "Hit calls":  _SOURCE_COLORS["Hits"],
+    }
+    _group_display = {
+        "Cell-free":  _LABEL_MAP["Cell-free"],
+        "Cell-based": _LABEL_MAP["Cell-based"],
+        "Cytotoxic":  _LABEL_MAP["Cytotox"],
+        "Hit calls":  _LABEL_MAP["Hits"],
+    }
+
+    # ── Reorder columns by group + cluster within each group ─────────────────────
+    def _cluster_indices(data_matrix, indices):
+        """Return indices reordered by hierarchical clustering, or original if too few."""
+        if len(indices) < 2:
+            return indices
+        sub = data_matrix[:, indices]
+        # Drop all-NaN columns before clustering
+        valid = [i for i, idx in enumerate(indices) if not np.all(np.isnan(sub[:, i]))]
+        if len(valid) < 2:
+            return indices
+        sub_valid = sub[:, valid]
+        sub_valid = np.nan_to_num(sub_valid, nan=0.0)
+        Z = linkage(sub_valid.T, method="average", metric="jaccard")
+        order = leaves_list(Z)
+        return [indices[valid[o]] for o in order]
+
+    _col_indices_ordered = []
+    _col_group_labels    = []
+    for _grp in _group_order:
+        _idx = list(np.where(_group_masks[_grp])[0])
+        _idx_clustered = _cluster_indices(_heatmap_data.values, _idx)
+        _col_indices_ordered.extend(_idx_clustered)
+        _col_group_labels.extend([_grp] * len(_idx_clustered))
+
+    _heatmap_data     = _heatmap_data.iloc[:, _col_indices_ordered]
+    _col_group_labels = [_col_group_labels[i] for i in range(len(_col_indices_ordered))]
+    print(pd.Series(_col_group_labels).value_counts())
+    # ── Build AUROC values aligned to (reordered) heatmap columns ────────────────
+    _auroc_lookup = df_ttest_results.set_index("Metadata_Label")["AUROC_mean_Actual"]
+    _auroc_values = np.array([
+        _auroc_lookup.get(col, np.nan) for col in _heatmap_data.columns
+    ])
+    _bar_colors = [_group_colors[g] for g in _col_group_labels]
+
+    # ── Row separators: spacing between botanical groups ──────────────────────────
+    _y_positions = []
+    _y_labels    = []
+    _y_is_bot    = []
+    _gap         = 0.4
+    _y           = 0.0
+
+    for _i, (_label, _is_bot) in enumerate(zip(_ordered_labels, _is_botanical)):
+        if _is_bot and _i > 0:
+            _y += _gap
+        _y_positions.append(_y)
+        _y_labels.append(_label)
+        _y_is_bot.append(_is_bot)
+        _y += 1.0
+
+    _y_positions  = np.array(_y_positions)
+    _total_height = _y_positions[-1] + 1.0
+
+    # ── Plot layout: band | barplot | heatmap ─────────────────────────────────────
+    _n_rows = len(_heatmap_data)
+    _n_cols = len(_heatmap_data.columns)
+
+    _fig = plt.figure(figsize=(max(14, _n_cols * 0.1), max(10, _total_height * 0.16) + 2))
+    _gs = _fig.add_gridspec(
+        2, 1,
+        height_ratios=[0.01, 1],   # band | heatmap
+        hspace=0.005
+    )
+    _ax_band = _fig.add_subplot(_gs[0])
+    _ax      = _fig.add_subplot(_gs[1])
+
+
+    # ── Color band (no text) ──────────────────────────────────────────────────────
+    _band_colors_list = [_group_colors[_g] for _g in _col_group_labels]
+    _ax_band.imshow(
+        [list(range(_n_cols))],
+        aspect="auto",
+        cmap=plt.matplotlib.colors.ListedColormap(_band_colors_list),
+        interpolation="none"
+    )
+    _ax_band.set_xlim(-0.5, _n_cols - 0.5)
+
+    # Put x labels on band axis
+    _ax_band.xaxis.set_label_position("top")
+    _ax_band.xaxis.tick_top()
+    _ax_band.set_xlim(-0.5, _n_cols - 0.5)
+
+    _ax_band.spines[["left", "right", "bottom"]].set_visible(False)
+    _ax_band.spines["top"].set_visible(False)
+    _ax_band.set_yticks([])
+    _ax_band.set_xticks([])
+    # ── Separator lines on band ───────────────────────────────────────────────────
+    _prev_grp = _col_group_labels[0]
+    for _ci, _grp in enumerate(_col_group_labels):
+        if _grp != _prev_grp:
+            _ax_band.axvline(_ci - 0.5, color="black", linewidth=1.5, zorder=5)
+            _prev_grp = _grp
+
+    # ── Legend ────────────────────────────────────────────────────────────────────
+    _legend_patches = [
+        mpatches.Patch(facecolor=_group_colors[_grp], label=_group_display.get(_grp, _grp))
+        for _grp in _group_order
+    ]
+    _ax_band.legend(
+        handles=_legend_patches,
+        loc="upper left",
+        bbox_to_anchor=(0, -0.8),
+        ncol=len(_group_order),
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=9,
+        borderpad=0.6,
+        title="Assays",
+        title_fontsize=10,
+    ).get_title().set_fontweight("bold")
+
+    # ── Heatmap rows ──────────────────────────────────────────────────────────────
+    for _ri, (_y, _is_bot) in enumerate(zip(_y_positions, _y_is_bot)):
+        _row_vals = _heatmap_data.values[_ri:_ri+1, :]
+        _ax.pcolormesh(
+            np.arange(_n_cols + 1),
+            np.array([_y, _y + 1.0]),
+            _row_vals,
+            cmap=binary_cmap,
+            edgecolors="white",
+            linewidth=0.3,
+            vmin=0, vmax=1
+        )
+        if _is_bot:
+            _ax.axhspan(_y, _y + 1.0, color="lightgrey", alpha=0.35, zorder=0)
+
+    # ── y axis ────────────────────────────────────────────────────────────────────
+    _ax.set_yticks(_y_positions + 0.25)
+    _ax.set_yticklabels(_y_labels, fontsize=9)
+    for _tick, _is_bot in zip(_ax.get_yticklabels(), _y_is_bot):
+        if _is_bot:
+            _tick.set_fontweight("bold")
+            _tick.set_fontsize(11)
+            _tick.set_color("black")
+        else:
+            _tick.set_fontsize(9)
+            _tick.set_color("#444444")
+
+    _ax.set_ylim(0, _total_height)
+    _ax.invert_yaxis()
+
+    # ── x axis ────────────────────────────────────────────────────────────────────
+    _ax.set_xticks(np.arange(_n_cols) + 0.25)
+    _ax.set_xticklabels(_heatmap_data.columns, rotation=90, fontsize=8)
+    _ax.xaxis.set_label_position("top")
+    _ax.xaxis.tick_top()
+    _ax.tick_params(axis="x", length=0, pad=17)  # ← pad pushes labels up above the band
+    # ── Column group separator lines on heatmap ───────────────────────────────────
+    _prev_grp = _col_group_labels[0]
+    for _ci, _grp in enumerate(_col_group_labels):
+        if _grp != _prev_grp:
+            _ax.axvline(_ci, color="black", linewidth=1.5, zorder=5)
+            _prev_grp = _grp
+    # ── Legend ────────────────────────────────────────────────────────────────────
+    _legend_patches = [
+        mpatches.Patch(facecolor=_group_colors[_grp], label=_group_display.get(_grp, _grp))
+        for _grp in _group_order
+    ]
+    _ax.legend(
+        handles=_legend_patches,
+        loc="upper left",
+        bbox_to_anchor=(-0.005, 0),
+        ncol=len(_group_order),
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=9,
+        borderpad=0.6,
+        title="Assays",
+        title_fontsize=10,
+    ).get_title().set_fontweight("bold")
+
+    _fig.savefig(os.path.expanduser("~/Downloads/prediction_heatmap_botanical_constituents.png"),
+                 bbox_inches="tight", dpi=300)
+    _fig
     return
 
 

@@ -15,42 +15,25 @@ def _():
     import pandas as pd
     import numpy as np
     from rdkit import Chem
-    return Chem, np, pd
+    from scipy.spatial.distance import pdist, squareform
+    from scipy.cluster.hierarchy import linkage, dendrogram
+    import matplotlib.patches as mpatches
+    from adjustText import adjust_text
+    import matplotlib.patches as mpatches
+    from matplotlib.colors import to_rgba
+    return Chem, adjust_text, dendrogram, linkage, mpatches, np, pd, pdist
 
 
 @app.cell
 def _(pd):
-    df_level5b = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
-    return (df_level5b,)
-
-
-@app.cell
-def _(pd):
-    df_level4b = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
-    meta_compound_cols = [c for c in df_level4b.columns if c.startswith("Metadata_compound")]
-    df_metadata = df_level4b[meta_compound_cols].drop_duplicates()
-    return (df_metadata,)
-
-
-@app.cell
-def _(pd):
-    df_annotations_composition = pd.read_csv("modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
+    #df_annotations_composition = pd.read_csv("modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv", sep="\t")
+    df_annotations_composition = pd.read_csv("modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv", sep="\t")
     return (df_annotations_composition,)
 
 
 @app.cell
 def _(df_annotations_composition):
-    df_annotations_composition.head()
-    return
-
-
-@app.cell
-def _(df_level5b):
-    col_metadata = []
-    for _col in df_level5b.columns:
-        if "Metadata" in _col:
-            col_metadata.append(_col)
-            print(_col)
+    df_annotations_composition
     return
 
 
@@ -61,60 +44,7 @@ def _(mo):
 
 
 @app.cell
-def _(df_level5b):
-    df_chem_infos = df_level5b[['Metadata_compound',
-                                'Metadata_compound_name',
-                                'Metadata_compound_smiles',
-                                'Metadata_compound_inchi',
-                                #'Metadata_compound_scode',
-                                'Metadata_compound_target',
-                                'Metadata_compound_pathway',
-                                'Metadata_compound_biological_activity',
-                                'Metadata_compound_saltdata',
-                                'Metadata_compound_formula',
-                                'Metadata_compound_solubility',
-                                'Metadata_compound_url',
-                                'Metadata_compound_research_area',
-                                'Metadata_compound_clinical_information',
-                                'Metadata_compound_solvent',
-                                'Metadata_compound_solvent_concentration'
-                               ]].drop_duplicates()
-    return (df_chem_infos,)
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos.shape
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos["Metadata_compound"].nunique()
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-
-    df_chem_infos["Metadata_compound_inchi"].nunique()
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos["Metadata_compound_smiles"].nunique()
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos["Metadata_compound_name"].nunique()
-    return
-
-
-@app.cell
-def _(Chem, df_chem_infos, np, pd):
+def _(Chem, df_annotations_composition, np, pd):
     def count_fragments(smiles):
         """Return number of molecular fragments in a SMILES string using RDKit."""
         if pd.isna(smiles) or not smiles.strip():
@@ -125,25 +55,13 @@ def _(Chem, df_chem_infos, np, pd):
         return len(Chem.GetMolFrags(mol))
 
     # Apply to your dataframe
-    df_chem_infos["Metadata_n_fragments"] = df_chem_infos["Metadata_compound_smiles"].apply(count_fragments)
+    df_annotations_composition["Metadata_n_fragments"] = df_annotations_composition["SMILES"].apply(count_fragments)
     return
 
 
 @app.cell
-def _(df_chem_infos):
-    df_chem_infos["Metadata_n_fragments"].value_counts(dropna=False)
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos[df_chem_infos["Metadata_n_fragments"] != 1]
-    return
-
-
-@app.cell
-def _(df_chem_infos):
-    df_chem_infos[df_chem_infos["Metadata_compound_name"].str.contains("dole", na=False)]
+def _(df_annotations_composition):
+    df_annotations_composition["Metadata_n_fragments"].value_counts(dropna=False)
     return
 
 
@@ -161,7 +79,7 @@ def _():
     import sys
     sys.path.append("/Users/ollitrault/Documents/projects/utils")
     from util_standardizer import StandardizeMolecule
-    return AllChem, StandardizeMolecule, plt, umap
+    return AllChem, plt, umap
 
 
 @app.cell
@@ -179,81 +97,66 @@ def _(AllChem, Chem, np):
 
 
 @app.cell
-def _(StandardizeMolecule, df_annotations_composition, df_metadata):
-    df_metadata_standardized = StandardizeMolecule(df_metadata, input_column="Metadata_compound_smiles").run()
-    df_annotations_composition_standardized = StandardizeMolecule(df_annotations_composition, input_column="Canonical SMILES").run()
-    return df_annotations_composition_standardized, df_metadata_standardized
+def _(df_annotations_composition):
+    #df_annotations_composition_standardized = StandardizeMolecule(df_annotations_composition.drop(columns=["SMILES_standardized"], errors="ignore"), input_column="Canonical SMILES").run()
+    df_annotations_composition_standardized = df_annotations_composition
+    return (df_annotations_composition_standardized,)
 
 
 @app.cell
-def _(df_annotations_composition_standardized, df_metadata_standardized):
+def _(df_annotations_composition_standardized):
     # drop na
-    df_metadata_standardized_nona = df_metadata_standardized[
-        df_metadata_standardized["SMILES_standardized_nonisomeric"].notna()
-    ]
     df_annotations_composition_standardized_nona = (
         df_annotations_composition_standardized[
-            df_annotations_composition_standardized["SMILES_standardized_nonisomeric"].notna()
+            df_annotations_composition_standardized["SMILES_standardized"].notna()
         ]
     )
-    return (
-        df_annotations_composition_standardized_nona,
-        df_metadata_standardized_nona,
+    # drop duplicates
+    df_annotations_composition_standardized_nona = (
+        df_annotations_composition_standardized_nona
+        .groupby("SMILES_standardized", as_index=False)
+        .agg({
+            "Constituent": "first",
+            "Plant name": list,
+            "Plant scode": list,
+        })
     )
+    return (df_annotations_composition_standardized_nona,)
 
 
 @app.cell
-def _(
-    df_annotations_composition_standardized_nona,
-    df_metadata_standardized_nona,
-):
-    df_metadata_annotations_composition = df_metadata_standardized_nona.merge(
-        df_annotations_composition_standardized_nona,
-        on="SMILES_standardized_nonisomeric",
-        how="left"
-    )
-    return (df_metadata_annotations_composition,)
-
-
-@app.cell
-def _(df_metadata_annotations_composition):
-    df_metadata_annotations_composition
+def _(df_annotations_composition_standardized_nona):
+    df_annotations_composition_standardized_nona["SMILES_standardized"]
     return
 
 
 @app.cell
-def _(df_annotations_composition_standardized, df_metadata_standardized):
-    len(set(df_annotations_composition_standardized["SMILES_standardized_nonisomeric"]) & set(df_metadata_standardized["SMILES_standardized_nonisomeric"]))
+def _(df_annotations_composition_standardized_nona):
+    df_annotations_composition_standardized_nona["Constituent"]
     return
 
 
 @app.cell
-def _(df_metadata_annotations_composition):
-    df_metadata_annotations_composition
-    return
-
-
-@app.cell
-def _(df_metadata_annotations_composition, np, smiles_to_morgan):
+def _(df_annotations_composition_standardized_nona, np, smiles_to_morgan):
     # Convert SMILES to fingerprints
-    fps = df_metadata_annotations_composition["SMILES_standardized_nonisomeric"].apply(smiles_to_morgan)
+    fps = df_annotations_composition_standardized_nona["SMILES_standardized"].apply(smiles_to_morgan)
 
     # Drop invalid SMILES
     mask = fps.notnull()
     fps = np.vstack(fps[mask])
-    labels = df_metadata_annotations_composition.loc[mask, "Plant name"]
+    labels = df_annotations_composition_standardized_nona.loc[mask, "Plant name"]
     labels = (
-        df_metadata_annotations_composition
+        df_annotations_composition_standardized_nona
         .loc[mask, "Plant name"]
         .fillna("unkown")
     )
-    return fps, labels
+    return fps, labels, mask
 
 
 @app.cell
 def _(fps, umap):
     reducer = umap.UMAP(
-        n_neighbors=25,        # larger = smoother chemical space
+        n_neighbors=40,        # larger = smoother chemical space
         min_dist=0.05,         # tighter clusters
         n_components=2,
         metric="jaccard",      # IMPORTANT for binary fingerprints
@@ -265,46 +168,129 @@ def _(fps, umap):
 
 
 @app.cell
-def _(labels):
+def _(df_annotations_composition_standardized_nona, mask):
     distinct_colors = [
         '#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
         '#42d4f4', '#f032e6', '#fabed4', '#469990', '#dcbeff',
         '#9A6324', '#fffac8', '#800000', '#aaffc3', '#000075',
         '#a9a9a9', '#ffffff', '#000000'
     ]
-    plants = labels.unique()
+    # Flatten all plant lists to get unique plants
+    all_plants = list(dict.fromkeys(p for sublist in df_annotations_composition_standardized_nona.loc[mask, "Plant name"] for p in sublist))
+    if len(all_plants) > len(distinct_colors):
+        raise ValueError("Not enough colors")
+    color_map = dict(zip(all_plants, distinct_colors))
+    color_map
 
-    if len(plants) > len(distinct_colors):
-        raise ValueError("Not enough colors for the number of Plant names")
-
-    color_map = dict(zip(plants, distinct_colors))
-    return color_map, plants
+    return all_plants, color_map
 
 
 @app.cell
-def _(color_map, embedding, labels, plants, plt):
-    plt.figure(figsize=(10, 8))
+def _(
+    adjust_text,
+    all_plants,
+    color_map,
+    df_annotations_composition_standardized_nona,
+    embedding,
+    mask,
+    mpatches,
+    plt,
+):
+    from matplotlib.patches import Wedge
 
-    for plant in plants:
-        idx = labels == plant
-        plt.scatter(
-            embedding[idx, 0],
-            embedding[idx, 1],
-            label=plant,
-            color=color_map[plant],
-            s=20,
-            alpha=0.8,
-            edgecolors="none"
+
+    df_masked = df_annotations_composition_standardized_nona.loc[mask].copy()
+    df_masked["_x"] = embedding[:, 0]
+    df_masked["_y"] = embedding[:, 1]
+
+    # No groupby needed — already deduplicated
+    df_grouped = df_masked.rename(columns={"_x": "x", "_y": "y", "Constituent": "constituent", "Plant name": "plants"})
+
+    fig, ax = plt.subplots(figsize=(14, 11))
+
+    # ── Invisible scatter just for adjustText anchoring ───────────────────────────
+    ax.scatter(df_grouped["x"], df_grouped["y"], s=0, alpha=0, zorder=0)
+
+    # ── Labels + adjustText FIRST, before any wedges ─────────────────────────────
+    texts = []
+    for _, row in df_grouped.iterrows():
+        t = ax.text(
+            row["x"], row["y"],
+            row["constituent"],
+            fontsize=11,
+            fontstyle="italic",
+            color="#1a1a1a",
+            zorder=5,
         )
+        texts.append(t)
 
-    plt.xlabel("UMAP-1")
-    plt.ylabel("UMAP-2")
-    plt.title("UMAP of Molecular Composition (colored by Plant name)")
-    plt.legend(
-        bbox_to_anchor=(1.05, 1),
-        loc="upper left",
-        frameon=False
+    adjust_text(
+        texts,
+        x=df_grouped["x"].values,
+        y=df_grouped["y"].values,
+        ax=ax,
+        add_objects=[],         # more breathing room around each label
+        force_text=(1, 1),     # stronger repulsion between labels
+        force_points=(0.2, 0.2),   # stronger repulsion from points
+        max_move=8.0,              # allow labels to move further
+        arrowprops=dict(
+            arrowstyle="-",
+            color="#888888",
+            lw=0.6,
+            alpha=0.8,
+            shrinkA=0,
+            shrinkB=4,
+        ),
     )
+
+    # ── Wedges AFTER adjustText ───────────────────────────────────────────────────
+    radius = 0.08
+    for _, row in df_grouped.iterrows():
+        unique_plants = list(dict.fromkeys(row["plants"]))  # already a list, just dedupe
+        colors = [color_map[p] for p in unique_plants]
+        n = len(colors)
+        angle = 90
+        for color in colors:
+            slice_angle = 360 / n
+            ax.add_patch(Wedge(
+                center=(row["x"], row["y"]),
+                r=radius,
+                theta1=angle - slice_angle,
+                theta2=angle,
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=4,
+            ))
+            angle -= slice_angle
+
+    # ── rest of your styling code unchanged ───────────────────────────────────────
+
+    # ── Legend ────────────────────────────────────────────────────────────────────
+    # Legend uses all_plants
+    legend_patches = [mpatches.Patch(color=color_map[p], label=p) for p in all_plants]
+    ax.legend(
+        handles=legend_patches,
+        loc="upper right",        # or "best" to let matplotlib decide
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=14,
+        borderpad=0.8,
+        title="Botanical extracts",
+        title_fontsize=16,
+    ).get_title().set_fontweight("bold")
+
+    # ── Style ─────────────────────────────────────────────────────────────────────
+    ax.set_xlabel("UMAP-1", fontsize=12)
+    ax.set_ylabel("UMAP-2", fontsize=12)
+    #ax.set_title("UMAP of Molecular Composition", fontsize=14, fontweight="bold", pad=14)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.tick_params(labelsize=9)
+    ax.set_xlim(df_grouped["x"].min() - 1, df_grouped["x"].max() + 1)
+    ax.set_ylim(df_grouped["y"].min() - 1, df_grouped["y"].max() + 1)
+    ax.set_aspect("equal")  # critical — keeps wedges circular
 
     plt.tight_layout()
     plt.show()
@@ -312,8 +298,8 @@ def _(color_map, embedding, labels, plants, plt):
 
 
 @app.cell
-def _():
-    # upset plot
+def _(mo):
+    mo.md(r"""# upset plot""")
     return
 
 
@@ -324,10 +310,16 @@ def _():
 
 
 @app.cell
-def _(df_metadata_annotations_composition):
+def _(df_annotations_composition_standardized_nona):
+    df_annotations_composition_standardized_nona[df_annotations_composition_standardized_nona["Plant name"] == "Asian ginseng"]
+    return
+
+
+@app.cell
+def _(df_annotations_composition_standardized_nona):
     # Keep only needed columns and drop duplicates
     df = (
-        df_metadata_annotations_composition[["SMILES_standardized_nonisomeric", "Plant name"]]
+        df_annotations_composition_standardized_nona[["SMILES", "Plant name"]]
         .dropna()
         .drop_duplicates()
     )
@@ -337,7 +329,7 @@ def _(df_metadata_annotations_composition):
     presence = (
         df.assign(value=True)
           .pivot_table(
-              index="SMILES_standardized_nonisomeric",
+              index="SMILES",
               columns="Plant name",
               values="value",
               fill_value=False,
@@ -363,7 +355,83 @@ def _(UpSet, from_indicators, plt, presence):
 
 
 @app.cell
-def _():
+def _(
+    dendrogram,
+    df_annotations_composition_standardized_nona,
+    fps,
+    labels,
+    linkage,
+    mask,
+    mpatches,
+    np,
+    pdist,
+    plt,
+):
+    # ── 1. Constituent names aligned with fps/labels ───────────────────────────────
+    _constituent_names = df_annotations_composition_standardized_nona.loc[mask, "Constituent"].values
+
+    # ── 2. Compute Jaccard distance matrix ────────────────────────────────────────
+    _jaccard_dist = pdist(fps, metric="jaccard")
+
+    # ── 3. Ward linkage ────────────────────────────────────────────────────────────
+    _linkage_matrix = linkage(_jaccard_dist, method="average")
+
+    # ── 4. Color map by plant ─────────────────────────────────────────────────────
+    _distinct_colors = [
+        '#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
+        '#42d4f4', '#f032e6', '#fabed4', '#469990', '#dcbeff',
+        '#9A6324', '#fffac8', '#800000', '#aaffc3', '#000075',
+        '#a9a9a9', '#ffffff', '#000000'
+    ]
+    _plants       = labels.unique()
+    if len(_plants) > len(_distinct_colors):
+        raise ValueError("Not enough colors for the number of Plant names")
+    _color_map   = dict(zip(_plants, _distinct_colors))
+    _leaf_colors = [_color_map[p] for p in labels]
+
+    # ── 5. Plot ────────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(10, 28))  # tall, narrow
+
+    _dend = dendrogram(
+        _linkage_matrix,
+        ax=_ax,
+        labels=_constituent_names,
+        color_threshold=0,
+        above_threshold_color="grey",
+        leaf_rotation=0,
+        leaf_font_size=16,
+        orientation="left",      # ← horizontal, labels on left
+    )
+
+    # Colored dots on the right side of labels
+    _y_coords = np.arange(5, 10 * len(_dend["leaves"]) + 5, 10)
+    for _y, _leaf_idx in zip(_y_coords, _dend["leaves"]):
+        _ax.plot(0, _y, "o", color=_leaf_colors[_leaf_idx], ms=14, clip_on=False)
+
+    # Black labels
+    for _tick in _ax.get_yticklabels():
+        _tick.set_color("black")
+
+    _ax.set_ylabel("Constituents", fontsize=11)
+    _ax.set_xlabel("Average Distance (Jaccard)", fontsize=11)
+    _ax.spines[["top", "right", "bottom"]].set_visible(False)
+    _ax.tick_params(axis="y", pad=12)   # increase to taste
+
+    _legend_patches = [mpatches.Patch(color=_color_map[p], label=p) for p in _plants]
+    _ax.legend(
+        handles=_legend_patches,
+        bbox_to_anchor=(0, 1),
+        loc="upper left",
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=18,
+        borderpad=0.8,
+    )
+
+    plt.tight_layout()
+    plt.show()
     return
 
 

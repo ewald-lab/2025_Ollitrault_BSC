@@ -15,13 +15,8 @@ def _():
     import numpy as np
     import glob
     import matplotlib.ticker as ticker
-    return glob, mo, mticker, np, pd, plt, sns, ticker
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""# Analysis of dose response parameters""")
-    return
+    from statsmodels.stats.multitest import multipletests
+    return glob, mo, mticker, multipletests, np, pd, plt, sns, ticker
 
 
 @app.cell
@@ -37,6 +32,12 @@ def _(pd):
     pods_plate = pd.read_parquet("modules/06_concresponse/results/results_plate/pods/pods_bsc_cp_original_conc.parquet")
     pods_plate_sdres = pd.read_parquet("modules/06_concresponse/results/results_plate_sdres/pods/pods_bsc_cp_original_conc.parquet")
     return pods_closest, pods_closest_sdres, pods_plate, pods_plate_sdres
+
+
+@app.cell
+def _(pd):
+    pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
+    return
 
 
 @app.cell
@@ -495,7 +496,7 @@ def _():
 
 
 @app.cell
-def _(get_closest_dmso, ids, np, pd):
+def _(get_closest_dmso, ids, multipletests, np, pd):
     def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
                          dmso_mode, features_cols, output_path):
         # Subset compound
@@ -503,6 +504,7 @@ def _(get_closest_dmso, ids, np, pd):
         if dat_comp.empty:
             print(f"No data for {compound}")
             return None
+
         # Control selection
         if dmso_mode == "closest":
             ctrl_fit = get_closest_dmso(dat_comp, dat_ctrl)
@@ -512,18 +514,20 @@ def _(get_closest_dmso, ids, np, pd):
                 [dat_ctrl_by_plate[p] for p in plates if p in dat_ctrl_by_plate],
                 ignore_index=True
             )
+
         print(
             f"Fitting IDS for {compound} "
             f"with {len(dat_comp)} compound and "
             f"{len(ctrl_fit)} DMSO points."
         )
+
         # Combine
-        dat_fit = pd.concat([ctrl_fit, dat_comp]).sort_values(
-            "Metadata_log10conc"
-        )
+        dat_fit = pd.concat([ctrl_fit, dat_comp]).sort_values("Metadata_log10conc")
+
         # Prepare IDS inputs
         X = dat_fit[features_cols].values
         Y = dat_fit[["Metadata_log10conc"]].values  # must be 2D
+
         # Compute IDS
         C, p_vals = ids.compute_IDS(
             X,
@@ -531,31 +535,44 @@ def _(get_closest_dmso, ids, np, pd):
             p_val=True,
             num_tests=1000
         )
+
         p_vals_flat = p_vals.flatten()
-        C_flat = C.flatten()
-        n_significant = np.sum(p_vals_flat < 0.05)
-        print(f"{compound}: {n_significant} features with p < 0.05")
-        print(p_vals_flat)
+        C_flat      = C.flatten()
+
+        # ── Benjamini-Hochberg correction ─────────────────────────────────────
+        reject, p_vals_corrected, _, _ = multipletests(
+            p_vals_flat, alpha=0.05, method="fdr_bh"
+        )
+        # ──────────────────────────────────────────────────────────────────────
+
+        n_significant = np.sum(reject)
+        print(f"{compound}: {np.sum(p_vals_flat < 0.05)} features significant before BH correction")
+        print(f"{compound}: {n_significant} features significant after BH correction")
+        print(f"  Raw p-values:       {p_vals_flat}")
+        print(f"  Corrected p-values: {p_vals_corrected}")
 
         # Write significant features to output file
-        sig_mask = p_vals_flat < 0.05
-        sig_features = np.array(features_cols)[sig_mask]
-        sig_scores   = C_flat[sig_mask]
-        sig_pvals    = p_vals_flat[sig_mask]
+        sig_features = np.array(features_cols)[reject]
+        sig_scores   = C_flat[reject]
+        sig_pvals    = p_vals_flat[reject]
+        sig_pvals_bh = p_vals_corrected[reject]
 
         sig_df = pd.DataFrame({
-            "feature":   sig_features,
-            "ids_score": sig_scores,
-            "p_value":   sig_pvals
-        }).sort_values("p_value")
+            "feature":          sig_features,
+            "ids_score":        sig_scores,
+            "p_value_raw":      sig_pvals,
+            "p_value_bh":       sig_pvals_bh        # BH-adjusted p-value
+        }).sort_values("p_value_bh")
+
         sig_df.to_csv(output_path, index=False)
         print(f"Significant features written to {output_path}")
 
         return {
-            "compound":      compound,
-            "n_significant": int(n_significant),
-            "ids_scores":    C_flat,
-            "p_values":      p_vals_flat
+            "compound":          compound,
+            "n_significant":     int(n_significant),
+            "ids_scores":        C_flat,
+            "p_values":          p_vals_flat,
+            "p_values_bh":       p_vals_corrected    # full corrected array
         }
     return (process_compound,)
 
@@ -887,8 +904,92 @@ def _(dt_pod_all_featurewise, np, plt, ticker):
 
 
 @app.cell
-def _(dat):
-    dat[dat["Metadata_compound"] == "s0654793"]
+def _(dt_pod_all_featurewise, np, plt, ticker):
+    _dt_plot = dt_pod_all_featurewise[dt_pod_all_featurewise["Metadata_compound"] == "s0654885"]
+    _df_counts = _dt_plot.groupby("Metadata_compound").size().reset_index(name="n_rows")
+    _compounds = _df_counts["Metadata_compound"].values
+    _x_pos = np.arange(len(_compounds))
+
+    # Compute PAC (5th percentile, type=7 equivalent in numpy)
+    _df_pac = dt_pod_all_featurewise.groupby("Metadata_compound")["cp_POD_um"].quantile(0.05, interpolation="linear").reset_index(name="PAC")
+    print(_df_pac)
+
+    _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(16, max(6, len(_compounds) * 0.4)),
+                                        sharey=True,
+                                        gridspec_kw={"width_ratios": [4, 1]})
+
+    # --- Box plot with jitter ---
+    for _i, _compound in enumerate(_compounds):
+        _vals = dt_pod_all_featurewise[dt_pod_all_featurewise["Metadata_compound"] == _compound]["cp_POD_um"].values
+        _pac = _df_pac[_df_pac["Metadata_compound"] == _compound]["PAC"].values[0]
+
+        # Jitter first (behind)
+        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+        _ax1.scatter(_vals, _jitter, alpha=0.4, color="steelblue", s=15, zorder=2)
+
+        # Box plot on top
+        _ax1.boxplot(_vals, positions=[_i], widths=0.4, patch_artist=True, vert=False,
+                    boxprops=dict(facecolor="lightblue", alpha=0.5),
+                    flierprops=dict(marker=""), medianprops=dict(color="navy"),
+                    zorder=3)
+
+        # PAC red line
+        _ax1.plot([_pac, _pac], [_i - 0.3, _i + 0.3], color="red", linewidth=1.5, zorder=4)
+
+    _ax1.set_yticks(_x_pos)
+    _ax1.set_yticklabels(_compounds, fontsize=8)
+    _ax1.set_xlabel("POD (μM)")
+    _ax1.set_title("POD distribution per compound BMD (log)")
+    _ax1.plot([], [], color="red", linewidth=1.5, label="PAC (5th percentile)")
+    _ax1.legend(fontsize=8)
+    _ax1.set_xscale("log")
+    _ax1.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax1.tick_params(axis="x", rotation=45, labelsize=8)
+
+    # --- Bar plot (counts) ---
+    _ax2.barh(_x_pos, _df_counts["n_rows"], color="steelblue", alpha=0.7, height=0.4)
+    for _i, _v in enumerate(_df_counts["n_rows"]):
+        _ax2.text(_v + 0.2, _i, str(_v), va="center", fontsize=7)
+    _ax2.set_xlabel("N features")
+    _ax2.set_title("Count")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(dt_pod_all_featurewise):
+    # Count rows per compound
+    _counts = dt_pod_all_featurewise.groupby("Metadata_compound").size()
+
+    # Keep compounds with >= 20 rows
+    _valid_compounds = _counts[_counts >= 25].index
+
+    # Filter original dataframe
+    _df_filtered = dt_pod_all_featurewise[
+        dt_pod_all_featurewise["Metadata_compound"].isin(_valid_compounds)
+    ]
+
+    # Compute 5th percentile
+    dt_pod_featurewise = (
+        _df_filtered
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .reset_index(name="cp_POD_um")
+    )
+    return (dt_pod_featurewise,)
+
+
+@app.cell
+def _(dt_pod_featurewise):
+    dt_pod_featurewise
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Try bayesian inference BSC""")
     return
 
 
@@ -899,14 +1000,576 @@ def _(mo):
 
 
 @app.cell
-def _(pd):
-    dt_pod_all_bayesian_inference = pd.read_parquet("modules/06_concresponse/outputs/pods/bayese_inference_bsc_pods.parquet")
+def _(glob, pd):
+    # Define path pattern
+    path_pattern_bayesian_inference = "modules/06_concresponse/outputs/pods/bayesian_inference/*_original_conc.parquet"
+
+    # Get all matching files
+    files_bayesian_inference = glob.glob(path_pattern_bayesian_inference)
+
+    print(f"Found {len(files_bayesian_inference)} files.")
+
+    # Read and concatenate
+    dt_pod_all_bayesian_inference = pd.concat(
+        [pd.read_parquet(_f) for _f in files_bayesian_inference],
+        ignore_index=True
+    )
+
+    print(f"Final dataframe shape: {dt_pod_all_bayesian_inference.shape}")
     return (dt_pod_all_bayesian_inference,)
 
 
 @app.cell
 def _(dt_pod_all_bayesian_inference):
-    dt_pod_all_bayesian_inference
+    dt_pod_all_bayesian_inference[dt_pod_all_bayesian_inference["all.pass"] == True]
+    return
+
+
+@app.cell
+def _(dt_pod_all_bayesian_inference, np, plt, ticker):
+    # Filter
+    _df = dt_pod_all_bayesian_inference[
+        dt_pod_all_bayesian_inference["all.pass"] == True
+    ]
+
+    # Order compounds
+    _compounds = _df["Metadata_compound"].unique()
+    _x_pos = np.arange(len(_compounds))
+
+    # Unique genes for coloring
+    _genes = _df["gene.id"].unique()
+    _cmap = plt.cm.get_cmap("tab20", len(_genes))
+    _gene_color = {g: _cmap(i) for i, g in enumerate(_genes)}
+
+    # Figure
+    _fig, _ax = plt.subplots(
+        figsize=(12, max(6, len(_compounds) * 0.4))
+    )
+
+    for _i, _compound in enumerate(_compounds):
+        _sub = _df[_df["Metadata_compound"] == _compound]
+        _vals = _sub["cp_POD_um"].values
+
+        # Boxplot first (behind)
+        _ax.boxplot(
+            _vals,
+            positions=[_i],
+            widths=0.4,
+            patch_artist=True,
+            vert=False,
+            boxprops=dict(alpha=0.3),
+            flierprops=dict(marker=""),
+            medianprops=dict(color="black"),
+            zorder=1
+        )
+
+        # Points on top
+        for _gene in _genes:
+            _gene_vals = _sub[_sub["gene.id"] == _gene]["cp_POD_um"].values
+            if len(_gene_vals) > 0:
+                _jitter = np.random.normal(_i, 0.05, size=len(_gene_vals))
+                _ax.scatter(
+                    _gene_vals,
+                    _jitter,
+                    color=_gene_color[_gene],
+                    alpha=0.8,
+                    s=25,
+                    label=_gene if _i == 0 else None,  # avoid duplicate legend
+                    zorder=3
+                )
+
+    # Formatting
+    _ax.set_yticks(_x_pos)
+    _ax.set_yticklabels(_compounds, fontsize=8)
+    _ax.set_xlabel("POD (μM)")
+    _ax.set_title("POD distribution per compound (Bayesian inference)")
+    _ax.set_xscale("log")
+    _ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax.tick_params(axis="x", rotation=45, labelsize=8)
+
+    _ax.legend(title="gene.id", fontsize=7, title_fontsize=8, bbox_to_anchor=(1.02, 1), loc="upper left")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(dt_pod_all_bayesian_inference):
+    # Filter first
+    _df = dt_pod_all_bayesian_inference[
+        dt_pod_all_bayesian_inference["all.pass"] == True
+    ]
+
+    # Select row with lowest cp_POD_um per compound
+    dt_pod_bayesian_inference = (
+        _df.loc[_df.groupby("Metadata_compound")["cp_POD_um"].idxmin()]
+        .reset_index(drop=True)
+    )
+    return (dt_pod_bayesian_inference,)
+
+
+@app.cell
+def _(dt_pod_bayesian_inference):
+    dt_pod_bayesian_inference
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Results PODs Mahalanobis Distance FastBMD""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_pod_MD_fastbmd = pd.read_parquet("modules/06_concresponse/results/results_closest/pods/pods_bsc_cp_original_conc.parquet")
+    return (dt_pod_MD_fastbmd,)
+
+
+@app.cell
+def _(dt_pod_MD_fastbmd):
+    dt_pod_MD_fastbmd
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Compare different dose response BMD calculation""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Results PODs Mahalanobis Distance FastBMD VS Feature wise (FastBMD) VS Bayesian""")
+    return
+
+
+@app.cell
+def _(dt_pod_bayesian_inference):
+    dt_pod_bayesian_inference
+    return
+
+
+@app.cell
+def _(dt_pod_featurewise):
+    dt_pod_featurewise
+    return
+
+
+@app.cell
+def _(
+    dt_pod_MD_fastbmd,
+    dt_pod_bayesian_inference,
+    dt_pod_featurewise,
+    np,
+    plt,
+):
+    _datasets = {
+        "Bayesian Inference": dt_pod_bayesian_inference,
+        "MD FastBMD":         dt_pod_MD_fastbmd,
+        "Featurewise":        dt_pod_featurewise,
+    }
+
+    _colors = ["steelblue", "darkorange", "seagreen"]
+
+    _fig, _ax = plt.subplots(figsize=(8, 5))
+
+    _data   = [df["cp_POD_um"].dropna().values for df in _datasets.values()]
+    _labels = list(_datasets.keys())
+
+    # Jitter first (behind)
+    for _i, (_vals, _col) in enumerate(zip(_data, _colors), start=1):
+        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+        _ax.scatter(_jitter, _vals, alpha=0.35, color=_col, s=12, zorder=2)
+
+    # Box plot on top
+    _bp = _ax.boxplot(_data, patch_artist=True, vert=True, zorder=3)
+    for _patch, _col in zip(_bp["boxes"], _colors):
+        _patch.set_facecolor(_col)
+        _patch.set_alpha(0.5)
+
+    for _med in _bp["medians"]:
+        _med.set_color("navy")
+
+    # n= on top of each box
+    for _i, _vals in enumerate(_data, start=1):
+        _ax.text(_i, _ax.get_ylim()[1], f"n={len(_vals)}", ha="center", va="bottom", fontsize=9)
+
+    _ax.set_xticks(range(1, len(_labels) + 1))
+    _ax.set_xticklabels(_labels, fontsize=10)
+    _ax.set_ylabel("cp_POD_um")
+    _ax.set_title("POD comparison across methods")
+    _ax.set_yscale("log")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(
+    dt_pod_MD_fastbmd,
+    dt_pod_bayesian_inference,
+    dt_pod_featurewise,
+    np,
+    plt,
+):
+    _datasets = {
+        "Bayesian Inference": dt_pod_bayesian_inference,
+        "Featurewise":        dt_pod_featurewise,
+        "MD FastBMD":         dt_pod_MD_fastbmd,
+    }
+    _colors = ["steelblue", "darkorange", "seagreen"]
+
+    _fig, _ax = plt.subplots(figsize=(8, 5))
+
+    _data   = [df["cp_POD_um"].dropna().values for df in _datasets.values()]
+    _labels = list(_datasets.keys())
+
+    # Jitter first (behind)
+    for _i, (_vals, _col) in enumerate(zip(_data, _colors), start=1):
+        _jitter = np.random.normal(_i, 0.07, size=len(_vals))
+        _ax.scatter(_jitter, _vals, alpha=0.35, color=_col, s=12, zorder=2)
+
+    # Box plot on top
+    _bp = _ax.boxplot(_data, patch_artist=True, vert=True, zorder=3,
+                      flierprops=dict(marker=""))
+    for _patch, _col in zip(_bp["boxes"], _colors):
+        _patch.set_facecolor(_col)
+        _patch.set_alpha(0.5)
+    for _med in _bp["medians"]:
+        _med.set_color("navy")
+
+    # Lines connecting medians of common compounds
+    _common = set.intersection(*[set(df["Metadata_compound"].unique()) for df in _datasets.values()])
+    for _compound in _common:
+        _medians = []
+        for _i, (_label, _df) in enumerate(_datasets.items(), start=1):
+            _vals = _df[_df["Metadata_compound"] == _compound]["cp_POD_um"].dropna().values
+            if len(_vals) > 0:
+                _medians.append((_i, np.median(_vals)))
+        if len(_medians) == len(_datasets):
+            _xs, _ys = zip(*_medians)
+            _ax.plot(_xs, _ys, color="gray", linewidth=0.8, alpha=0.5, zorder=1)
+
+    # n= on top of each box
+    _ax.set_yscale("log")
+    _ymax = max(np.nanmax(v) for v in _data)
+    for _i, _vals in enumerate(_data, start=1):
+        _ax.text(_i, _ymax * 1.3, f"n={len(_vals)}", ha="center", va="bottom", fontsize=9)
+
+    _ax.set_xticks(range(1, len(_labels) + 1))
+    _ax.set_xticklabels(_labels, fontsize=10)
+    _ax.set_ylabel("cp_POD_um")
+    _ax.set_title("POD comparison across methods")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(dt_pod_MD_fastbmd, dt_pod_bayesian_inference, dt_pod_featurewise, pd):
+    _datasets_pod_methods = {
+        "Bayesian Inference": dt_pod_bayesian_inference,
+        "Featurewise": dt_pod_featurewise,
+        "MD FastBMD": dt_pod_MD_fastbmd,
+    }
+
+    # Combine into a single dataframe
+    df_pod_methods = pd.concat(
+        [
+            _df.assign(method=_method_name)
+            for _method_name, _df in _datasets_pod_methods.items()
+        ],
+        ignore_index=True
+    )
+
+    df_pod_methods
+    return
+
+
+@app.cell
+def _(dt_pod_MD_fastbmd):
+    dt_pod_MD_fastbmd
+    return
+
+
+@app.cell
+def _(dt_pod_bayesian_inference):
+    dt_pod_bayesian_inference
+    return
+
+
+@app.cell
+def _(dt_pod_featurewise):
+    dt_pod_featurewise
+    return
+
+
+@app.cell
+def _(
+    dt_pod_MD_fastbmd,
+    dt_pod_bayesian_inference,
+    dt_pod_featurewise,
+    pd,
+    plt,
+    ticker,
+):
+    _datasets = {
+        "Bayesian Inference": dt_pod_bayesian_inference,
+        "Featurewise":        dt_pod_featurewise,
+        "MD FastBMD":         dt_pod_MD_fastbmd,
+    }
+
+    _colors = {
+        "Bayesian Inference": "steelblue",
+        "Featurewise":        "seagreen",
+        "MD FastBMD":         "darkorange",
+    }
+
+    _df_all = pd.concat([
+        df[["Metadata_compound", "cp_POD_um"]].assign(method=_label)
+        for _label, df in _datasets.items()
+    ], ignore_index=True)
+
+    _compounds = sorted(_df_all["Metadata_compound"].unique())
+    _y_pos     = {c: i for i, c in enumerate(_compounds)}
+
+    _fig, _ax = plt.subplots(figsize=(8, max(5, len(_compounds) * 0.4)))
+
+    for _label, _group in _df_all.groupby("method"):
+        _ax.scatter(
+            _group["cp_POD_um"],
+            _group["Metadata_compound"].map(_y_pos),
+            color=_colors[_label], s=40, alpha=0.8, zorder=2, label=_label
+        )
+
+    _ax.set_yticks(list(_y_pos.values()))
+    _ax.set_yticklabels(_compounds, fontsize=8)
+    _ax.set_xlabel("cp_POD_um")
+    _ax.set_title("POD per compound across methods")
+    _ax.set_xscale("log")
+    _ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:g}"))
+    _ax.legend(fontsize=9)
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Compile data botanicals and axiom LDH MT PODs""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Compile POD mt ldh""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_pod_ldh_axiom = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")
+    dt_pod_mt_axiom = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")
+
+    dt_pod_ldh_bsc = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
+    dt_pod_mt_bsc = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
+    return dt_pod_ldh_axiom, dt_pod_ldh_bsc, dt_pod_mt_axiom, dt_pod_mt_bsc
+
+
+@app.cell
+def _(list_botanicals):
+    # BSC Annotations
+    list_botanicals
+    return
+
+
+@app.cell
+def _(df_bsc_annotations):
+    dic_botanicals_scode_name = (
+        df_bsc_annotations[["Plant scode", "Plant name"]]
+        .drop_duplicates()
+        .set_index("Plant scode")["Plant name"]
+        .to_dict()
+    )
+    dic_botanicals_scode_name
+    return (dic_botanicals_scode_name,)
+
+
+@app.cell
+def _(dic_botanicals_scode_name, dt_pod_ldh_bsc, dt_pod_mt_bsc):
+    dt_pod_mt_bsc_botanicals = (
+        dt_pod_mt_bsc[dt_pod_mt_bsc["Metadata_compound"].isin(dic_botanicals_scode_name.keys())]
+        .copy()
+        .assign(Metadata_compound=lambda _df: _df["Metadata_compound"].map(dic_botanicals_scode_name))
+    )
+
+    dt_pod_ldh_bsc_botanicals = (
+        dt_pod_ldh_bsc[dt_pod_ldh_bsc["Metadata_compound"].isin(dic_botanicals_scode_name.keys())]
+        .copy()
+        .assign(Metadata_compound=lambda _df: _df["Metadata_compound"].map(dic_botanicals_scode_name))
+    )
+
+    print(f"dt_pod_mt_bsc:  {len(dt_pod_mt_bsc)} → {len(dt_pod_mt_bsc_botanicals)} rows | {dt_pod_mt_bsc_botanicals['Metadata_compound'].nunique()} compounds")
+    print(f"dt_pod_ldh_bsc: {len(dt_pod_ldh_bsc)} → {len(dt_pod_ldh_bsc_botanicals)} rows | {dt_pod_ldh_bsc_botanicals['Metadata_compound'].nunique()} compounds")
+    return dt_pod_ldh_bsc_botanicals, dt_pod_mt_bsc_botanicals
+
+
+@app.cell
+def _(dt_pod_ldh_bsc_botanicals):
+    dt_pod_ldh_bsc_botanicals
+    return
+
+
+@app.cell
+def _(dt_pod_ldh_axiom):
+    dt_pod_ldh_axiom
+    return
+
+
+@app.cell
+def _(dt_pod_mt_bsc_botanicals):
+    dt_pod_mt_bsc_botanicals
+    return
+
+
+@app.cell
+def _(
+    dt_pod_ldh_axiom,
+    dt_pod_ldh_bsc_botanicals,
+    dt_pod_mt_axiom,
+    dt_pod_mt_bsc_botanicals,
+    pd,
+):
+    # ── 1. Merge LDH + MT within each dataset on Metadata_compound ───────────────
+    _botanicals_merged = dt_pod_ldh_bsc_botanicals[
+        ["Metadata_compound", "Metadata_ldh_normalized_POD_um", "all.pass"]
+    ].merge(
+        dt_pod_mt_bsc_botanicals[["Metadata_compound", "Metadata_mtt_normalized_POD_um", "all.pass"]],
+        on="Metadata_compound",
+        how="outer",
+        suffixes=("_ldh", "_mt")
+    ).assign(
+        Dataset="Botanical",
+        Metadata_ldh_normalized_POD_um=lambda _df: _df["Metadata_ldh_normalized_POD_um"].where(_df["all.pass_ldh"]),
+        Metadata_mtt_normalized_POD_um=lambda _df: _df["Metadata_mtt_normalized_POD_um"].where(_df["all.pass_mt"]),
+    )
+
+    _axiom_merged = dt_pod_ldh_axiom[
+        ["Metadata_compound", "Metadata_ldh_normalized_POD_um", "all.pass"]
+    ].merge(
+        dt_pod_mt_axiom[["Metadata_compound", "Metadata_mtt_normalized_POD_um", "all.pass"]],
+        on="Metadata_compound",
+        how="outer",
+        suffixes=("_ldh", "_mt")
+    ).assign(
+        Dataset="Axiom",
+        Metadata_ldh_normalized_POD_um=lambda _df: _df["Metadata_ldh_normalized_POD_um"].where(_df["all.pass_ldh"]),
+        Metadata_mtt_normalized_POD_um=lambda _df: _df["Metadata_mtt_normalized_POD_um"].where(_df["all.pass_mt"]),
+    )
+
+    # ── 2. Concat Botanical + Axiom ───────────────────────────────────────────────
+    df_pod_combined = (
+        pd.concat([_botanicals_merged, _axiom_merged], axis=0, ignore_index=True)
+        [["Metadata_compound", "Dataset", "Metadata_ldh_normalized_POD_um", "Metadata_mtt_normalized_POD_um"]]
+    )
+
+    print(df_pod_combined.shape)
+    print(df_pod_combined.groupby("Dataset")["Metadata_compound"].nunique())
+    print(df_pod_combined.head())
+    return (df_pod_combined,)
+
+
+@app.cell
+def _(df_pod_combined):
+    df_pod_combined
+    return
+
+
+@app.cell
+def _(df_pod_combined):
+    df_pod_combined[df_pod_combined["Dataset"] == "Botanical"]
+    return
+
+
+@app.cell
+def _(df_pod_combined):
+    df_pod_combined.to_csv("modules/06_concresponse/results/data_pod_botanical_axiom_ldh_mt.csv")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Compile data mt ldh""")
+    return
+
+
+@app.cell
+def _(pd):
+    df_level4_axiom = pd.read_parquet("modules/02_processing/outputs/level4b_axiom.parquet")
+    df_level4_bsc = pd.read_parquet("modules/02_processing/outputs/level4b_bsc.parquet")
+    return df_level4_axiom, df_level4_bsc
+
+
+@app.cell
+def _(df_level4_axiom):
+    df_level4_axiom[["Metadata_compound", "Metadata_concentration", "Metadata_mtt_lumi", "Metadata_ldh_abs_signal", "Metadata_ldh_abs_background", "Metadata_ldh_abs", "Metadata_mtt_normalized", "Metadata_ldh_normalized", "Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"]]
+    return
+
+
+@app.cell
+def _(df_level4_bsc):
+    df_level4_bsc[["Metadata_compound", "Metadata_concentration", "Metadata_mtt_lumi", "Metadata_ldh_abs_signal", "Metadata_ldh_abs_background", "Metadata_ldh_abs", "Metadata_mtt_normalized", "Metadata_ldh_normalized", "Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"]]
+    return
+
+
+@app.cell
+def _(df_level4_axiom, df_level4_bsc, dic_botanicals_scode_name, np, pd):
+    _cols_axiom = [
+        "Metadata_compound", "Metadata_concentration", "Metadata_OASIS_ID",
+        "Metadata_mtt_lumi", "Metadata_ldh_abs_signal",
+        "Metadata_ldh_abs_background", "Metadata_ldh_abs",
+        "Metadata_mtt_normalized", "Metadata_ldh_normalized",
+        "Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"
+    ]
+
+    _cols_bsc = [
+        "Metadata_compound", "Metadata_concentration",
+        "Metadata_mtt_lumi", "Metadata_ldh_abs_signal",
+        "Metadata_ldh_abs_background", "Metadata_ldh_abs",
+        "Metadata_mtt_normalized", "Metadata_ldh_normalized",
+        "Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"
+    ]
+
+    df_level4_combined = pd.concat([
+        df_level4_axiom[_cols_axiom].assign(Dataset="Axiom"),
+        df_level4_bsc[
+            df_level4_bsc["Metadata_compound"].isin(dic_botanicals_scode_name.keys())
+        ][_cols_bsc].assign(
+            Dataset="Botanical",
+            Metadata_compound=lambda _df: _df["Metadata_compound"].map(dic_botanicals_scode_name),
+            Metadata_OASIS_ID=np.nan
+        ),
+    ], axis=0, ignore_index=True)
+
+    df_level4_combined["Replicate"] = (
+        df_level4_combined
+        .groupby(["Metadata_compound", "Metadata_concentration"])
+        .cumcount() + 1
+    )
+
+    print(df_level4_combined.shape)
+    print(df_level4_combined.groupby("Dataset")["Metadata_compound"].nunique())
+    return (df_level4_combined,)
+
+
+@app.cell
+def _(df_level4_combined):
+    df_level4_combined.to_csv("modules/06_concresponse/results/data_botanical_axiom_ldh_mt.csv")
     return
 
 
