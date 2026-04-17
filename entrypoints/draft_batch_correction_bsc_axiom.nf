@@ -62,38 +62,31 @@ process HARMONY_BATCH_CORRECTION {
 
 process level5_consensus {
     publishDir "modules/03_postprocessing/outputs", mode: 'copy'
-
-    tag { "${params.input_name}" }
-
+    tag { "${dataset_type}" }
     input:
     tuple val(feature_type), path(input_file)
-
     output:
-    tuple val(feature_type), path("level5_${params.input_name}_${feature_type}.parquet")
-
+    tuple val(feature_type), path("level5_${dataset_type}_${feature_type}.parquet")
     script:
+    dataset_type = input_file.name.toString().contains('bsc') ? 'bsc' : 'axiom'
     """
     python ${projectDir}/../modules/02_processing/scripts/consensus.py \\
         --input $input_file \\
-        --output level5_${params.input_name}_${feature_type}.parquet
+        --output level5_${dataset_type}_${feature_type}.parquet
     """
 }
-
 process level6_aggregate_profiles {
     publishDir "modules/03_postprocessing/outputs", mode: 'copy'
-
-    tag { "${params.input_name}" }
-
+    tag { "${dataset_type}" }
     input:
     tuple val(feature_type), path(input_file)
-
     output:
-    tuple val(feature_type), path("level6_${params.input_name}_${feature_type}.parquet")
-
+    tuple val(feature_type), path("level6_${dataset_type}_${feature_type}.parquet")
     script:
+    dataset_type = input_file.name.toString().contains('bsc') ? 'bsc' : 'axiom'
     """
     python ${projectDir}/../modules/02_processing/scripts/aggregate_profiles.py \\
         --input $input_file \\
-        --output level6_${params.input_name}_${feature_type}.parquet
+        --output level6_${dataset_type}_${feature_type}.parquet
     """
 }
