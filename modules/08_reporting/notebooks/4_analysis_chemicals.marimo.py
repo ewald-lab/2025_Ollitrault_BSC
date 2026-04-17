@@ -181,7 +181,6 @@ def _(df_annotations_composition_standardized_nona, mask):
         raise ValueError("Not enough colors")
     color_map = dict(zip(all_plants, distinct_colors))
     color_map
-
     return all_plants, color_map
 
 
@@ -311,15 +310,15 @@ def _():
 
 @app.cell
 def _(df_annotations_composition_standardized_nona):
-    df_annotations_composition_standardized_nona[df_annotations_composition_standardized_nona["Plant name"] == "Asian ginseng"]
+    df_annotations_composition_standardized_nona
     return
 
 
 @app.cell
-def _(df_annotations_composition_standardized_nona):
+def _(df_annotations_composition_standardized):
     # Keep only needed columns and drop duplicates
     df = (
-        df_annotations_composition_standardized_nona[["SMILES", "Plant name"]]
+        df_annotations_composition_standardized[["SMILES_standardized", "Plant name"]]
         .dropna()
         .drop_duplicates()
     )
@@ -329,7 +328,7 @@ def _(df_annotations_composition_standardized_nona):
     presence = (
         df.assign(value=True)
           .pivot_table(
-              index="SMILES",
+              index="SMILES_standardized",
               columns="Plant name",
               values="value",
               fill_value=False,
@@ -355,11 +354,22 @@ def _(UpSet, from_indicators, plt, presence):
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""# Hierarchical clustering""")
+    return
+
+
+@app.cell
+def _(labels):
+    labels
+    return
+
+
+@app.cell
 def _(
     dendrogram,
     df_annotations_composition_standardized_nona,
     fps,
-    labels,
     linkage,
     mask,
     mpatches,
@@ -383,15 +393,30 @@ def _(
         '#9A6324', '#fffac8', '#800000', '#aaffc3', '#000075',
         '#a9a9a9', '#ffffff', '#000000'
     ]
-    _plants       = labels.unique()
+
+    _plants = list(dict.fromkeys(
+        p
+        for plant_list in df_annotations_composition_standardized_nona.loc[mask, "Plant name"]
+        for p in plant_list
+    ))
+
     if len(_plants) > len(_distinct_colors):
         raise ValueError("Not enough colors for the number of Plant names")
-    _color_map   = dict(zip(_plants, _distinct_colors))
-    _leaf_colors = [_color_map[p] for p in labels]
+
+    _color_map = dict(zip(_plants, _distinct_colors))
+
+    # Per-leaf list of unique plants (handles multi-botanical constituents)
+    _leaf_plants = {
+        constituent: list(dict.fromkeys(
+            p
+            for plant_list in grp["Plant name"]
+            for p in plant_list
+        ))
+        for constituent, grp in df_annotations_composition_standardized_nona.loc[mask].groupby("Constituent")
+    }
 
     # ── 5. Plot ────────────────────────────────────────────────────────────────────
-    _fig, _ax = plt.subplots(figsize=(10, 28))  # tall, narrow
-
+    _fig, _ax = plt.subplots(figsize=(10, 28))
     _dend = dendrogram(
         _linkage_matrix,
         ax=_ax,
@@ -400,22 +425,53 @@ def _(
         above_threshold_color="grey",
         leaf_rotation=0,
         leaf_font_size=16,
-        orientation="left",      # ← horizontal, labels on left
+        orientation="left",
     )
 
-    # Colored dots on the right side of labels
+    # ── Wedge slices per leaf ─────────────────────────────────────────────────────
     _y_coords = np.arange(5, 10 * len(_dend["leaves"]) + 5, 10)
-    for _y, _leaf_idx in zip(_y_coords, _dend["leaves"]):
-        _ax.plot(0, _y, "o", color=_leaf_colors[_leaf_idx], ms=14, clip_on=False)
 
-    # Black labels
+    # Get x position of the leftmost dendrogram point (where labels sit)
+    _x_label = _ax.get_xlim()[0]
+
+    for _y, _leaf_idx in zip(_y_coords, _dend["leaves"]):
+        _constituent   = _constituent_names[_leaf_idx]
+        _unique_plants = _leaf_plants.get(_constituent, [])
+        _colors        = [_color_map.get(p, "#aaaaaa") for p in _unique_plants]
+        _n             = len(_colors)
+        if _n == 0:
+            continue
+
+        # Draw a simple colored rectangle strip per plant next to the y label
+        _rect_total_width = 0.06
+        for _y, _leaf_idx in zip(_y_coords, _dend["leaves"]):
+            _constituent   = _constituent_names[_leaf_idx]
+            _unique_plants = _leaf_plants.get(_constituent, [])
+            _colors        = [_color_map.get(p, "#aaaaaa") for p in _unique_plants]
+            _n             = len(_colors)
+            if _n == 0:
+                continue
+            _slice_width = _rect_total_width / _n
+            for _pi, _color in enumerate(_colors):
+                _ax.add_patch(plt.Rectangle(
+                    xy=(_x_label - _rect_total_width + _pi * _slice_width - 0.96, _y - 3),
+                    width=_slice_width,
+                    height=10,
+                    facecolor=_color,
+                    edgecolor="white",
+                    linewidth=0.5,
+                    zorder=4,
+                    clip_on=False,
+                ))
+
+    # ── Black labels ──────────────────────────────────────────────────────────────
     for _tick in _ax.get_yticklabels():
         _tick.set_color("black")
 
     _ax.set_ylabel("Constituents", fontsize=11)
     _ax.set_xlabel("Average Distance (Jaccard)", fontsize=11)
     _ax.spines[["top", "right", "bottom"]].set_visible(False)
-    _ax.tick_params(axis="y", pad=12)   # increase to taste
+    _ax.tick_params(axis="y", pad=12)
 
     _legend_patches = [mpatches.Patch(color=_color_map[p], label=p) for p in _plants]
     _ax.legend(
@@ -432,6 +488,14 @@ def _(
 
     plt.tight_layout()
     plt.show()
+    return
+
+
+@app.cell
+def _(df_annotations_composition_standardized_nona, mask):
+    print(type(df_annotations_composition_standardized_nona.loc[mask, "Plant name"].iloc[0]))
+    print(df_annotations_composition_standardized_nona.loc[mask, "Plant name"].iloc[0])
+    print(df_annotations_composition_standardized_nona.loc[mask, ["Constituent", "Plant name"]].head(10))
     return
 
 

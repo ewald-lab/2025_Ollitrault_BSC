@@ -75,7 +75,7 @@ def _(
     # selct feats and metadata
     feats_level4b_bsc_axiom = df_level4b_bsc_axiom[features_all_bsc]
     # meta
-    meta_level4b_bsc_axiom = df_level4b_bsc_axiom[meta_all_bsc_axiom]
+    meta_level4b_bsc_axiom = df_level4b_bsc_axiom[list(meta_all_bsc_axiom) + ["Metadata_batch"]]
     return (
         df_level4b_bsc_axiom,
         feats_level4b_bsc_axiom,
@@ -179,7 +179,6 @@ def _(embedding_harmony, meta_level4b_bsc_axiom, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -232,7 +231,6 @@ def _(embedding_raw, meta_level4b_bsc_axiom, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -305,7 +303,6 @@ def _(embedding_harmony_dmso, meta_level4b_bsc_axiom_dmso, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -358,7 +355,6 @@ def _(embedding_raw_dmso, meta_level4b_bsc_axiom_dmso, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -484,7 +480,6 @@ def _(df_feats_level5_bsc_axiom_harmony, embedding_harmony_lvl5, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
-
     return
 
 
@@ -542,7 +537,169 @@ def _(df_feats_level5_bsc_axiom, embedding_raw_lvl5, np, plt):
     _ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
+    return
 
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Check protocol level 4 BSC Axiom""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Input""")
+    return
+
+
+@app.cell
+def _(pd):
+    df_level4a_axiom_batch = pd.read_parquet("modules/03_postprocessing/outputs/test_batch_level4_axiom.parquet") #level4b_axiom_batch
+    # Cell Painting profiles
+    df_level4_bsc_batch = pd.read_parquet("modules/03_postprocessing/outputs/test_batch_level4_bsc.parquet") #level4b_bsc_batch
+    if True:
+        df_level4_bsc_batch = df_level4_bsc_batch.groupby("Metadata_plate").filter(
+            lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
+        )
+    return df_level4_bsc_batch, df_level4a_axiom_batch
+
+
+@app.cell
+def _(df_level4_bsc_batch):
+    features_all_bsc_batch = [c for c in df_level4_bsc_batch.columns if c.startswith("Feature_")]
+    features_all_bsc_batch
+    return (features_all_bsc_batch,)
+
+
+@app.cell
+def _(df_level4_bsc_batch, df_level4a_axiom_batch, np):
+    meta_all_bsc_axiom_batch = [c for c in df_level4_bsc_batch.columns if c.startswith("Metadata_")] + \
+                            [c for c in df_level4a_axiom_batch.columns if c.startswith("Metadata_")]
+    meta_all_bsc_axiom_batch = np.unique(meta_all_bsc_axiom_batch)
+    meta_all_bsc_axiom_batch
+    return (meta_all_bsc_axiom_batch,)
+
+
+@app.cell
+def _(
+    df_level4_bsc_batch,
+    df_level4a_axiom_batch,
+    features_all_bsc_batch,
+    meta_all_bsc_axiom_batch,
+    pd,
+):
+    # bind
+    df_level4_bsc_batch["Metadata_batch"] = "bsc"
+    df_level4a_axiom_batch["Metadata_batch"] = "axiom"
+
+    # Row bind (concatenate)
+    df_level4b_bsc_axiom_batch = pd.concat([df_level4_bsc_batch, df_level4a_axiom_batch], ignore_index=True)
+    # selct feats and metadata
+    feats_level4b_bsc_axiom_batch = df_level4b_bsc_axiom_batch[features_all_bsc_batch]
+    # meta
+    meta_level4b_bsc_axiom_batch = df_level4b_bsc_axiom_batch[list(meta_all_bsc_axiom_batch) + ["Metadata_batch"]]
+    return feats_level4b_bsc_axiom_batch, meta_level4b_bsc_axiom_batch
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Compute level 5""")
+    return
+
+
+@app.cell
+def _(feats_level4b_bsc_axiom_batch, meta_level4b_bsc_axiom_batch, pd):
+    df_feats_level4b_bsc_axiom_batch = pd.concat(
+        [meta_level4b_bsc_axiom_batch, feats_level4b_bsc_axiom_batch],
+        axis=1
+    )
+    df_feats_level4b_bsc_axiom_batch
+    return (df_feats_level4b_bsc_axiom_batch,)
+
+
+@app.cell
+def _(consensus, df_feats_level4b_bsc_axiom_batch, features_all_bsc_batch):
+    feats_level5_bsc_axiom_batch = consensus(
+            df_feats_level4b_bsc_axiom_batch,
+            replicate_columns="Metadata_perturbation",     
+            features=features_all_bsc_batch,
+            operation="modz",
+        )
+    return (feats_level5_bsc_axiom_batch,)
+
+
+@app.cell
+def _(df_feats_level4b_bsc_axiom_batch, feats_level5_bsc_axiom_batch, pd):
+    meta_cols_batch = [c for c in df_feats_level4b_bsc_axiom_batch.columns if c.startswith("Metadata_compound")] + ["Metadata_batch", "Metadata_perturbation"]
+    df_feats_level5_bsc_axiom_batch = pd.merge(
+        feats_level5_bsc_axiom_batch,
+        df_feats_level4b_bsc_axiom_batch[meta_cols_batch].drop_duplicates(subset=["Metadata_perturbation"]),
+        on="Metadata_perturbation",  # join key (common to both DataFrames)
+        how="left",  # or 'inner' if you only want matching wells
+    )
+    return (df_feats_level5_bsc_axiom_batch,)
+
+
+@app.cell
+def _(df_feats_level5_bsc_axiom_batch):
+    df_feats_level5_bsc_axiom_batch
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## UMAP level 5 Batch corrected verification""")
+    return
+
+
+@app.cell
+def _(df_feats_level5_bsc_axiom_batch, features_all_bsc_batch, umap):
+    # Run UMAP
+    _reducer = umap.UMAP(
+        n_neighbors=15,          # local neighborhood size
+        min_dist=0.1,            # controls cluster tightness
+        metric="cosine",      # or 'cosine' for morphology data
+        random_state=42
+    )
+    embedding_harmony_lvl5_batch = _reducer.fit_transform(df_feats_level5_bsc_axiom_batch[features_all_bsc_batch])
+    return (embedding_harmony_lvl5_batch,)
+
+
+@app.cell
+def _(df_feats_level5_bsc_axiom_batch, embedding_harmony_lvl5_batch, np, plt):
+    # Prepare batch colors
+    _batch_categories = df_feats_level5_bsc_axiom_batch["Metadata_batch"].astype("category")
+    _batch_codes = _batch_categories.cat.codes.values
+    _batch_labels = _batch_categories.cat.categories.tolist()
+
+    # Create colormap
+    _cmap = plt.cm.tab20(np.linspace(0, 1, len(_batch_labels)))
+
+    # Plot
+    _fig, _ax = plt.subplots(figsize=(10, 8))
+    for _i, _label in enumerate(_batch_labels):
+        _mask = _batch_codes == _i
+        _ax.scatter(
+            embedding_harmony_lvl5_batch[_mask, 0],
+            embedding_harmony_lvl5_batch[_mask, 1],
+            c=[_cmap[_i]],
+            label=_label,
+            alpha=0.7,
+            s=30
+        )
+
+    _ax.set_xlabel("UMAP1", fontsize=12)
+    _ax.set_ylabel("UMAP2", fontsize=12)
+    _ax.set_title("UMAP of Cell Painting Profiles batch corrrected level 5", fontsize=14)
+    _ax.legend(title="Batch", bbox_to_anchor=(1.05, 1), loc="upper left")
+    _ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 

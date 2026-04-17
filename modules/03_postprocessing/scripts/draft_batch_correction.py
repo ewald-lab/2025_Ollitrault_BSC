@@ -37,6 +37,9 @@ def main():
     features = [c for c in df_bsc.columns if c.startswith("Feature_")]
     metadata = [c for c in df.columns if c.startswith("Metadata_")]
 
+    # --- filter columns BSC only ---
+    df = df[features + metadata]
+
     # --- Run Harmony ---
     harmony = run_harmony(
         df[features].values,
