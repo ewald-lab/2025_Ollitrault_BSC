@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 params.base_dir = params.base_dir ?: "${projectDir}/.."
-// To RUN Axiom: nextflow run entrypoints/07_classification_axiom.nf -params-file configs/config_base_axiom.json -profile local
+// To RUN Axiom: nextflow run entrypoints/07_classification_axiom.nf -params-file configs/config_base_axiom.json -profile slurm
 
 include { classification_workflow } from '../workflows/07_classification.nf'
 
