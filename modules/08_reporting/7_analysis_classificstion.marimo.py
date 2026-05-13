@@ -52,6 +52,7 @@ def _():
         theme,
         theme_bw,
         theme_classic,
+        warnings,
         ylim,
     )
 
@@ -501,6 +502,7 @@ def _(df_ttest_results):
         (df_ttest_results["AUROC_mean_Actual"] > df_ttest_results["AUROC_mean_Random_baseline"]) &
         (df_ttest_results["AUPRG_mean_Actual"] > df_ttest_results["AUPRG_mean_Random_baseline"]) &
         (df_ttest_results["Metadata_Count_1"] > 20) &
+        (~df_ttest_results["Metadata_Label"].isin(["NVS_TR_hDAT"])) &
         (~df_ttest_results["Metadata_Label"].isin(["tissue__liver", "tissue__prostate"]))
     ]["Metadata_Label"]
     list_significative_performance
@@ -1478,6 +1480,311 @@ def _(
 
 
 @app.cell
+def _(
+    df_axiom_cellbased_binary_metrics_cv,
+    df_axiom_cellfree_binary_metrics_cv,
+    df_axiom_cytotox_binary_metrics_cv,
+    df_axiom_hits_metrics_cv,
+    df_metrics_cv,
+    df_ttest_results,
+    dict_categores_significative_cell_based_claudeai,
+    list_significative_performance,
+    math,
+    mpatches,
+    np,
+    os,
+    plt,
+):
+
+    # ── 1. Build source-lookup ────────────────────────────────────────────────────
+    _source_map = {}
+    _source_dfs = {
+        "Hits":       df_axiom_hits_metrics_cv,
+        "Cell-based": df_axiom_cellbased_binary_metrics_cv,
+        "Cell-free":  df_axiom_cellfree_binary_metrics_cv,
+        "Cytotox":    df_axiom_cytotox_binary_metrics_cv,
+    }
+    for _name, _df in _source_dfs.items():
+        for _label in _df["Metadata_Label"].unique():
+            _source_map[_label] = _name
+
+    # ── Build cell-based category lookup ─────────────────────────────────────────
+    _cellbased_cat_map   = {}  # label -> category label
+    _cellbased_cat_color = {}  # label -> category color
+    for _cat in dict_categores_significative_cell_based_claudeai["categories"]:
+        for _assay in _cat["assays"]:
+            _cellbased_cat_map[_assay]   = _cat["label"]
+            _cellbased_cat_color[_assay] = _cat["color"]
+
+    # ── 2. Significant labels ─────────────────────────────────────────────────────
+    _sig_labels = list_significative_performance.to_list()
+
+    # ── 3. Filter metrics ─────────────────────────────────────────────────────────
+    _MODELS  = ["Actual", "Cellcount_baseline", "Random_baseline"]
+    _df_plot = df_metrics_cv[
+        df_metrics_cv["Model_type"].isin(_MODELS) &
+        df_metrics_cv["Metadata_Label"].isin(_sig_labels)
+    ].copy()
+    _df_plot["Source"] = _df_plot["Metadata_Label"].map(_source_map)
+
+    # ── 4. Compute mean ± std for both metrics ────────────────────────────────────
+    _df_agg = (
+        _df_plot
+        .groupby(["Metadata_Label", "Model_type"])[["AUROC", "AUPRG"]]
+        .agg(["mean", "std"])
+        .reset_index()
+    )
+    _df_agg.columns = ["Metadata_Label", "Model_type",
+                       "AUROC_mean", "AUROC_std",
+                       "AUPRG_mean", "AUPRG_std"]
+
+    # ── 5. Style config ───────────────────────────────────────────────────────────
+    _SOURCE_COLORS = {
+        "Hits":       "#4C72B0",
+        "Cell-based": "#DD8452",
+        "Cell-free":  "#55A868",
+        "Cytotox":    "#C44E52",
+    }
+    _sig_lookup    = df_ttest_results.set_index("Metadata_Label")
+    _counts_lookup = df_ttest_results.set_index("Metadata_Label")
+
+    # ── 6. Build ordered label list ───────────────────────────────────────────────
+    # Cell-based: group by claudeai category, sorted by AUROC within each category
+    # Other sources: sorted by AUROC within source
+    _subset_actual = _df_agg[_df_agg["Model_type"] == "Actual"].set_index("Metadata_Label")
+
+    _sig_labels_ordered = []
+    for _src in _source_dfs:
+        _lbls = [_l for _l in _sig_labels if _source_map.get(_l) == _src]
+        if _src == "Cell-based":
+            # Group by claudeai category
+            _cat_order = [_cat["label"] for _cat in dict_categores_significative_cell_based_claudeai["categories"]]
+            for _cat_label in _cat_order:
+                _cat_lbls = [_l for _l in _lbls if _cellbased_cat_map.get(_l) == _cat_label]
+                if not _cat_lbls:
+                    continue
+                _actual = (
+                    _subset_actual.loc[_subset_actual.index.isin(_cat_lbls)]
+                    .sort_values("AUROC_mean", ascending=True)
+                )
+                _sig_labels_ordered.extend(_actual.index.tolist())
+            # Append any cell-based not in any category
+            _uncategorized = [_l for _l in _lbls if _l not in _cellbased_cat_map]
+            if _uncategorized:
+                _actual = (
+                    _subset_actual.loc[_subset_actual.index.isin(_uncategorized)]
+                    .sort_values("AUROC_mean", ascending=True)
+                )
+                _sig_labels_ordered.extend(_actual.index.tolist())
+        else:
+            _actual = (
+                _subset_actual.loc[_subset_actual.index.isin(_lbls)]
+                .sort_values("AUROC_mean", ascending=True)
+            )
+            _sig_labels_ordered.extend(_actual.index.tolist())
+
+    # ── 7. Split into two panels ──────────────────────────────────────────────────
+    _n_lbls = len(_sig_labels_ordered)
+    _half   = math.ceil(_n_lbls / 2)
+    _panels = [_sig_labels_ordered[:_half], _sig_labels_ordered[_half:]]
+
+    # ── 8. Figure: 2 columns, each = AUROC bar + AUPRG bar + counts ──────────────
+    _row_h = 0.38
+    _fig_w = 28
+    _fig_h = max(4, _half * _row_h)
+
+    _fig = plt.figure(figsize=(_fig_w, _fig_h))
+    _outer_gs = _fig.add_gridspec(1, 2, wspace=0.4)
+
+    _all_axes = []
+    for _pi in range(2):
+        _inner_gs = _outer_gs[_pi].subgridspec(1, 3, width_ratios=[3, 3, 1], wspace=0.05)
+        _all_axes.append((
+            _fig.add_subplot(_inner_gs[0]),  # AUROC
+            _fig.add_subplot(_inner_gs[1]),  # AUPRG
+            _fig.add_subplot(_inner_gs[2]),  # counts
+        ))
+
+    # ── 9. Draw each panel ────────────────────────────────────────────────────────
+    def _get_stars(_label, _col):
+        if _label not in _sig_lookup.index:
+            return ""
+        _p = _sig_lookup.loc[_label, _col]
+        return "***" if _p < 0.001 else "**" if _p < 0.01 else "*"
+
+    for _pi, ((_ax_auroc, _ax_auprg, _ax_c), _label_list) in enumerate(zip(_all_axes, _panels)):
+        _n = len(_label_list)
+        _y = np.arange(_n)
+
+        for _yi, _label in enumerate(_label_list):
+            _src = _source_map.get(_label, "Hits")
+
+            # Bar color: claudeai category color for cell-based, source color otherwise
+            if _src == "Cell-based" and _label in _cellbased_cat_color:
+                _bar_color = _cellbased_cat_color[_label]
+            else:
+                _bar_color = _SOURCE_COLORS[_src]
+
+            if _label not in _subset_actual.index:
+                continue
+            _row = _subset_actual.loc[_label]
+
+            # ── AUROC bar ─────────────────────────────────────────────────────────
+            _ax_auroc.barh(
+                _yi, _row["AUROC_mean"], height=0.65,
+                color=_bar_color, edgecolor="white", linewidth=0.4,
+                xerr=_row["AUROC_std"], capsize=2,
+                error_kw=dict(elinewidth=0.7, ecolor="#555555", capthick=0.7),
+                zorder=3,
+            )
+            _stars = _get_stars(_label, "AUROC_p_value")
+            if _stars:
+                _ax_auroc.text(
+                    _row["AUROC_mean"] + _row["AUROC_std"] + 0.02, _yi, _stars,
+                    ha="left", va="center", fontsize=8, fontweight="bold"
+                )
+
+            # ── AUPRG bar ─────────────────────────────────────────────────────────
+            _ax_auprg.barh(
+                _yi, _row["AUPRG_mean"], height=0.65,
+                color=_bar_color, edgecolor="white", linewidth=0.4,
+                xerr=_row["AUPRG_std"], capsize=2,
+                error_kw=dict(elinewidth=0.7, ecolor="#555555", capthick=0.7),
+                zorder=3,
+            )
+            #_stars_p = _get_stars(_label, "PRAUC_p_value")
+            #if _stars_p:
+            #    _ax_auprg.text(
+            #        _row["AUPRG_mean"] + _row["AUPRG_std"] + 0.02, _yi, _stars_p,
+            #        ha="left", va="center", fontsize=8, fontweight="bold"
+            #    )
+
+        # ── Source/category group bands + separators ──────────────────────────────
+        # Track group boundaries: for cell-based use claudeai category, else source
+        _group_first = {}
+        _group_last  = {}
+        _group_color = {}
+        _group_name  = {}
+        for _yi, _label in enumerate(_label_list):
+            _src = _source_map.get(_label)
+            if _src == "Cell-based":
+                _grp = _cellbased_cat_map.get(_label, "Cell-based (uncategorized)")
+                _gc  = _cellbased_cat_color.get(_label, _SOURCE_COLORS["Cell-based"])
+            else:
+                _grp = _src
+                _gc  = _SOURCE_COLORS.get(_src, "#aaaaaa")
+            if _grp not in _group_first:
+                _group_first[_grp] = _yi
+                _group_color[_grp] = _gc
+                _group_name[_grp]  = _grp
+            _group_last[_grp] = _yi
+
+        for _grp, _first in _group_first.items():
+            _last  = _group_last[_grp]
+            _gc    = _group_color[_grp]
+            for _axx in [_ax_auroc, _ax_auprg, _ax_c]:
+                _axx.axhspan(_first - 0.5, _last + 0.5, color=_gc, alpha=0.07, zorder=0)
+                if _first > 0:
+                    _axx.axhline(_first - 0.5, color="grey", linewidth=0.6, linestyle="--", zorder=1)
+            # Label on right of AUPRG
+            _ax_auprg.text(
+                1.13, (_first + _last) / 2,
+                _grp.replace("Endocrine Disruption — ", "ED — ")
+                    .replace("Hepatotoxicity — ", "Hepato — ")
+                    .replace("Cardiovascular / ", "CV / "),
+                va="center", ha="left", fontsize=7, fontweight="bold",
+                color=_gc, transform=_ax_auprg.get_yaxis_transform()
+            )
+
+        # ── AUROC axis ────────────────────────────────────────────────────────────
+        _ax_auroc.set_yticks(_y)
+        _ax_auroc.set_yticklabels(_label_list, fontsize=7.5)
+        _ax_auroc.axvline(0.5, color="grey", linestyle="--", linewidth=0.8, zorder=1)
+        _ax_auroc.set_xlim(0, 1.15)
+        _ax_auroc.set_ylim(-0.5, _n - 0.5)
+        _ax_auroc.invert_yaxis()
+        _ax_auroc.spines[["top", "right"]].set_visible(False)
+        _ax_auroc.xaxis.grid(True, linestyle="--", alpha=0.4, zorder=0)
+        _ax_auroc.set_xlabel("AUROC (mean ± std)", fontsize=9)
+        _ax_auroc.set_title(f"AUROC — panel {_pi + 1}", fontsize=11, fontweight="bold", pad=6)
+
+        # ── AUPRG axis ────────────────────────────────────────────────────────────
+        _ax_auprg.set_yticks(_y)
+        _ax_auprg.set_yticklabels([])
+        _ax_auprg.axvline(0.5, color="grey", linestyle="--", linewidth=0.8, zorder=1)
+        _ax_auprg.set_xlim(0, 1.15)
+        _ax_auprg.set_ylim(-0.5, _n - 0.5)
+        _ax_auprg.invert_yaxis()
+        _ax_auprg.spines[["top", "right"]].set_visible(False)
+        _ax_auprg.xaxis.grid(True, linestyle="--", alpha=0.4, zorder=0)
+        _ax_auprg.set_xlabel("AUPRG (mean ± std)", fontsize=9)
+        _ax_auprg.set_title(f"AUPRG — panel {_pi + 1}", fontsize=11, fontweight="bold", pad=6)
+
+        # ── Counts subplot ────────────────────────────────────────────────────────
+        for _yi, _label in enumerate(_label_list):
+            if _label not in _counts_lookup.index:
+                continue
+            _src   = _source_map.get(_label, "Hits")
+            _color = _SOURCE_COLORS[_src]
+            _n0    = int(_counts_lookup.loc[_label, "Metadata_Count_0"])
+            _n1    = int(_counts_lookup.loc[_label, "Metadata_Count_1"])
+            _tot   = _n0 + _n1
+            _ax_c.barh(_yi, _n0, height=0.55, color=_color, alpha=0.25, edgecolor="none", zorder=3)
+            _ax_c.barh(_yi, _n1, height=0.55, left=_n0, color=_color, alpha=0.85, edgecolor="none", zorder=3)
+            _ax_c.text(
+                _tot * 1.03, _yi, f"{_n1} / {_n0}",
+                va="center", ha="left", fontsize=7, color="#333333"
+            )
+
+        _ax_c.set_yticks(_y)
+        _ax_c.set_yticklabels([])
+        _ax_c.set_xlim(0, _ax_c.get_xlim()[1] * 1.6)
+        _ax_c.set_ylim(-0.5, _n - 0.5)
+        _ax_c.invert_yaxis()
+        _ax_c.spines[["top", "right", "left"]].set_visible(False)
+        _ax_c.tick_params(axis="y", length=0)
+        _ax_c.xaxis.grid(True, linestyle="--", alpha=0.3, zorder=0)
+        _ax_c.set_xlabel("N compounds", fontsize=9)
+        _ax_c.set_title("active / inactive", fontsize=9, color="grey", pad=6)
+
+    # ── 10. Shared legend ─────────────────────────────────────────────────────────
+    _src_patches = [
+        mpatches.Patch(facecolor=_SOURCE_COLORS[_s], edgecolor="none", label=_s)
+        for _s in ["Hits", "Cell-free", "Cytotox"]
+    ]
+    _cat_patches = [
+        mpatches.Patch(facecolor=_cat["color"], edgecolor="none", label=_cat["label"])
+        for _cat in dict_categores_significative_cell_based_claudeai["categories"]
+    ]
+    _count_patches = [
+        mpatches.Patch(facecolor="grey", alpha=0.85, edgecolor="none", label="Active"),
+        mpatches.Patch(facecolor="grey", alpha=0.25, edgecolor="none", label="Inactive"),
+    ]
+    _fig.legend(
+        handles=_src_patches + _cat_patches + _count_patches,
+        title="Source / Category / Class",
+        loc="upper right",
+        fontsize=8, title_fontsize=9,
+        bbox_to_anchor=(1.01, 1.0),
+        ncol=2,
+    )
+
+    _fig.suptitle(
+        f"AUROC & AUPRG — Actual model, significant labels (n={len(_sig_labels_ordered)})\n"
+        "(* p<0.05, ** p<0.01, *** p<0.001  |  AUROC & PRAUC significant, n_active > 20)",
+        fontsize=11, y=1.01
+    )
+
+    plt.tight_layout()
+    plt.savefig(
+        os.path.expanduser("~/Downloads/classification_auroc_auprg_by_source_category.png"),
+        dpi=150, bbox_inches="tight"
+    )
+    plt.show()
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""# Plot comparison AUPRG AUC""")
     return
@@ -1494,7 +1801,6 @@ def _(
     Line2D,
     Path,
     df_axiom_cellbased_binary_metrics_cv,
-    df_axiom_cellfree_binary_metrics_cv,
     df_axiom_cytotox_binary_metrics_cv,
     df_axiom_hits_metrics_cv,
     df_metrics_cv,
@@ -1508,7 +1814,7 @@ def _(
     _source_dfs = {
         "Hits":       df_axiom_hits_metrics_cv,
         "Cell-based": df_axiom_cellbased_binary_metrics_cv,
-        "Cell-free":  df_axiom_cellfree_binary_metrics_cv,
+        #"Cell-free":  df_axiom_cellfree_binary_metrics_cv,
         "Cytotox":    df_axiom_cytotox_binary_metrics_cv,
     }
     for _name, _df in _source_dfs.items():
@@ -1778,11 +2084,11 @@ def _(pd):
         # Sort Metadata_Label by specified metric
         _ordered_labels = _morph_data.sort_values(sort_by, ascending=ascending)["Metadata_Label"]
 
-        # Pivot for PRAUC
+        # Pivot for AUPRG
         _pivot_prauc = _df.pivot_table(
             index='Metadata_Label',
             columns='Model_type',
-            values='PRAUC',
+            values='AUPRG',
             aggfunc='first'
         ).reindex(_ordered_labels)
 
@@ -1795,14 +2101,14 @@ def _(pd):
         ).reindex(_ordered_labels)
 
         # Rename columns to indicate metric
-        _pivot_prauc.columns = [f'{col} PRAUC' for col in _pivot_prauc.columns]
+        _pivot_prauc.columns = [f'{col} AUPRG' for col in _pivot_prauc.columns]
         _pivot_auroc.columns = [f'{col} AUROC' for col in _pivot_auroc.columns]
 
         # Add metadata columns
         _metadata = _df[["Metadata_Label", "Metadata_Count_0", "Metadata_Count_1", "Total_Compounds"]].drop_duplicates()
         _metadata = _metadata.set_index("Metadata_Label").reindex(_ordered_labels)
 
-        # Combine all tables: metadata + PRAUC + AUROC
+        # Combine all tables: metadata + AUPRG + AUROC
         _final_table = pd.concat([_metadata, _pivot_prauc, _pivot_auroc], axis=1)
 
         # Reset index
@@ -1817,8 +2123,8 @@ def _(pd):
             "Total_Compounds": "Total"
         })
 
-        # Get all PRAUC and AUROC columns for styling
-        _prauc_cols = [col for col in _final_table.columns if 'PRAUC' in col]
+        # Get all AUPRG and AUROC columns for styling
+        _prauc_cols = [col for col in _final_table.columns if 'AUPRG' in col]
         _auroc_cols = [col for col in _final_table.columns if 'AUROC' in col]
 
         # Style the table
@@ -2047,6 +2353,14 @@ def _(mo):
 
 
 @app.cell
+def _(list_significative_performance, pred_pandas):
+    pred_pandas[
+        (pred_pandas["Metadata_Label"].isin(list_significative_performance))
+    ].copy()
+    return
+
+
+@app.cell
 def _(
     create_styled_metrics_table,
     list_significative_performance,
@@ -2054,9 +2368,9 @@ def _(
 ):
     # Filtered dataframe
     _df_all_cellfree = pred_pandas[
-        (pred_pandas["Total_Compounds"] > 50) &
-        (pred_pandas["Metadata_Count_1"] > 20) &
-        (pred_pandas["Endpoint_type"] == "toxcast_cellfree") &
+        #(pred_pandas["Total_Compounds"] > 50) &
+        #(pred_pandas["Metadata_Count_1"] > 20) &
+        #(pred_pandas["Endpoint_type"] == "toxcast_cellfree") &
         (pred_pandas["Metadata_Label"].isin(list_significative_performance))
     ].copy()
     create_styled_metrics_table(_df_all_cellfree)
@@ -2707,6 +3021,7 @@ def _():
             'TOX21_GR_BLA_Antagonist_ratio',
             "ATG_DR4_LXR_CIS",
             "ATG_PXRE_CIS",
+            "ATG_PPRE_CIS",
             "ATG_VDRE_CIS"
           ]
         },
@@ -2720,9 +3035,11 @@ def _():
             "LTEA_HepaRG_CYP1A2",
             "LTEA_HepaRG_CYP2B6",
             "LTEA_HepaRG_CYP2C8",
+            "LTEA_HepaRG_CYP2C19",
             "LTEA_HepaRG_CYP2E1",
             "LTEA_HepaRG_CYP3A7",
             "LTEA_HepaRG_CYP4A11",
+            "LTEA_HepaRG_CYP4A22",
             "TOX21_AhR_LUC_Agonist"
           ]
         },
@@ -2775,10 +3092,12 @@ def _():
           "description": "Primary vascular cells (HUVEC, coronary artery smooth muscle) measuring endothelial activation, cell adhesion molecules, cytokines — indicators of vascular inflammation and atherogenesis.",
           "assays": [
             "BSK_4H_VCAM1",
+            "BSK_4H_MCP1",
             "BSK_4H_SRB",
             "BSK_4H_uPAR",
             "BSK_3C_SRB",
             "BSK_3C_Proliferation",
+            "BSK_3C_uPAR",
             "BSK_CASM3C_Thrombomodulin",
             "BSK_CASM3C_Proliferation",
             "BSK_LPS_VCAM1",
@@ -2791,7 +3110,6 @@ def _():
         }
       ]
     }
-
     return (dict_categores_significative_cell_based_claudeai,)
 
 
@@ -2865,6 +3183,457 @@ def _(
 def _(df_toxcast_cellbased_assay_info_significant):
     # save it 
     df_toxcast_cellbased_assay_info_significant.to_csv("modules/07_classification/outputs/df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Add performances and other models""")
+    return
+
+
+@app.cell
+def _(df_toxcast_cellbased_assay_info_significant):
+    df_toxcast_cellbased_assay_info_significant
+    return
+
+
+@app.cell
+def _(list_significative_performance, pd, pred_pandas):
+    _cols = pd.Series(pred_pandas["Metadata_Label"].unique())
+
+    _mask_cell_free  = _cols.str.contains("NVS|CCTE_GLTED_hIYD", regex=True)
+    _mask_hit_calls  = _cols.str.contains("MT|LDH|cell_count", regex=True)
+    _mask_cytotoxic  = _cols.str.contains("cell|tissue", regex=True) & ~_mask_hit_calls
+    _mask_cell_based = ~_mask_cell_free & ~_mask_hit_calls & ~_mask_cytotoxic
+
+    _valid_labels = set(_cols[_mask_cell_free | _mask_hit_calls | _mask_cytotoxic | _mask_cell_based])
+
+    pred_pandas_filtered = pred_pandas[
+        (pred_pandas["Model_type"] == "Actual") &
+        (pred_pandas["Metadata_Label"].isin(list_significative_performance)) &
+        (pred_pandas["Metadata_Label"].isin(_valid_labels)) &
+        (pred_pandas["Metadata_Label"] != "cell_count") &
+        (~pred_pandas["Metadata_Label"].str.startswith("NVS_", na=False)) &
+        (
+            ~(
+                pred_pandas["Metadata_Label"].str.contains("tissue", case=False, na=False) |
+                pred_pandas["Metadata_Label"].str.contains("cell_type", case=False, na=False)
+            ) |
+            (pred_pandas["Metadata_Label"] == "cell_type__HepG2")
+        )
+    ]
+    pred_pandas_filtered
+    return (pred_pandas_filtered,)
+
+
+@app.cell
+def _(df_toxcast_cellbased_assay_info_significant, pred_pandas_filtered):
+    df_toxcast_assay_info_perf_significant = pred_pandas_filtered.merge(
+        df_toxcast_cellbased_assay_info_significant,
+        left_on="Metadata_Label",
+        right_on="assay_component_endpoint_name",
+        how="left"
+    )
+    df_toxcast_assay_info_perf_significant.to_csv("modules/07_classification/outputs/df_toxcast_all_assay_info_perf_significant_claudeai_categories.csv")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""### Significative specific category""")
+    return
+
+
+@app.cell
+def _(dict_categores_significative_cell_based_claudeai):
+    dict_categores_significative_cell_based_claudeai["categories"][6]["assays"]
+    return
+
+
+@app.cell
+def _(
+    create_styled_metrics_table,
+    dict_categores_significative_cell_based_claudeai,
+    pred_pandas,
+):
+    # Filtered dataframe
+    _df_all_cellfree = pred_pandas[
+        #(pred_pandas["Total_Compounds"] > 50) &
+        #(pred_pandas["Metadata_Count_1"] > 20) &
+        #(pred_pandas["Endpoint_type"] == "toxcast_cellfree") &
+        (pred_pandas["Metadata_Label"].isin(dict_categores_significative_cell_based_claudeai["categories"][6]["assays"]))
+    ].copy()
+    create_styled_metrics_table(_df_all_cellfree)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Check assays compounds overlap""")
+    return
+
+
+@app.cell
+def _(pred_pandas):
+    pred_pandas
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+):
+    df_axiom_hits_prediction
+    df_axiom_cellbased_binary_prediction
+    df_axiom_cellfree_binary_prediction
+    df_axiom_cytotox_binary_prediction
+    return
+
+
+@app.cell
+def _(df_axiom_hits_prediction):
+    df_axiom_hits_prediction
+    return
+
+
+@app.cell
+def _():
+    import upsetplot
+    from upsetplot import UpSet, from_contents
+    return UpSet, from_contents
+
+
+@app.cell
+def _(
+    UpSet,
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    from_contents,
+    list_significative_performance,
+    pd,
+    plt,
+):
+    # Build one set per Metadata_Label across all assay types
+    _df_all_filtered = pd.concat([
+        df_axiom_hits_prediction,
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction
+    ], ignore_index=True)
+
+    _df_actual = _df_all_filtered[
+        (_df_all_filtered["Model_type"] == "Actual") &
+        (_df_all_filtered["Metadata_Label"].isin(list_significative_performance))
+    ]
+
+    _sets_by_label = {
+        label: set(_df_actual[_df_actual["Metadata_Label"] == label]["Metadata_compound"].unique())
+        for label in list_significative_performance
+    }
+
+    # Remove empty sets
+    _sets_by_label = {k: v for k, v in _sets_by_label.items() if len(v) > 0}
+
+    print("Labels and compound counts:")
+    for k, v in _sets_by_label.items():
+        print(f"  {k}: {len(v)}")
+
+    # UpSet plot
+    _upset_data = from_contents(_sets_by_label)
+
+    _fig = plt.figure(figsize=(14, 6))
+    UpSet(
+        _upset_data,
+        subset_size="count",
+        show_counts=True,
+        sort_by="cardinality",
+        min_subset_size=1,
+    ).plot(_fig)
+
+    plt.suptitle("UpSet Plot: Shared Compounds Across Significant Labels", fontsize=13, y=1.01)
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Try XGBoost workaround: “stacked dataset” trick""")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## input""")
+    return
+
+
+@app.cell
+def _(pd):
+    df_level6_axiom_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_axiom_selected_features_batch.parquet")
+    df_level6_axiom_all
+    return (df_level6_axiom_all,)
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    list_significative_performance,
+    pd,
+):
+    ## Compute one-hote encoding
+    # Build one set per Metadata_Label across all assay types
+    _df_all_filtered = pd.concat([
+        df_axiom_hits_prediction,
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction
+    ], ignore_index=True)
+
+    _df_actual = _df_all_filtered[
+        (_df_all_filtered["Model_type"] == "Actual") &
+        (_df_all_filtered["Metadata_Label"].isin(list_significative_performance))
+    ]
+    # One-hot encode Metadata_Label (tested assay) + keep y_actual as-is
+    _ohe_labels = pd.get_dummies(_df_actual["Metadata_Label"]).astype(int)
+
+    df_ohe = pd.concat([
+        _df_actual[["Metadata_compound"]].reset_index(drop=True),
+        _ohe_labels.reset_index(drop=True)
+    ], axis=1)
+    y_true = _df_actual["y_actual"]
+    print(df_ohe.shape)
+    print(y_true.shape)
+    df_ohe.head()
+    return df_ohe, y_true
+
+
+@app.cell
+def _(df_level6_axiom_all, df_ohe, pd, warnings, y_true):
+    from xgboost import XGBClassifier
+    from sklearn.model_selection import StratifiedKFold, cross_val_score
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.metrics import classification_report
+    warnings.filterwarnings("ignore")
+
+    # ── 1. Merge ──────────────────────────────────────────────────────────────────
+    _df_merged = df_ohe.merge(
+        df_level6_axiom_all,
+        on="Metadata_compound",
+        how="inner"
+    )
+    print(f"Merged shape: {_df_merged.shape}")
+
+    # ── 2. Define X and y ─────────────────────────────────────────────────────────
+    _meta_cols = ["Metadata_compound"]
+    _label_cols = list(pd.get_dummies(_df_actual["Metadata_Label"]).columns)
+
+    _feature_cols = [c for c in _df_merged.columns if c not in _meta_cols]
+
+    X = _df_merged[_feature_cols].values
+    y = y_true.values
+    return (
+        StratifiedKFold,
+        X,
+        XGBClassifier,
+        classification_report,
+        cross_val_score,
+        y,
+    )
+
+
+@app.cell
+def _(
+    StratifiedKFold,
+    X,
+    XGBClassifier,
+    classification_report,
+    cross_val_score,
+    np,
+    pd,
+    plt,
+    y,
+):
+
+    print(f"X shape: {X.shape}, y shape: {y.shape}, classes: {np.unique(y)}")
+
+    # ── 3. XGBoost with Stratified CV ─────────────────────────────────────────────
+    _scale_pos = (y == 0).sum() / (y == 1).sum() if len(np.unique(y)) == 2 else 1.0
+
+    _model = XGBClassifier(
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        scale_pos_weight=_scale_pos,
+        use_label_encoder=False,
+        eval_metric="logloss",
+        random_state=42,
+        n_jobs=-1,
+    )
+
+    _cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    _scores = cross_val_score(_model, X, y, cv=_cv, scoring="roc_auc", n_jobs=-1)
+
+    print(f"\nCV ROC-AUC: {_scores.mean():.3f} ± {_scores.std():.3f}")
+    print(f"Per-fold:   {np.round(_scores, 3)}")
+
+    # ── 4. Fit on full data + feature importance ───────────────────────────────────
+    _model.fit(X, y)
+
+    _feat_names = _feature_cols + _label_cols
+    _importances = pd.Series(_model.feature_importances_, index=_feat_names)
+    _top20 = _importances.nlargest(20)
+
+    # ── 5. Plot top-20 feature importance ─────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(8, 6))
+    _top20.sort_values().plot(kind="barh", ax=_ax, color="steelblue", edgecolor="white")
+    _ax.set_title("XGBoost – Top 20 Feature Importances", fontsize=12)
+    _ax.set_xlabel("Importance (gain)", fontsize=10)
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+    plt.tight_layout()
+    plt.show()
+
+    # ── 6. Full-data classification report ────────────────────────────────────────
+    _y_pred = _model.predict(X)
+    print("\nClassification report (train, indicative):")
+    if y.dtype != object:
+        try:
+            print(classification_report(y, _y_pred, target_names=_le.classes_))
+        except Exception:
+            print(classification_report(y, _y_pred))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Make level 6 DTXSID""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_level4_axiom = pd.read_parquet("modules/02_processing/outputs/level4a_axiom.parquet")
+    dt_level6_axiom = pd.read_parquet("modules/02_processing/outputs/level6_axiom_all_features.parquet")
+    dt_oasis_dtxsid = pd.read_csv("modules/07_classification/input/v5_oasis_03Sept2024_simple.csv")
+    return dt_level4_axiom, dt_level6_axiom, dt_oasis_dtxsid
+
+
+@app.cell
+def _(dt_level4_axiom):
+    dt_level4_axiom
+    return
+
+
+@app.cell
+def _(dt_level6_axiom):
+    dt_level6_axiom
+    return
+
+
+@app.cell
+def _(dt_oasis_dtxsid):
+    dt_oasis_dtxsid
+    return
+
+
+@app.cell
+def _(dt_level4_axiom, dt_oasis_dtxsid):
+    # Build intermediary table
+    intermediary = (
+        dt_level4_axiom[["Metadata_compound", "Metadata_OASIS_ID"]]
+        .drop_duplicates()
+        .merge(
+            dt_oasis_dtxsid[["OASIS_ID", "DTXSID"]].drop_duplicates(subset="OASIS_ID"),
+            left_on="Metadata_OASIS_ID",
+            right_on="OASIS_ID",
+            how="left"
+        )
+        .drop(columns="OASIS_ID")
+    )
+
+    print(intermediary.head())
+    print(intermediary.shape)
+    return (intermediary,)
+
+
+@app.cell
+def _(dt_level6_axiom, intermediary):
+    lookup = (
+        intermediary
+        .drop_duplicates(subset="Metadata_compound")
+        .set_index("Metadata_compound")["DTXSID"]
+    )
+
+    dt_level6_axiom["Metadata_dtxsid"] = dt_level6_axiom["Metadata_compound"].map(lookup)
+
+    # Check
+    matched = dt_level6_axiom["Metadata_dtxsid"].notna().sum()
+    total = len(dt_level6_axiom)
+    print(f"Matched: {matched}/{total} ({matched/total:.1%})")
+    return (lookup,)
+
+
+@app.cell
+def _(dt_level6_axiom):
+    dt_level6_axiom.to_parquet("modules/07_classification/outputs/dt_level6_axiom_dtxsid.parquet")
+    return
+
+
+@app.cell
+def _(dt_level6_axiom):
+    dt_level6_axiom
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Make level 5 DTXSID""")
+    return
+
+
+@app.cell
+def _(pd):
+    dt_level5_axiom = pd.read_parquet("modules/02_processing/outputs/level5_axiom_all_features.parquet")
+    return (dt_level5_axiom,)
+
+
+@app.cell
+def _(dt_level5_axiom, lookup):
+    dt_level5_axiom["Metadata_dtxsid"] = dt_level5_axiom["Metadata_compound"].map(lookup)
+
+    # Check
+    matched_level5 = dt_level5_axiom["Metadata_dtxsid"].notna().sum()
+    total_level5 = len(dt_level5_axiom)
+    print(f"Matched: {matched_level5}/{total_level5} ({matched_level5/total_level5:.1%})")
+    return
+
+
+@app.cell
+def _(dt_level5_axiom):
+    dt_level5_axiom
+    return
+
+
+@app.cell
+def _(dt_level5_axiom):
+    dt_level5_axiom.to_parquet("modules/07_classification/outputs/dt_level5_axiom_dtxsid.parquet")
     return
 
 

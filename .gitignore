@@ -232,3 +232,6 @@ modules/common/interdependence_scores
 # Software
 modules/common/ToxicR_23.10.1.2.0-x86_64-linux-R.release.zip
 modules/common/dcgm
+
+modules/07_classification/input/
+modules/09_mass_balance_distribution/
