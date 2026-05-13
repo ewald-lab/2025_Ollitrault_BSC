@@ -129,7 +129,7 @@ def binary_classifier(
 
     return model, pl.concat(pred_df, how="vertical")
 
-def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, filter_label_size: int = 50, output_dir: str = None):
+def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, filter_label_size: int = 50, filter_label_size_active: int = 20, output_dir: str = None):
     """Process a single label_column."""
     try:
         prof = dat.rename({label_column: "Label"})
@@ -138,7 +138,7 @@ def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool 
         num_1 = prof.filter(pl.col("Label") == 1).height
 
 
-        if (num_0 >= n_splits) & (num_1 >= n_splits) & (num_0 + num_1 >= filter_label_size):
+        if (num_0 >= n_splits) & (num_1 >= n_splits) & (num_0 + num_1 >= filter_label_size) & (num_1 >= filter_label_size_active):
             meta_cols = [i for i in prof.columns if "Metadata_" in i]
             all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
 
@@ -189,6 +189,7 @@ def predict_binary(
     dat: pl.DataFrame | None = None,
     n_repeats: int = 1,
     filter_label_size: int = 50,
+    filter_label_size_active: int = 20,
     label_column: str = "OASIS_ID"
 ) -> None:
     """Build classifier for binary outcomes.
@@ -254,7 +255,7 @@ def predict_binary(
     os.makedirs(model_output_dir, exist_ok=True)
     # Train actual models
     pred_results = thread_map(
-        lambda args: process_label(*args, shuffle=False, n_repeats=n_repeats, filter_label_size=filter_label_size, output_dir=model_output_dir),
+        lambda args: process_label(*args, shuffle=False, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active, output_dir=model_output_dir),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels",
@@ -269,7 +270,7 @@ def predict_binary(
 
     # Random baseline
     null_results = thread_map(
-        lambda args: process_label(*args, shuffle=True, n_repeats=n_repeats, filter_label_size=filter_label_size),
+        lambda args: process_label(*args, shuffle=True, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels for random baseline",
@@ -284,7 +285,7 @@ def predict_binary(
 
     # Cell count baseline
     cc_results = thread_map(
-        lambda args: process_label(*args, cc=True, n_repeats=n_repeats, filter_label_size=filter_label_size),
+        lambda args: process_label(*args, cc=True, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active),
         tasks,
         max_workers=num_gpus,
         desc="Processing labels for cell count baseline",
@@ -347,6 +348,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, help="Directory for output Parquet file")
     parser.add_argument("--n_repeats", required=False, default=1, type=int, help="Number of times to repeat cross-validation (default: 1)")
     parser.add_argument("--filter_label_size", required=False, default=50, type=int, help="Minimum number of samples (0 and 1 combined) required for a label to be included in the classification (default: 50)")
+    parser.add_argument("--filter_label_size_active", required=False, default=20, type=int, help="Minimum number of samples active (1 combined) required for a label to be included in the classification (default: 20)")
     args = parser.parse_args()
     dat = pd.read_parquet(args.input_path_level4)
     # Preprocess
@@ -367,4 +369,5 @@ if __name__ == "__main__":
         label_column=args.label_column,
         n_repeats=args.n_repeats,
         filter_label_size=args.filter_label_size,
+        filter_label_size_active=args.filter_label_size_active,
     )
