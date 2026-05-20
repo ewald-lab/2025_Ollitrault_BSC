@@ -125,13 +125,13 @@ process bsc_postprocessing_correct_botanicals_concentration_units  {
         tuple val(level), path(input_file)
 
     output:
-        tuple val(level), path("${input_file.baseName}_filtered_converted.parquet")
+        tuple val(level), path("${input_file.baseName}_converted.parquet")
 
     script:
     """
     python ${params.base_dir}/modules/03_postprocessing/scripts/postprocessing_bsc_botanical_shared_units.py \
         --input ${input_file} \
-        --output "${input_file.baseName}_filtered_converted.parquet" \
+        --output "${input_file.baseName}_converted.parquet" \
         --bsc_annotation "${params.base_dir}/${params.post_processing.bsc_annotation}"
     """
 }
