@@ -1,8 +1,8 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run entrypoints/03_postprocessing_bsc.nf -params-file entrypoints/config_base_bsc.json -profile local -resume
+// To RUN BSC: nextflow run entrypoints/03_postprocessing_bsc.nf -params-file configs/config_base_bsc.json -profile slurm -resume
 
-include { postprocessing_workflow } from './workflows/03_postprocessing.nf'
+include { postprocessing_workflow } from '../workflows/03_postprocessing.nf'
 
 // Generate a unique run code with date + short UUID
 def today = new Date()
@@ -21,7 +21,7 @@ workflow {
     path_data_level6_all = Channel.fromPath("./modules/02_processing/output/level6_bsc_all_features.parquet")
 
     postprocessing_workflow(
-            path_data_level2,
+            path_data_level2_log,
             path_data_level3,
             path_data_level4,
             path_data_level5,

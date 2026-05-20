@@ -25,5 +25,6 @@
             "compute_meta_pods": ["Metadata_mtt_normalized", "Metadata_ldh_normalized"],
             "p_value_correction": "FALSE",
             "num_tests": 1000
-    }
+    },
+    "base_dir": "/nfs/research/ewald/2025_Ollitrault_BSC/"
 }
