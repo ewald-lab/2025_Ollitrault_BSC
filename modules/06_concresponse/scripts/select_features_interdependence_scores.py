@@ -7,6 +7,8 @@ import numpy as np
 from tqdm import tqdm
 import ids
 from statsmodels.stats.multitest import multipletests
+import torch
+
 def well_to_coord(well):
     row_letter = well[0]
     col = int(well[1:])
@@ -75,6 +77,10 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
     X = dat_fit[features_cols].values
     Y = dat_fit[["Metadata_log10conc"]].values  # must be 2D
 
+    # ── Convert to tensors ────────────────────────────────────────────────────
+    X = torch.tensor(X, dtype=torch.float32)
+    Y = torch.tensor(Y, dtype=torch.float32)
+
     # Compute IDS
     C, p_vals = ids.compute_IDS(
         X,
@@ -83,8 +89,8 @@ def process_compound(compound, dat, dat_ctrl, dat_ctrl_by_plate,
         num_tests=num_tests
     )
 
-    p_vals_flat = p_vals.flatten()
-    C_flat      = C.flatten()
+    p_vals_flat = p_vals.detach().cpu().numpy().flatten()
+    C_flat      = C.detach().cpu().numpy().flatten()
 
     # ── Benjamini-Hochberg correction ─────────────────────────────────────
     sig_mask, p_vals_corrected, _, _ = multipletests(
