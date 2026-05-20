@@ -24,7 +24,8 @@ workflow postprocessing_workflow {
                 .mix( path_data_level6_all.map { tuple('level6_all', it) } )
 
         // 2. Single postprocessing step
-        postprocessed = bsc_postprocessing(all_levels)
+        postprocessed_filter = bsc_postprocessing(all_levels)
+        postprocessed = bsc_postprocessing_correct_botanicals_concentration_units(postprocessed_filter)
 
         // 3. Split back by level
         level2_post = postprocessed.filter { it[0] == 'level2' }.map { it[1] }
@@ -62,10 +63,33 @@ process bsc_postprocessing {
 
     script:
     """
-    echo hi
     python ${params.base_dir}/modules/03_postprocessing/scripts/${params.post_processing.script} \
         --input ${input_file} \
         --output "${input_file.baseName}_filtered.parquet" \
+        --bsc_annotation "${params.base_dir}/${params.post_processing.bsc_annotation}"
+    """
+}
+
+process bsc_postprocessing_correct_botanicals_concentration_units  {
+
+    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+    tag { "${level}:${input_file.baseName}" }
+
+    beforeScript = """
+    export PYTHONPATH="${params.base_dir}/modules"
+    """
+
+    input:
+        tuple val(level), path(input_file)
+
+    output:
+        tuple val(level), path("${input_file.baseName}_filtered_converted.parquet")
+
+    script:
+    """
+    python ${params.base_dir}/modules/03_postprocessing/scripts/postprocessing_bsc_botanical_shared_units.py \
+        --input ${input_file} \
+        --output "${input_file.baseName}_filtered_converted.parquet" \
         --bsc_annotation "${params.base_dir}/${params.post_processing.bsc_annotation}"
     """
 }
