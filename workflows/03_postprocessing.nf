@@ -24,8 +24,7 @@ workflow postprocessing_workflow {
                 .mix( path_data_level6_all.map { tuple('level6_all', it) } )
 
         // 2. Single postprocessing step
-        postprocessed_filter = bsc_postprocessing(all_levels)
-        postprocessed = bsc_postprocessing_correct_botanicals_concentration_units(postprocessed_filter)
+        postprocessed = bsc_postprocessing(all_levels)
 
         // 3. Split back by level
         level2_post = postprocessed.filter { it[0] == 'level2' }.map { it[1] }

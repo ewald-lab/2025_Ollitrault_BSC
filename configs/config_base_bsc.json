@@ -27,5 +27,5 @@
             "num_tests": 1000
     },
     "base_dir": "/nfs/research/ewald/2025_Ollitrault_BSC/",
-    "bsc_annotation": "modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv"
+    "bsc_annotation": "/nfs/research/ewald/2025_Ollitrault_BSC/modules/03_postprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv"
 }
