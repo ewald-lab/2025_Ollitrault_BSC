@@ -73,11 +73,11 @@ def main():
         )
         df_level_bsc = df_level_bsc[df_level_bsc["Metadata_plate"].isin(plates_with_compounds)]
 
-        print(f"💾 Saving BSC post processed profiles to {output_file}")
-        df_level_bsc.to_parquet(output_file, index=False)
     else:
         print("⚠️ Metadata_plate column not found — skipping plate filtering step")
-
+    
+    print(f"💾 Saving BSC post processed profiles to {output_file}")
+    df_level_bsc.to_parquet(output_file, index=False)
 
 if __name__ == "__main__":
     main()
