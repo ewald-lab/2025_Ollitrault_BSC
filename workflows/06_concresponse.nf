@@ -127,6 +127,41 @@ workflow concresponse_workflow {
     emit: 
         all_pods_files
 }
+workflow concresponse_workflow_metadata {
+
+    take:
+        input_data_level4
+        input_data_level5
+
+    main:
+        // 1. Fit curves for metadata assays (CC, MTT, LDH, …)
+        channel_meta = Channel
+            .fromList(params.concentration_response.compute_meta_pods)
+
+        path_data_meta = fit_curves_meta(
+            channel_meta
+                .combine(input_data_level4)
+                .map { meta_nm, input ->
+                    tuple(meta_nm, input)
+                }
+        ) // emits: (meta_nm, meta_pods_path)
+
+        // 2. Transform back log10 concentration — metadata branch only
+        transform_input_meta = path_data_meta
+            .combine(input_data_level5)
+            .map { meta_nm, meta_pods_path, input_file ->
+                tuple(meta_nm, meta_pods_path, input_file, true)
+            }
+
+        path_data_transformed_meta = transform_back_log10concentration(transform_input_meta)
+
+        // 3. Collect transformed metadata pod files
+        all_pods_files_meta = path_data_transformed_meta.collect()
+
+    emit:
+        all_pods_files_meta
+}
+
 workflow concresponse_workflow_feature_wise {
     take:
         input_data_level4
