@@ -126,6 +126,9 @@ def main():
     print(f"🔍 Expanding feature columns: {list(features_rename_map.values())}")
     df_expanded = expand_features(df, list(features_rename_map.values()))
 
+    print(f"🔍 Expanding feature columns: {list(features_rename_map.values())}")
+    df_expanded = expand_features(df, list(features_rename_map.values()))
+
     print(f"💾 Writing expanded data to {output_path}")
     df_expanded.write_parquet(output_path)
     print("✅ Done.")
