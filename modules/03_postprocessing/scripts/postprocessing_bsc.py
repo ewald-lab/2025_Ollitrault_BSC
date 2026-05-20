@@ -65,15 +65,18 @@ def main():
     df_level_bsc = df_level[df_level["Metadata_compound"].isin(list_botanical_compounds)]
 
     # filter out plates that contain only DMSO (no compound wells)
-    plates_with_compounds = (
-        df_level_bsc[df_level_bsc["Metadata_compound"] != "s0617825"]
-        ["Metadata_plate"]
-        .unique()
-    )
-    df_level_bsc = df_level_bsc[df_level_bsc["Metadata_plate"].isin(plates_with_compounds)]
+    if "Metadata_plate" in df_level_bsc.columns:
+        plates_with_compounds = (
+            df_level_bsc[df_level_bsc["Metadata_compound"] != "s0617825"]
+            ["Metadata_plate"]
+            .unique()
+        )
+        df_level_bsc = df_level_bsc[df_level_bsc["Metadata_plate"].isin(plates_with_compounds)]
 
-    print(f"💾 Saving BSC post processed profiles to {output_file}")
-    df_level_bsc.to_parquet(output_file, index=False)
+        print(f"💾 Saving BSC post processed profiles to {output_file}")
+        df_level_bsc.to_parquet(output_file, index=False)
+    else:
+        print("⚠️ Metadata_plate column not found — skipping plate filtering step")
 
 
 if __name__ == "__main__":
