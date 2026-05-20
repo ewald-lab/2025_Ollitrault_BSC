@@ -1,7 +1,8 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run entrypoints/01_preprocessing_bsc.nf -params-file entrypoints/config_base_bsc.json -profile local -resume
+// To RUN BSC: nextflow run entrypoints/01_preprocessing_bsc.nf -params-file entrypoints/config_base_bsc.json -profile slurm -resume
 
+include { preprocessing_workflow } from './workflows/01_preprocessing.nf'
 include { preprocessing_workflow } from './workflows/01_preprocessing.nf'
 
 // Generate a unique run code with date + short UUID

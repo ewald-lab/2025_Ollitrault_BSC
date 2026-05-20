@@ -36,9 +36,13 @@ process format_dino {
     script:
         def script_path
         def metadata_arg = ""
+        def bsc_annot_arg = ""
 
         if (params.input_name == 'bsc') {
             script_path = "${params.base_dir}/modules/01_preprocessing/scripts/format_bsc_dino.py"
+            if (params.bsc_annotation) {
+                bsc_annot_arg = "--bsc_annotation '${params.bsc_annotation}'"
+            }
         }
         else if (params.input_name == 'axiom') {
             script_path = "${params.base_dir}/modules/01_preprocessing/scripts/format_axiom_oasis_dino.py"
@@ -54,6 +58,7 @@ process format_dino {
         python ${script_path} \\
             --input ${input_file} \\
             ${metadata_arg} \\
+            ${bsc_annot_arg} \\
             --output level2_${params.input_name}.parquet
         """
 }
