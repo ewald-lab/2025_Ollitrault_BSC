@@ -58,8 +58,8 @@ process bsc_metadata_preparation {
             --input_bsc_cp ${input_file} \
             --input_bsc_annotations "${params.bsc_annotation}" \
             --output_annotations cellpainting_bsc_annotations_merged.tsv \
-            --output_compounds compounds_bsc.txt
-            --path_utils_standardizer "${params.base_dir}/modules/common/utils"
+            --output_compounds compounds_bsc.txt \
+            --path_utils_standardizer "${params.base_dir}modules/common/utils"
     """
 }
 
