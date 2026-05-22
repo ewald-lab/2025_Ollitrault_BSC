@@ -39,7 +39,7 @@ workflow {
 
 
 process HARMONY_BATCH_CORRECTION {
-    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+    publishDir "modules/05_batch_correction_bsc_axiom/outputs", mode: 'copy'
     tag "harmony"
 
     input:
@@ -61,7 +61,7 @@ process HARMONY_BATCH_CORRECTION {
 }
 
 process level5_consensus {
-    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+    publishDir "modules/05_batch_correction_bsc_axiom/outputs", mode: 'copy'
     tag { "${dataset_type}" }
     input:
     tuple val(feature_type), path(input_file)
@@ -76,7 +76,7 @@ process level5_consensus {
     """
 }
 process level6_aggregate_profiles {
-    publishDir "modules/03_postprocessing/outputs", mode: 'copy'
+    publishDir "modules/05_batch_correction_bsc_axiom/outputs", mode: 'copy'
     tag { "${dataset_type}" }
     input:
     tuple val(feature_type), path(input_file)
