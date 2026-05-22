@@ -19,6 +19,47 @@ workflow preprocessing_workflow {
     emit:
         path_data_level2_log
 }
+workflow preprocessing_workflow_bsc {
+
+    take:
+        input_path_level2
+
+    main:
+        path_data_level2 = bsc_metadata_preparation(input_path_level2)
+
+    emit:
+        path_data_level2
+}
+
+
+process bsc_metadata_preparation {
+
+    publishDir "modules/01_preprocessing/outputs", mode: 'copy'
+
+    tag "bsc_metadata_preparation"
+
+    input:
+        path input_file
+
+    output:
+        path "bsc_metadata_preparation_marimo.html"
+        path "cellpainting_bsc_annotations_merged.tsv"
+        path "compounds_bsc.txt"
+
+    script:
+    """
+    marimo export html \
+        ${params.base_dir}/modules/01_preprocessing/scripts/chemical_annotations.marimo.py \
+        -o bsc_metadata_preparation_marimo.html \
+        -- \
+        python ${params.base_dir}/modules/01_preprocessing/scripts/chemical_annotations.marimo.py \
+            --input_bsc_cp ${input_file} \
+            --input_bsc_annotations ${params.bsc_annotation} \
+            --output_annotations cellpainting_bsc_annotations_merged.tsv \
+            --output_compounds compounds_bsc.txt
+    """
+}
+
 
 process format_dino {
 
