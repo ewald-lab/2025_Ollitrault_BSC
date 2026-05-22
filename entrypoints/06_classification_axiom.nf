@@ -22,9 +22,9 @@ workflow {
         )
     }
     if (true) { // batch correction
-        path_data_level4 = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_axiom_batch.parquet")
-        path_data_level5 = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level5_axiom_selected_features_batch.parquet")
-        path_data_level6 = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level6_axiom_selected_features_batch.parquet")
+        path_data_level4 = Channel.fromPath("${projectDir}/../modules/05_batch_correction_bsc_axiom/outputs/level4b_axiom_batch.parquet")
+        path_data_level5 = Channel.fromPath("${projectDir}/../modules/05_batch_correction_bsc_axiom/outputs/level5_axiom_selected_features_batch.parquet")
+        path_data_level6 = Channel.fromPath("${projectDir}/../modules/05_batch_correction_bsc_axiom/outputs/level6_axiom_selected_features_batch.parquet")
         compute_meta_pods = Channel.of(
             tuple("Metadata_mtt_normalized", file("${projectDir}/../modules/06_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")),
             tuple("Metadata_ldh_normalized", file("${projectDir}/../modules/06_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")),
