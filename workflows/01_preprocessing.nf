@@ -56,7 +56,7 @@ process bsc_metadata_preparation {
         -- \
         python ${params.base_dir}/modules/01_preprocessing/scripts/chemical_annotations.marimo.py \
             --input_bsc_cp ${input_file} \
-            --input_bsc_annotations ${params.bsc_annotation} \
+            --input_bsc_annotations "${params.bsc_annotation}" \
             --output_annotations cellpainting_bsc_annotations_merged.tsv \
             --output_compounds compounds_bsc.txt
     """
