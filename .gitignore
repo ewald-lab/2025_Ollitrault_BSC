@@ -238,3 +238,6 @@ modules/09_mass_balance_distribution/
 
 # docs
 docs/*
+
+# legacy files to clean project directory
+legacy
