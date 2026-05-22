@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run entrypoints/draft_batch_correction_bsc_axiom.nf -params-file configs/config_base_bsc.json -profile slurm -resume
+// To RUN BSC: nextflow run entrypoints/05_batch_correction_bsc_axiom.nf -params-file configs/config_base_bsc.json -profile slurm -resume
 
 include { postprocessing_workflow } from '../workflows/03_postprocessing.nf'
 // include { level5_consensus } from '../workflows/02_processing.nf'
@@ -16,7 +16,7 @@ params.base_dir = "${projectDir}/.."
 workflow {
 
     // Inputs
-    path_data_level4_bsc   = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
+    path_data_level4_bsc   = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_filtered_converted.parquet")
     path_data_level4_axiom = Channel.fromPath("${projectDir}/../modules/02_processing/outputs/level4a_axiom.parquet")
 
     // Run Harmony
