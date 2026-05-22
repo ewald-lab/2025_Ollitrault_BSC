@@ -107,15 +107,15 @@ def _(mo):
 @app.cell
 def _(pd):
     # Cell Painting profiles
-    df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
+    df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered_filtered_converted.parquet")
     if True:
         df_level4_bsc = df_level4_bsc.groupby("Metadata_plate").filter(
             lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
         )
-    df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_filtered.parquet")
+    df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_selected_features_filtered_converted.parquet")
     df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_filtered.parquet")
     df_level5_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_all_features_filtered.parquet")
-    df_level6_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_all_features_filtered.parquet")
+    df_level6_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_selected_features_filtered.parquet")
     return (
         df_level4_bsc,
         df_level5_bsc,
@@ -436,20 +436,28 @@ def _(dfi, np, os, pd):
 
 
 @app.cell
-def _(dfi, np, os, pd):
-    # ── Data ──────────────────────────────────────────────────────────────────────
-    _data = {
-        "Plant name": [
-            "Asian ginseng", "Ashwagandha", "Comfrey", "Green tea extract",
-            "Blue cohosh", "Goldenseal", "Milk thistle", "Kava",
-            "Kratom", "Usnea", "Yohimbe", "Aristolochia", "Ephedra"
-        ],
-        "N tested constituents": [13, 10, 9, 9, 7, 7, 7, 6, 5, 5, 5, 3, 1],
-        "Min (µM)":  [0.05, 0.023, 0.05, 0.57, 0.57, 0.57, 0.76, 0.027, 0.096, 0.38, 0.29, 0.38, 0.29],
-        "Max (µM)":  [110,  50,    110,  1200, 1200, 1200, 1700, 60,    210,   830,  620,  830,  620],
-    }
+def _(df_level5_bsc, dfi, dic_botanicals_scode_name, np, os):
+    # ── Build Min/Max from df_level5_bsc ──────────────────────────────────────────
+    _conc_stats = (
+        df_level5_bsc
+        .groupby("Metadata_compound")["Metadata_concentration"]
+        .agg(["min", "max"])
+        .rename(columns={"min": "Min (µM)", "max": "Max (µM)"})
+        .reset_index()
+    )
 
-    _df_plants = pd.DataFrame(_data)
+    # Map Plant scode → Plant name
+    _conc_stats["Plant name"] = _conc_stats["Metadata_compound"].map(dic_botanicals_scode_name)
+
+    # Drop rows where scode had no matching plant name
+    _conc_stats = _conc_stats.dropna(subset=["Plant name"])
+
+    # ── N tested constituents (keep hardcoded or derive separately) ───────────────
+    _n_constituents = {
+        "Asian ginseng": 13, "Ashwagandha": 10, "Comfrey": 9, "Green tea extract": 9,
+        "Blue cohosh": 7, "Goldenseal": 7, "Milk thistle": 7, "Kava": 6,
+        "Kratom": 5, "Usnea": 5, "Yohimbe": 5, "Aristolochia": 3, "Ephedra": 1
+    }
 
     # ── Hepatotoxicity data ───────────────────────────────────────────────────────
     _hepatotox = {
@@ -468,7 +476,14 @@ def _(dfi, np, os, pd):
         "Comfrey": "Evidence"
     }
 
-    _df_plants["Hepatotoxicity (literature)"] = _df_plants["Plant name"].map(_hepatotox)
+    # ── Assemble _df_plants ───────────────────────────────────────────────────────
+    _df_plants = _conc_stats[["Plant name", "Min (µM)", "Max (µM)"]].copy()
+    _df_plants["N tested constituents"]        = _df_plants["Plant name"].map(_n_constituents)
+    _df_plants["Hepatotoxicity (literature)"]  = _df_plants["Plant name"].map(_hepatotox)
+
+    # Sort to match original order (by N tested constituents descending)
+    _df_plants = _df_plants.sort_values("N tested constituents", ascending=False).reset_index(drop=True)
+
 
     # ── Log-scale normalisation for bar width ─────────────────────────────────────
     _global_log_min = np.log10(_df_plants["Min (µM)"].min())
@@ -3786,7 +3801,7 @@ def _(
         else:           return "ns"
 
     # ── 6. Plot ───────────────────────────────────────────────────────────────────
-    _fig, _ax = plt.subplots(figsize=(6, 5))
+    _fig, _ax = plt.subplots(figsize=(6, 4))
 
     _bp = _ax.boxplot(
         _data,
@@ -4439,7 +4454,7 @@ def _(
     # ── 5. Plot ─────────────────────────────────
     _labels  = ["CP Active", "MT Active", "LDH Active"]
     _colors  = ["steelblue", "darkorange", "green"]
-    _fig, _ax_top = plt.subplots(figsize=(7, 3))
+    _fig, _ax_top = plt.subplots(figsize=(7, 2))
 
     _x = np.arange(len(_labels)) + 1
     _width = 0.35
@@ -4456,7 +4471,7 @@ def _(
             _ax_top.annotate(f'{int(height)}',
                 xy=(rect.get_x() + rect.get_width()/2, height),
                 xytext=(0, 3), textcoords="offset points",
-                ha='center', va='bottom', fontsize=8, fontweight='bold')
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
 
     _autolabel(_rects1)
     _autolabel(_rects2)
@@ -4467,11 +4482,11 @@ def _(
         Patch(facecolor="steelblue", alpha=0.5, hatch="///", label="Active (Botanicals)")
     ]
 
-    _ax_top.legend(handles=_legend_elements, frameon=False, fontsize=9, loc="upper right")
-    _ax_top.set_ylabel("Active (N)", fontsize=10)
+    _ax_top.legend(handles=_legend_elements, frameon=False, fontsize=10, loc="upper right")
+    _ax_top.set_ylabel("Active (N)", fontsize=14)
     #_ax_top.set_title("Activity Breakdown: Constituents vs. Botanicals", fontsize=12, pad=15)
     _ax_top.set_xticks(_x)
-    _ax_top.set_xticklabels(_labels)
+    _ax_top.set_xticklabels(_labels, fontsize=14)
     _ax_top.spines["top"].set_visible(False)
     _ax_top.spines["right"].set_visible(False)
 
@@ -5677,6 +5692,7 @@ def _(
     df_bsc_annotations,
     df_bsc_ldh_pod,
     df_bsc_mtt_pod,
+    df_level5_bsc,
     dic_botanicals_scode_name,
     list_botanicals,
     mticker,
@@ -5794,18 +5810,22 @@ def _(
 
     # fallback if new plant appears
     _default_color = "#cccccc"
-    _data = {
-        "Plant name": [
-            "Asian ginseng", "Ashwagandha", "Comfrey", "Green tea extract",
-            "Blue cohosh", "Goldenseal", "Milk thistle", "Kava",
-            "Kratom", "Usnea", "Yohimbe", "Aristolochia", "Ephedra"
-        ],
-        "N constituents tested": [13, 10, 9, 9, 7, 7, 7, 6, 5, 5, 5, 3, 1],
-        "Min (µM)":  [0.05, 0.023, 0.05, 0.57, 0.57, 0.57, 0.76, 0.027, 0.096, 0.38, 0.29, 0.38, 0.29],
-        "Max (µM)":  [110,  50,    110,  1200, 1200, 1200, 1700, 60,    210,   830,  620,  830,  620],
-    }
+    # ── Build _df_ranges dynamically from df_level5_bsc ──────────────────────────
+    _conc_stats = (
+        df_level5_bsc
+        .groupby("Metadata_compound")["Metadata_concentration"]
+        .agg(Min=("min"), Max=("max"))
+        .reset_index()
+    )
+    _conc_stats.columns = ["Metadata_compound", "Min (µM)", "Max (µM)"]
+    _conc_stats["Plant name"] = _conc_stats["Metadata_compound"].map(dic_botanicals_scode_name)
+    _conc_stats = _conc_stats.dropna(subset=["Plant name"])
 
-    _df_ranges = pd.DataFrame(_data).set_index("Plant name")
+    _df_ranges = (
+        _conc_stats[["Plant name", "Min (µM)", "Max (µM)"]]
+        .drop_duplicates("Plant name")
+        .set_index("Plant name")
+    )
     # ── Plot ──────────────────────────────────────────────────────────────────────
     _n = len(_df_sorted)
     _fig, _ax = plt.subplots(figsize=(12, max(2, _n * 0.20)))
