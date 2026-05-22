@@ -15,6 +15,6 @@ workflow {
     input_path = Channel.fromPath(params.input_path)
     preprocessed_data = preprocessing_workflow(input_path)
     if (params.input_name == "bsc") {
-        preprocessed_data_bsc = preprocessing_workflow_bsc(preprocessed_data.path_data_level2)
+        preprocessed_data_bsc = preprocessing_workflow_bsc(preprocessed_data.path_data_level2_log)
     }
 }

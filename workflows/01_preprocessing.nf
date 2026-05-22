@@ -25,10 +25,12 @@ workflow preprocessing_workflow_bsc {
         input_path_level2
 
     main:
-        path_data_level2 = bsc_metadata_preparation(input_path_level2)
+        result = bsc_metadata_preparation(input_path_level2)
 
     emit:
-        path_data_level2
+        html_file        = result[0]
+        annotations_file = result[1]
+        compounds_file   = result[2]
 }
 
 
