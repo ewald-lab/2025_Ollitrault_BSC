@@ -21,7 +21,7 @@ workflow classification_workflow {
         label_files_ch = Channel.fromList(params.classifier.label_files)
             .map { label_file -> 
                 tuple(
-                    file("${params.base_dir}/modules/07_classification/inputs/${label_file}"),
+                    file("${params.base_dir}/modules/06_classification/inputs/${label_file}"),
                     "OASIS_ID"
                 )
             }
@@ -55,7 +55,7 @@ process axiom_assay_hitcall {
 
     script:
     """
-    python ${params.base_dir}/modules/07_classification/scripts/hitcalls.py \
+    python ${params.base_dir}/modules/06_classification/scripts/hitcalls.py \
         --input_pod_mtt ${pods["Metadata_mtt_normalized"]} \
         --input_pod_ldh ${pods["Metadata_ldh_normalized"]} \
         --input_pod_cc ${pods["Metadata_Count_Cells"]} \
@@ -71,8 +71,8 @@ process binary_classification {
     label 'gpu'
     time '24h'
 
-    publishDir "modules/07_classification/outputs/", mode: 'copy', pattern: '*.parquet'
-    publishDir "modules/07_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'  // Changed!
+    publishDir "modules/06_classification/outputs/", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'  // Changed!
     
     input:
         tuple path(input_level6), path(input_level4), path(label_file), val(label_column)
@@ -84,7 +84,7 @@ process binary_classification {
     script:
     def label_name = label_file.baseName
     """
-    python ${params.base_dir}/modules/07_classification/scripts/classify.py \
+    python ${params.base_dir}/modules/06_classification/scripts/classify.py \
         --input_path_level6 ${input_level6} \
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \

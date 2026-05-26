@@ -25,7 +25,7 @@
     },
     "classifier": {
         "label_files" : ["toxcast_cellbased_binary.parquet", "toxcast_cellfree_binary.parquet", "toxcast_cytotox_binary.parquet"],
-        "n_repeats": 10,
+        "n_repeats": 2,
         "filter_label_size": 50
     }
 }

@@ -1,8 +1,8 @@
 nextflow.enable.dsl=2
 params.base_dir = params.base_dir ?: "${projectDir}/.."
-// To RUN Axiom: nextflow run entrypoints/07_classification_axiom.nf -params-file configs/config_base_axiom.json -profile slurm
+// To RUN Axiom: nextflow run entrypoints/06_classification_axiom.nf -params-file configs/config_base_axiom.json -profile slurm
 
-include { classification_workflow } from '../workflows/07_classification.nf'
+include { classification_workflow } from '../workflows/05_classification.nf'
 
 // Generate a unique run code with date + short UUID
 def today = new Date()
@@ -26,9 +26,9 @@ workflow {
         path_data_level5 = Channel.fromPath("${projectDir}/../modules/05_batch_correction_bsc_axiom/outputs/level5_axiom_selected_features_batch.parquet")
         path_data_level6 = Channel.fromPath("${projectDir}/../modules/05_batch_correction_bsc_axiom/outputs/level6_axiom_selected_features_batch.parquet")
         compute_meta_pods = Channel.of(
-            tuple("Metadata_mtt_normalized", file("${projectDir}/../modules/06_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")),
-            tuple("Metadata_ldh_normalized", file("${projectDir}/../modules/06_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")),
-            tuple("Metadata_Count_Cells", file("${projectDir}/../modules/06_concresponse/outputs/pods/pods_axiom_Metadata_Count_Cells_original_conc.parquet"))
+            tuple("Metadata_mtt_normalized", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")),
+            tuple("Metadata_ldh_normalized", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")),
+            tuple("Metadata_Count_Cells", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_Count_Cells_original_conc.parquet"))
         )
     }
 
