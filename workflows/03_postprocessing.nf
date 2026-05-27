@@ -51,7 +51,7 @@ process bsc_postprocessing {
     tag { "${level}:${input_file.baseName}" }
 
     beforeScript = """
-    export PYTHONPATH="${projectDir}/modules"
+    export PYTHONPATH="${params.base_dir}/modules"
     """
 
     input:
@@ -62,11 +62,11 @@ process bsc_postprocessing {
 
     script:
     """
-    echo hi
-    python ${projectDir}/modules/03_postprocessing/scripts/${params.post_processing.script} \
+    python ${params.base_dir}/modules/03_postprocessing/scripts/${params.post_processing.script} \
         --input ${input_file} \
         --output "${input_file.baseName}_filtered.parquet" \
-        --bsc_annotation "${projectDir}/${params.post_processing.bsc_annotation}"
+        --bsc_annotation "${params.base_dir}/${params.post_processing.bsc_annotation}"
     """
 }
+
 

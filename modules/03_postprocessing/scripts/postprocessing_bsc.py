@@ -55,13 +55,29 @@ def main():
         on="SMILES_standardized",
         how="inner"
     )
-    # filter level data to only BSC relevant compounds # adding botanicals and DMSO control
-    list_botanical_compounds = df_merge_cp_cp_annotations_iso["Metadata_compound"].unique().tolist() + df_merge_cp_cp_annotations_iso["Plant scode"].unique().tolist() + ["s0617825"]
+    # filter level data to only BSC relevant compounds
+    # adding botanicals and DMSO control
+    list_botanical_compounds = (
+        df_merge_cp_cp_annotations_iso["Metadata_compound"].unique().tolist() +
+        df_merge_cp_cp_annotations_iso["Plant scode"].unique().tolist() +
+        ["s0617825"]
+    )
     df_level_bsc = df_level[df_level["Metadata_compound"].isin(list_botanical_compounds)]
 
+    # filter out plates that contain only DMSO (no compound wells)
+    if "Metadata_plate" in df_level_bsc.columns:
+        plates_with_compounds = (
+            df_level_bsc[df_level_bsc["Metadata_compound"] != "s0617825"]
+            ["Metadata_plate"]
+            .unique()
+        )
+        df_level_bsc = df_level_bsc[df_level_bsc["Metadata_plate"].isin(plates_with_compounds)]
+
+    else:
+        print("⚠️ Metadata_plate column not found — skipping plate filtering step")
+    
     print(f"💾 Saving BSC post processed profiles to {output_file}")
     df_level_bsc.to_parquet(output_file, index=False)
-
 
 if __name__ == "__main__":
     main()

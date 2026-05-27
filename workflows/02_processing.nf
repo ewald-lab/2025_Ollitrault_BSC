@@ -78,7 +78,7 @@ process level3_aggregate_annotate {
 
     script:
     """
-    python ${projectDir}/modules/02_processing/scripts/aggregate_annotate.py \\
+    python ${params.base_dir}/modules/02_processing/scripts/aggregate_annotate.py \\
         --input $input_file \\
         --output level3_${params.input_name}.parquet
     """
@@ -97,7 +97,7 @@ process level4a_normalize {
 
     script:
     """
-    python ${projectDir}/modules/02_processing/scripts/normalize.py \\
+    python ${params.base_dir}/modules/02_processing/scripts/normalize.py \\
         --input $input_file \\
         --output level4a_${params.input_name}.parquet \\
         --control ${params.control}
@@ -117,7 +117,7 @@ process level4b_feature_selection {
 
     script:
     """
-    python ${projectDir}/modules/02_processing/scripts/feature_selection.py \\
+    python ${params.base_dir}/modules/02_processing/scripts/feature_selection.py \\
         --input $input_file \\
         --output level4b_${params.input_name}.parquet
     """
@@ -136,7 +136,7 @@ process level5_consensus {
 
     script:
     """
-    python ${projectDir}/modules/02_processing/scripts/consensus.py \\
+    python ${params.base_dir}/modules/02_processing/scripts/consensus.py \\
         --input $input_file \\
         --output level5_${params.input_name}_${feature_type}.parquet
     """
@@ -155,7 +155,7 @@ process level6_aggregate_profiles {
 
     script:
     """
-    python ${projectDir}/modules/02_processing/scripts/aggregate_profiles.py \\
+    python ${params.base_dir}/modules/02_processing/scripts/aggregate_profiles.py \\
         --input $input_file \\
         --output level6_${params.input_name}_${feature_type}.parquet
     """

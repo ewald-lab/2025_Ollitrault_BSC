@@ -43,6 +43,20 @@ echo "To install a package: uv pip install pkg-name"
 echo "To update requirements.txt after installing packages: uv pip freeze > requirements.txt"
 
 
+# Modules
+0. Download data
+
+- BSC : Level Cell Painting Dino features profiles can be downloaded at [TODO]
+- Axiom : Plates and metadata files can be downloaded at : [TODO] 
+
+1. Preprocessing
+
+- Axiom concatenate plate dino features and metadata 
+- format Level 2 BSC and axiom data to common column names and expand channels features to independent column names
+- Convert concentration (Metadta_concenrtatrion) to a specifique log10 avoiding vaues of 0 by shifting all concentration values by pl.col("min_conc") / 3).log10().abs()
+
+
+
 # Python Base Environment
 
 Contains core dependencies shared by all analysis modules.

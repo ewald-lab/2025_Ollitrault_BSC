@@ -19,6 +19,7 @@ def today = new Date()
 def formattedDate = today.format('yyyyMMdd')   // e.g., 20260204
 params.run_code = "run_${formattedDate}_" + UUID.randomUUID().toString()[0..7] 
 
+params.base_dir = "${projectDir}/.."
 
 workflow {
     input_path = Channel.fromPath(params.input_path)
@@ -41,9 +42,9 @@ workflow {
     }
     
     // evaluation_results = evaluation_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    // concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
     // concresponse_results = concresponse_workflow_feature_wise(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    concresponse_results = concresponse_workflow_bayesian_inference(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+    // concresponse_results = concresponse_workflow_bayesian_inference(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
     
     if (params.input_name == "axiom") {
         compute_meta_pods = concresponse_results

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-1B_data_format_axiom_oasis_dino.py
+format_axiom_oasis_dino.py
 ------------------
 Concatenate and expands array-based DINOv2 feature columns into independent numeric columns.
 
 Usage:
-    python 01_analysis/1B_data_format_axiom_oasis_dino.py --input /1_snakemake/inputs/profiles/dino/plates \
+    python 01_analysis/format_axiom_oasis_dino.py --input /1_snakemake/inputs/profiles/dino/plates \
                                               --metadata /1_snakemake/inputs/profiles/dino/metadata.parquet \
                                               --output 02_processed_data/
 
-    python 01_analysis/1B_data_format_axiom_oasis_dino.py --input /Users/ollitrault/Documents/projects/2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/plates \
+    python 01_analysis/format_axiom_oasis_dino.py --input /Users/ollitrault/Documents/projects/2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/plates \
                                               --metadata /Users/ollitrault/Documents/projects/2024_09_09_Axiom_OASIS/1_snakemake/inputs/metadata/metadata.parquet \
                                               --output 02_processed_data/
 """
