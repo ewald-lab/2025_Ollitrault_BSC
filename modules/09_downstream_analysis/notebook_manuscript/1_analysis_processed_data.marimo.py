@@ -25,7 +25,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""# 2. Analysis of Cell Painting dataset processed Level 4""")
+    mo.md(r"""# 1. Analysis of Cell Painting dataset processed Level 4""")
     return
 
 
@@ -36,7 +36,7 @@ def _(argparse, mo, sys):
     parser.add_argument("--name", type=str, default="Default")
     parser.add_argument("--input_path", type=str, default="modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     parser.add_argument("--control", type=str, default="s0617825")
-    parser.add_argument("--metadata_cell_viability", nargs="+", default=["Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"])
+    parser.add_argument("--metadata_cell_viability", nargs="+", default=["Metadata_mtt_normalized", "Metadata_ldh_normalized"])
 
     # Parse arguments from sys.argv
     # marimo ensures sys.argv[1:] contains only the args after the '--'
@@ -234,7 +234,7 @@ def _(
     _plates = df_level4["Metadata_plate"].unique()
     n_plates = len(_plates)
 
-    n_cols = math.ceil(np.sqrt(n_plates))
+    n_cols = 4
     n_rows = math.ceil(n_plates / n_cols)
 
     fig, axes = plt.subplots(
@@ -246,7 +246,7 @@ def _(
 
     for ax, (_plate, df_plate) in zip(
         axes.flat,
-        df_level4.groupby("Metadata_plate")
+        df_level4.groupby("Metadata_plate", sort=False)
     ):
         df_plate = df_plate.copy()
 
@@ -258,7 +258,9 @@ def _(
         )
 
         unique_concs = np.sort(
-            df_plate.loc[~df_plate["is_DMSO"], "Metadata_concentration"].unique()
+            df_plate.loc[~df_plate["is_DMSO"], "Metadata_concentration"]
+            .dropna()
+            .unique()
         )
         n_concs = len(unique_concs)
 
@@ -279,8 +281,9 @@ def _(
             df_plate["conc_for_plot"] = np.where(
                 df_plate["is_DMSO"],
                 0.0,
-                np.nan,
+                np.nan
             )
+
             plate_map = (
                 df_plate.pivot(
                     index="Metadata_row",
@@ -290,6 +293,7 @@ def _(
                 .sort_index()
                 .sort_index(axis=1)
             )
+
             sns.heatmap(
                 plate_map,
                 cmap=ListedColormap(["lightgray"]),
@@ -310,16 +314,29 @@ def _(
             ax.set_title(f"Plate {_plate} (DMSO only)")
             ax.set_xlabel("Column")
             ax.set_ylabel("Row")
-            continue   # ✅ IMPORTANT
+            continue
 
-        # --- Case 2: Few discrete concentrations ---
-        if n_concs <= 10:
-            cmap = ListedColormap(sns.color_palette("Set2", n_concs))
-            bounds = np.concatenate([
-                [unique_concs[0] - 0.5],
-                (unique_concs[:-1] + unique_concs[1:]) / 2,
-                [unique_concs[-1] + 0.5]
-            ])
+        # --- Case 2: Discrete concentrations, per plate ---
+        if n_concs < 20:
+            cmap = ListedColormap(
+                sns.color_palette("tab20", n_concs)
+            )
+
+            # BoundaryNorm needs n_concs + 1 boundaries.
+            # These boundaries are computed per plate from the concentrations
+            # present on that plate only.
+            if n_concs == 1:
+                bounds = [
+                    unique_concs[0] - 0.5,
+                    unique_concs[0] + 0.5
+                ]
+            else:
+                bounds = np.concatenate([
+                    [unique_concs[0] - 0.5],
+                    (unique_concs[:-1] + unique_concs[1:]) / 2,
+                    [unique_concs[-1] + 0.5]
+                ])
+
             norm = BoundaryNorm(bounds, cmap.N)
 
             sns.heatmap(
@@ -333,13 +350,14 @@ def _(
             )
 
             legend_elements.extend(
-                Patch(facecolor=cmap(i), label=f"{unique_concs[i]:.2f} µM")
-                for i in range(n_concs)
+                Patch(facecolor=cmap(i), label=f"{conc:.2f} µM")
+                for i, conc in enumerate(unique_concs)
             )
 
-        # --- Case 3: Many concentrations ---
+        # --- Case 3: Continuous mapping for many concentrations ---
         else:
             cmap = sns.color_palette("hls", as_cmap=True)
+
             norm = Normalize(
                 vmin=np.nanmin(plate_map.values),
                 vmax=np.nanmax(plate_map.values)
@@ -357,15 +375,28 @@ def _(
             )
 
         # --- Overlay DMSO wells ---
-        for _, row in df_plate[df_plate["is_DMSO"]].iterrows():
-            if row["Metadata_row"] in plate_map.index and row["Metadata_col"] in plate_map.columns:
+        for _, row in df_plate.loc[df_plate["is_DMSO"]].iterrows():
+            if (
+                row["Metadata_row"] in plate_map.index
+                and row["Metadata_col"] in plate_map.columns
+            ):
                 r = plate_map.index.get_loc(row["Metadata_row"])
                 c = plate_map.columns.get_loc(row["Metadata_col"])
+
                 ax.add_patch(
-                    plt.Rectangle((c, r), 1, 1, color="lightgray", lw=0)
+                    plt.Rectangle(
+                        (c, r),
+                        1,
+                        1,
+                        facecolor="lightgray",
+                        edgecolor="gray",
+                        linewidth=0.5
+                    )
                 )
 
-        legend_elements.append(Patch(facecolor="lightgray", label="DMSO"))
+        legend_elements.append(
+            Patch(facecolor="lightgray", edgecolor="gray", label="DMSO")
+        )
 
         ax.legend(
             handles=legend_elements,
@@ -383,11 +414,10 @@ def _(
     for ax in axes.flat[n_plates:]:
         ax.axis("off")
 
-    #fig.suptitle("Plate concentration layouts (DMSO in gray)", y=1.02)
     fig.tight_layout()
-
+    fig.savefig("modules/09_downstream_analysis/figures/Figure_S2_A", dpi=300, bbox_inches="tight")
     fig
-    return
+    return (fig,)
 
 
 @app.cell
@@ -455,7 +485,7 @@ def _(mo):
 
 
 @app.cell
-def _(args, df_umap, px):
+def _(args, df_umap, fig, px):
     # --- 4. Create interactive Plotly scatter plot for Control
     df_umap_control = df_umap[df_umap["Metadata_compound"] == args.control]
     _fig = px.scatter(
@@ -476,7 +506,7 @@ def _(args, df_umap, px):
         xaxis_title="UMAP 1",
         yaxis_title="UMAP 2"
     )
-
+    fig.savefig("modules/09_downstream_analysis/figures/Figure_S3_A", dpi=300, bbox_inches="tight")
     _fig.show()
     return
 
@@ -559,8 +589,14 @@ def _(mo):
 
 
 @app.cell
+def _(args):
+    zip(["A", "B"], args.metadata_cell_viability)
+    return
+
+
+@app.cell
 def _(args, df_level4, math, np, plt, sns):
-    for _column_metadata in args.metadata_cell_viability:
+    for supp_fig_letter, _column_metadata in zip(["B", "C"], args.metadata_cell_viability):
         _cmap = sns.color_palette("coolwarm", as_cmap=True)
         _vmin = df_level4[_column_metadata].min()
         _vmax = df_level4[_column_metadata].max()
@@ -607,8 +643,8 @@ def _(args, df_level4, math, np, plt, sns):
 
         _fig.suptitle(_column_metadata, fontsize=13, fontweight="bold", y=1.01)
         plt.tight_layout()
+        plt.savefig(f"modules/09_downstream_analysis/figures/Figure_S2_{supp_fig_letter}.png", dpi=300, bbox_inches="tight")
         plt.show()
-        print("-" * 120)
     return
 
 
