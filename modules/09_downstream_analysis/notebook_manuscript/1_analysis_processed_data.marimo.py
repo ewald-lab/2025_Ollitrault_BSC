@@ -36,7 +36,7 @@ def _(argparse, mo, sys):
     parser.add_argument("--name", type=str, default="Default")
     parser.add_argument("--input_path", type=str, default="modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     parser.add_argument("--control", type=str, default="s0617825")
-    parser.add_argument("--metadata_cell_viability", nargs="+", default=["Metadata_mtt_normalized", "Metadata_ldh_normalized"])
+    parser.add_argument("--metadata_cell_viability", nargs="+", default=["Metadata_mtt_ridge_norm", "Metadata_ldh_ridge_norm"])
 
     # Parse arguments from sys.argv
     # marimo ensures sys.argv[1:] contains only the args after the '--'
@@ -609,76 +609,6 @@ def _(args, df_level4, math, np, plt, sns):
         plt.tight_layout()
         plt.show()
         print("-" * 120)
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""# Analysis concentration-response cytotoxicity""")
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""## LDH""")
-    return
-
-
-@app.cell
-def _(args, df_level4, plt, sns):
-    # Define x-ticks explicitly
-    x_ticks = [0, 0.01, 0.1, 1, 10, 100, 1000]
-
-    plt.figure(figsize=(8, 6))
-    for _column_metadata in args.metadata_cell_viability:
-        # Scatter or line plot (choose one)
-        sns.scatterplot(
-            data=df_level4[df_level4["Metadata_concentration"] == 0],
-            x="Metadata_concentration",
-            y=_column_metadata,
-            marker=".",
-            alpha=0.7
-        )
-
-        # Optional: connect points per compound if needed
-        sns.lineplot(
-             x="Metadata_concentration",
-             data=df_level4[df_level4["Metadata_concentration"] != 0],
-             y=_column_metadata,
-             hue="Metadata_compound",  # or similar column
-             marker=".",
-             alpha=0.7,
-             legend=False
-         )
-
-        # Log-scale x-axis
-        plt.xscale("symlog", linthresh=0.01)
-        plt.xlim(-0.002, 10000)
-        # Set x-ticks manually
-        plt.xticks([0, 0.01, 0.1, 1, 10, 100, 1000],
-                   ["DMSO", "0.01", "0.1", "1", "10", "100", "1000"])
-
-        plt.xlabel("Compound concentration (µM, log scale)")
-        plt.ylabel(_column_metadata)
-        plt.title(_column_metadata + " vs Compound concentration")
-        plt.grid(True, which="both", ls="--", lw=0.5)
-        plt.tight_layout()
-        plt.show()
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
     return
 
 

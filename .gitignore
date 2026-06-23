@@ -242,3 +242,6 @@ docs/*
 
 # legacy files to clean project directory
 legacy
+
+# Forget files
+modules/09_downstream_analysis/notebook_manuscript/1_analysis_formated_data.marimo.py
