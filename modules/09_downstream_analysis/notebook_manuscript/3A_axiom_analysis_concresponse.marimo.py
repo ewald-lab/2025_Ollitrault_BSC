@@ -23,7 +23,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""# 6. Analysis of Cell Painting dose response analysis""")
+    mo.md(r"""# 3. A. Analysis of Cell Painting dose response analysis: Axiom""")
     return
 
 
@@ -32,7 +32,7 @@ def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
     parser.add_argument("--name", type=str, default="Default")
-    parser.add_argument("--input", type=str, default="modules/02_processing/outputs/level5_axiom.parquet") # TODO : adapt for level6
+    parser.add_argument("--input", type=str, default="modules/02_processing/outputs/level5_axiom_selected_features.parquet") # TODO : adapt for level6
     parser.add_argument("--input_pods_cp_all", type=str, default=
         "modules/04_concresponse/outputs/pods/pods_axiom_cp_all_original_conc.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
