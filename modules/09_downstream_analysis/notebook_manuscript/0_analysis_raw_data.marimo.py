@@ -12,7 +12,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Welcome to the Analysis workflow of BSC Cell Painting dataset""")
+    mo.md(r"""# Welcome to the Analysis workflow of BSC Cell Painting dataset : Raw data analysis""")
     return
 
 
@@ -36,7 +36,7 @@ def _(os):
 @app.cell
 def _(pd):
     # Load Data
-    df = pd.read_parquet("00_inputs/bsc_raw_dinov2_biochem.parquet")
+    df = pd.read_parquet("modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet")
     return (df,)
 
 
@@ -120,24 +120,6 @@ def _(df, mo, px):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Explore chemical space [ Other analysis module ?]""")
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""## Explore chemical physiological parameter [ Other analysis module ?]""")
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""## Explore chemical biological annotations [ Other analysis module ?]""")
-    return
-
-
-@app.cell
-def _(mo):
     mo.md(r"""## Explore experimental set ups""")
     return
 
@@ -174,12 +156,12 @@ def _(mo):
 
 @app.cell
 def _(df):
-    print("len", "hoechst_33342", len(df["hoechst_33342"].iloc[0]))
-    print("len", "phenovue_fluor_488", len(df["phenovue_fluor_488"].iloc[0]))
-    print("len", "wga555/phalloidin568", len(df["wga555/phalloidin568"].iloc[0]))
-    print("len", "cp_nuclei_acid_512", len(df["cp_nuclei_acid_512"].iloc[0]))
-    print("len", "mito_641_narrow", len(df["mito_641_narrow"].iloc[0]))
-    print("len", "brightfield", len(df["brightfield"].iloc[0]))
+    print("len features", "hoechst_33342", len(df["hoechst_33342"].iloc[0]))
+    print("len features", "phenovue_fluor_488", len(df["phenovue_fluor_488"].iloc[0]))
+    print("len features", "wga555/phalloidin568", len(df["wga555/phalloidin568"].iloc[0]))
+    print("len features", "cp_nuclei_acid_512", len(df["cp_nuclei_acid_512"].iloc[0]))
+    print("len features", "mito_641_narrow", len(df["mito_641_narrow"].iloc[0]))
+    print("len features", "brightfield", len(df["brightfield"].iloc[0]))
     return
 
 
@@ -206,7 +188,7 @@ def _(df, mo, np, plt):
         # Create histogram (same structure as your snippet)
         fig_cp, ax_cp = plt.subplots(figsize=(6, 3))
         ax_cp.hist(values, bins=50, color="skyblue", edgecolor="black")
-        ax_cp.set_title(f"Histogram of {col_cp} (100 random samples)")
+        ax_cp.set_title(f"Histogram of {col_cp} (100 features random samples)")
         ax_cp.set_xlabel("Intensity")
         ax_cp.set_ylabel("Frequency")
 
@@ -283,12 +265,6 @@ def _(df):
 
 
 @app.cell
-def _(df):
-    df[["compound_concentration_um", "compound_smiles"]].value_counts()
-    return
-
-
-@app.cell
 def _(mo):
     mo.md(r"""### Check annotation grouped by chemicals""")
     return
@@ -310,35 +286,6 @@ def _(df, mo):
         )
 
     mo.vstack(results_chemicals_annotations_counts)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""# Explore raw data axiom""")
-    return
-
-
-@app.cell
-def _(pd):
-    # raw cell painting data
-    df_raw_plate = pd.read_parquet("/Users/ollitrault/Documents/projects/2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino//plates/plate_41002687.parquet")
-    print(df_raw_plate.shape)
-    df_raw_plate.head()
-    return
-
-
-@app.cell
-def _(pd):
-    # Processed data
-    df_raw = pd.read_parquet("/Users/ollitrault/Documents/projects/2024_09_09_Axiom_OASIS/1_snakemake/inputs/profiles/dino/raw.parquet")
-    print(df_raw.shape)
-    df_raw.head()
-    return
-
-
-@app.cell
-def _():
     return
 
 
