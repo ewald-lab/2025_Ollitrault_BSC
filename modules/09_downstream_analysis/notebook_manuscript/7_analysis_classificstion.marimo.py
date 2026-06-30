@@ -7,20 +7,28 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
-    import os
-    import polars as pl 
     import pandas as pd
     import numpy as np
-    import statsmodels.formula.api as smf
-    from statsmodels.stats.multicomp import MultiComparison
     from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
     from scipy import stats
     import warnings
     import plotnine as pn
-    from plotnine import geom_point, ggplot, aes, labs, theme_bw, facet_wrap, geom_smooth, labeller
     from plotnine import (
-        ggplot, aes, geom_sina, geom_boxplot, labs, theme_classic, theme_minimal,
-        facet_wrap, theme, element_text, scale_x_discrete, element_rect, geom_jitter, ylim, geom_text, geom_tile, scale_fill_gradient
+        aes,
+        element_rect,
+        element_text,
+        facet_wrap,
+        geom_boxplot,
+        geom_jitter,
+        geom_point,
+        geom_smooth,
+        ggplot,
+        labs,
+        scale_x_discrete,
+        theme,
+        theme_bw,
+        theme_classic,
+        ylim,
     )
     from matplotlib.lines import Line2D
     import seaborn as sns
@@ -41,7 +49,6 @@ def _():
         labs,
         mo,
         np,
-        os,
         pd,
         pn,
         precision_recall_curve,
@@ -59,22 +66,50 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""# Notebook to explore classificxation results""")
+    mo.md(
+        r"""
+    # Classification Performance Analysis
+
+    This notebook summarizes Axiom classification outputs, computes
+    fold-level performance metrics, identifies labels where morphology
+    outperforms the random baseline, and generates manuscript-oriented
+    performance plots.
+    """
+    )
     return
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Input""")
+    mo.md(r"""## Input predictions""")
     return
 
 
 @app.cell
+def _(Path):
+    classification_output_dir = Path("modules/06_classification/outputs")
+    downloads_dir = Path.home() / "Downloads"
+    toxcast_cellbased_assay_info_path = Path(
+        "/Users/ollitrault/Documents/projects/databases/proc_toxcast_annotations/"
+        "toxcast_cellbased_assay_info.csv"
+    )
+    return (
+        classification_output_dir,
+        downloads_dir,
+        toxcast_cellbased_assay_info_path,
+    )
+
+
+@app.cell
 def _(pd):
-    df_axiom_hits_prediction = pd.read_parquet("modules/07_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
-    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/07_classification/outputs/axiom_toxcast_cellbased_binary_predictions_batch.parquet")
-    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/07_classification/outputs/axiom_toxcast_cellfree_binary_predictions_batch.parquet")
-    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/07_classification/outputs/axiom_toxcast_cytotox_binary_predictions_batch.parquet")
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions_batch.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions_batch.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions_batch.parquet")
+    print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
+    print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
+    print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
+    print(f"ToxCast cytotox predictions: {df_axiom_cytotox_binary_prediction.shape}")
     return (
         df_axiom_cellbased_binary_prediction,
         df_axiom_cellfree_binary_prediction,
@@ -90,6 +125,7 @@ def _(
     df_axiom_cytotox_binary_prediction,
     df_axiom_hits_prediction,
 ):
+    # Harmonize the morphology endpoint naming used in downstream displays.
     for _df in [
         df_axiom_hits_prediction,
         df_axiom_cellbased_binary_prediction,
@@ -102,13 +138,14 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Compute metrics""")
+    mo.md(r"""## Compute performance metrics""")
     return
 
 
 @app.cell
 def _(auc, np, pd, precision_recall_curve, roc_auc_score):
     def precision_recall_gain_curve(y_true, y_scores):
+        """Compute precision/recall gain values from sorted prediction scores."""
         # Sort predictions and true labels by descending score
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = y_true[sorted_indices]
@@ -144,6 +181,7 @@ def _(auc, np, pd, precision_recall_curve, roc_auc_score):
 
 
     def prg_auc(y_true, y_scores):
+        """Area under the precision-recall gain curve."""
         # Calculate PRG curve
         _, _, precision_gains, recall_gains = precision_recall_gain_curve(y_true, y_scores)
 
@@ -152,6 +190,7 @@ def _(auc, np, pd, precision_recall_curve, roc_auc_score):
 
         return prg_auc
     def compute_metrics(y_pred, y_actual, y_prob):
+        """Return AUROC, PRAUC, and AUPRG for one label/model/fold."""
         # AUROC
         try:
             auroc = roc_auc_score(y_actual, y_prob)
@@ -170,6 +209,7 @@ def _(auc, np, pd, precision_recall_curve, roc_auc_score):
 
         return auroc, prauc, auprg
     def process_metrics(pred: pd.DataFrame):
+        """Summarize fold-level predictions into per-label model metrics."""
         class_balance = (
             pred[["Metadata_Label", "Metadata_Count_0", "Metadata_Count_1", "Model_type"]]
             .drop_duplicates()
@@ -229,6 +269,10 @@ def _(
     df_axiom_cellbased_binary_metrics, df_axiom_cellbased_binary_metrics_cv = process_metrics(df_axiom_cellbased_binary_prediction)
     df_axiom_cellfree_binary_metrics, df_axiom_cellfree_binary_metrics_cv = process_metrics(df_axiom_cellfree_binary_prediction)
     df_axiom_cytotox_binary_metrics, df_axiom_cytotox_binary_metrics_cv = process_metrics(df_axiom_cytotox_binary_prediction)
+    print(f"Axiom cytotoxicity metrics: {df_axiom_hits_metrics.shape}")
+    print(f"ToxCast cell-based metrics: {df_axiom_cellbased_binary_metrics.shape}")
+    print(f"ToxCast cell-free metrics: {df_axiom_cellfree_binary_metrics.shape}")
+    print(f"ToxCast cytotox metrics: {df_axiom_cytotox_binary_metrics.shape}")
     return (
         df_axiom_cellbased_binary_metrics,
         df_axiom_cellbased_binary_metrics_cv,
@@ -249,7 +293,7 @@ def _(df_axiom_cytotox_binary_metrics_cv):
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Annotate metrics""")
+    mo.md(r"""# Annotate Metrics""")
     return
 
 
@@ -320,7 +364,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Plot performance by dataset size""")
+    mo.md(r"""# Performance by Dataset Size""")
     return
 
 
@@ -371,7 +415,7 @@ def _(aes, geom_point, geom_smooth, ggplot, labs, pn, pred_pandas, theme_bw):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""# Check significative performance""")
+    mo.md(r"""# Significant Performance Labels""")
     return
 
 
@@ -505,12 +549,12 @@ def _(df_ttest_results):
         (~df_ttest_results["Metadata_Label"].isin(["NVS_TR_hDAT"])) &
         (~df_ttest_results["Metadata_Label"].isin(["tissue__liver", "tissue__prostate"]))
     ]["Metadata_Label"]
-    list_significative_performance
+    print(f"Significant performance labels retained: {len(list_significative_performance)}")
     return (list_significative_performance,)
 
 
 @app.cell
-def _(df_ttest_results):
+def _(classification_output_dir, df_ttest_results):
     df_ttest_results[
         (df_ttest_results["AUPRG_significant"]) & 
         (df_ttest_results["AUROC_significant"]) &
@@ -518,38 +562,13 @@ def _(df_ttest_results):
         (df_ttest_results["AUPRG_mean_Actual"] > df_ttest_results["AUPRG_mean_Random_baseline"]) &
         (df_ttest_results["Metadata_Count_1"] > 20) &
         (~df_ttest_results["Metadata_Label"].isin(["tissue__liver", "tissue__prostate"]))
-    ].to_csv("modules/07_classification/outputs/results_performance.csv")
+    ].to_csv(classification_output_dir / "results_performance.csv", index=False)
     return
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Plot correlation models (Actual) significative""")
-    return
-
-
-@app.cell
-def _(
-    df_axiom_cellbased_binary_prediction,
-    df_axiom_cellfree_binary_prediction,
-    df_axiom_cytotox_binary_prediction,
-    df_axiom_hits_prediction,
-):
-    df_axiom_hits_prediction 
-    df_axiom_cellbased_binary_prediction
-    df_axiom_cellfree_binary_prediction
-    df_axiom_cytotox_binary_prediction
-    return
-
-
-@app.cell
-def _(df_axiom_cytotox_binary_prediction):
-    df_axiom_cytotox_binary_prediction
-    return
-
-
-@app.cell
-def _():
+    mo.md(r"""# Correlation Between Significant Actual Models""")
     return
 
 
@@ -599,14 +618,12 @@ def _(
 
 
 @app.cell
-def _(df_pivot_correlation, os, plt, sns):
+def _(df_pivot_correlation, downloads_dir, plt, sns):
     # ── Step 5: Compute correlation matrix ─────────────────────────────────────
     _corr = df_pivot_correlation.corr(method="pearson")
 
 
     # ── Step 6: Clustered heatmap ──────────────────────────────────────────────
-    n = len(_corr)
-    cell_size = 0.4           # inches per cell — increase if labels still overlap
     fig_size  = 28 # canvas grows dynamically with label count
 
     _clustermap = sns.clustermap(
@@ -634,7 +651,7 @@ def _(df_pivot_correlation, os, plt, sns):
         "Clustered Correlation of Metadata_Labels (y_prob)",
         fontsize=14, fontweight="bold", y=1.01  # y>1 avoids overlap with dendro
     )
-    plt.savefig(os.path.expanduser("~/Downloads/correlation_heatmap_axiom_batch.png"),
+    plt.savefig(downloads_dir / "correlation_heatmap_axiom_batch.png",
                  bbox_inches="tight", dpi=300)
     plt.show()
     return
@@ -642,7 +659,7 @@ def _(df_pivot_correlation, os, plt, sns):
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Plot performance by Endpoint categories""")
+    mo.md(r"""# Performance by Endpoint Category""")
     return
 
 
@@ -693,7 +710,6 @@ def _(
 
     _plot_auroc = (
         ggplot(_df_filtered, aes(x='Model_type', y='AUROC'))
-        #+ geom_sina(color="grey")
         + geom_jitter(color="grey", alpha=0.6, width=0.2)
         + geom_boxplot(color="red", alpha=0.25, size=1)
         + facet_wrap("Endpoint_type", ncol=4)
@@ -717,7 +733,6 @@ def _(
 
     _plot_prauc = (
         ggplot(_df_filtered, aes(x='Model_type', y='PRAUC'))
-        #+ geom_sina(color="grey")
         + geom_jitter(color="grey", alpha=0.6, width=0.2)
         + geom_boxplot(color="red", alpha=0.25, size=1)
         + facet_wrap("Endpoint_type", ncol=4)
@@ -746,7 +761,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Plot performance by Endpoint categories significants""")
+    mo.md(r"""# Performance by Endpoint Category: Significant Labels""")
     return
 
 
@@ -844,7 +859,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Plot performance by Endpoint categories (Filter on compound number > 100)""")
+    mo.md(r"""# Performance by Endpoint Category: Larger Datasets""")
     return
 
 
@@ -895,7 +910,6 @@ def _(
 
     _plot_auroc = (
         ggplot(_df_filtered, aes(x='Model_type', y='AUROC'))
-        #+ geom_sina(color="grey")
         + geom_jitter(color="grey", alpha=0.6, width=0.2)
         + geom_boxplot(color="red", alpha=0.25, size=1)
         + facet_wrap("Endpoint_type", ncol=4)
@@ -919,7 +933,6 @@ def _(
 
     _plot_prauc = (
         ggplot(_df_filtered, aes(x='Model_type', y='PRAUC'))
-        #+ geom_sina(color="grey")
         + geom_jitter(color="grey", alpha=0.6, width=0.2)
         + geom_boxplot(color="red", alpha=0.25, size=1)
         + facet_wrap("Endpoint_type", ncol=4)
@@ -943,7 +956,6 @@ def _(
 
     _plot_prauc = (
         ggplot(_df_filtered, aes(x='Model_type', y='PRAUC'))
-        #+ geom_sina(color="grey")
         + geom_jitter(color="grey", alpha=0.6, width=0.2)
         + geom_boxplot(color="red", alpha=0.25, size=1)
         + facet_wrap("Endpoint_type", ncol=4)
@@ -971,14 +983,8 @@ def _(
 
 
 @app.cell
-def _(pred_pandas):
-    pred_pandas
-    return
-
-
-@app.cell
 def _(mo):
-    mo.md(r"""# Barplot performance significative""")
+    mo.md(r"""# Barplot Performance for Significant Labels""")
     return
 
 
@@ -1040,10 +1046,10 @@ def _(
     df_axiom_hits_metrics_cv,
     df_metrics_cv,
     df_ttest_results,
+    downloads_dir,
     list_significative_performance,
     mpatches,
     np,
-    os,
     plt,
 ):
     # ── 1. Build source-lookup ────────────────────────────────────────────────────
@@ -1255,7 +1261,7 @@ def _(
         fontsize=11, y=1.01
     )
 
-    plt.savefig(os.path.expanduser('~/Downloads/auroc_by_source.png'), dpi=150, bbox_inches="tight")
+    plt.savefig(downloads_dir / "auroc_by_source.png", dpi=150, bbox_inches="tight")
     plt.show()
     return
 
@@ -1274,11 +1280,11 @@ def _(
     df_axiom_hits_metrics_cv,
     df_metrics_cv,
     df_ttest_results,
+    downloads_dir,
     list_significative_performance,
     math,
     mpatches,
     np,
-    os,
     plt,
 ):
     # ── 1. Build source-lookup ────────────────────────────────────────────────────
@@ -1474,7 +1480,7 @@ def _(
     )
 
     plt.tight_layout()
-    plt.savefig(os.path.expanduser("~/Downloads/classification_auroc_by_source.png"), dpi=150, bbox_inches="tight")
+    plt.savefig(downloads_dir / "classification_auroc_by_source.png", dpi=150, bbox_inches="tight")
     plt.show()
     return
 
@@ -1488,11 +1494,11 @@ def _(
     df_metrics_cv,
     df_ttest_results,
     dict_categores_significative_cell_based_claudeai,
+    downloads_dir,
     list_significative_performance,
     math,
     mpatches,
     np,
-    os,
     plt,
 ):
 
@@ -1777,7 +1783,7 @@ def _(
 
     plt.tight_layout()
     plt.savefig(
-        os.path.expanduser("~/Downloads/classification_auroc_auprg_by_source_category.png"),
+        downloads_dir / "classification_auroc_auprg_by_source_category.png",
         dpi=150, bbox_inches="tight"
     )
     plt.show()
@@ -1799,11 +1805,11 @@ def _(list_significative_performance):
 @app.cell
 def _(
     Line2D,
-    Path,
     df_axiom_cellbased_binary_metrics_cv,
     df_axiom_cytotox_binary_metrics_cv,
     df_axiom_hits_metrics_cv,
     df_metrics_cv,
+    downloads_dir,
     list_significative_performance,
     mpatches,
     plt,
@@ -2008,7 +2014,7 @@ def _(
     ).get_title().set_fontweight("bold")
 
     plt.tight_layout()
-    plt.savefig(Path.home() / "Downloads" / "auroc_vs_prauc_scatter.png", dpi=300, bbox_inches="tight")
+    plt.savefig(downloads_dir / "auroc_vs_prauc_scatter.png", dpi=300, bbox_inches="tight")
     plt.show()
     return
 
@@ -2183,7 +2189,7 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    mo.md(r"""### Tisue (Total_Compounds > 100 & Metadata_Count_1 > 20) & significative""")
+    mo.md(r"""### Tissue (Total_Compounds > 100 & Metadata_Count_1 > 20) & significant""")
     return
 
 
@@ -2219,7 +2225,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""### Cell (Total_Compounds > 100 & Metadata_Count_1 > 20) & significative""")
+    mo.md(r"""### Cell (Total_Compounds > 100 & Metadata_Count_1 > 20) & significant""")
     return
 
 
@@ -2281,7 +2287,7 @@ def _(create_styled_metrics_table, pred_pandas):
 
 @app.cell
 def _(mo):
-    mo.md(r"""### Tox21 & significative""")
+    mo.md(r"""### Tox21 & significant""")
     return
 
 
@@ -2303,7 +2309,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""### All (Total_Compounds > 50 & Metadata_Count_1 > 20) & significative""")
+    mo.md(r"""### All (Total_Compounds > 50 & Metadata_Count_1 > 20) & significant""")
     return
 
 
@@ -2348,7 +2354,7 @@ def _(create_styled_metrics_table, pred_pandas):
 
 @app.cell
 def _(mo):
-    mo.md(r"""### All (Total_Compounds > 50 & Metadata_Count_1 > 20) & significative""")
+    mo.md(r"""### All (Total_Compounds > 50 & Metadata_Count_1 > 20) & significant""")
     return
 
 
@@ -2613,7 +2619,7 @@ def _(pred_pandas_batch):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## T-test check mean diffference""")
+    mo.md(r"""## T-test Mean Difference""")
     return
 
 
@@ -2803,11 +2809,6 @@ def _(pd, plt, pred_pandas_batch, pred_pandas_no_batch, sns):
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
 def _(np, pd, plt, pred_pandas_batch, pred_pandas_no_batch, sns, stats):
     # Combine both dataframes with batch indicator
     _pred_pandas_no_batch_copy = pred_pandas_no_batch.copy()
@@ -2929,8 +2930,8 @@ def _(mo):
 
 
 @app.cell
-def _(pd):
-    df_toxcast_cellbased_assay_info = pd.read_csv("/Users/ollitrault/Documents/projects/databases/proc_toxcast_annotations/toxcast_cellbased_assay_info.csv")
+def _(pd, toxcast_cellbased_assay_info_path):
+    df_toxcast_cellbased_assay_info = pd.read_csv(toxcast_cellbased_assay_info_path)
     return (df_toxcast_cellbased_assay_info,)
 
 
@@ -2941,8 +2942,16 @@ def _(df_toxcast_cellbased_assay_info, list_significative_performance):
 
 
 @app.cell
-def _(df_toxcast_cellbased_assay_info, list_significative_performance):
-    df_toxcast_cellbased_assay_info[df_toxcast_cellbased_assay_info["assay_component_endpoint_name"].isin(list_significative_performance)].to_csv("~/Downloads/cell-based-significative.csv")
+def _(
+    df_toxcast_cellbased_assay_info,
+    downloads_dir,
+    list_significative_performance,
+):
+    df_toxcast_cellbased_assay_info[
+        df_toxcast_cellbased_assay_info["assay_component_endpoint_name"].isin(
+            list_significative_performance
+        )
+    ].to_csv(downloads_dir / "cell-based-significative.csv", index=False)
     return
 
 
@@ -3362,11 +3371,6 @@ def _(
     return
 
 
-@app.cell
-def _():
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""# Try XGBoost workaround: “stacked dataset” trick""")
@@ -3634,6 +3638,22 @@ def _(dt_level5_axiom):
 @app.cell
 def _(dt_level5_axiom):
     dt_level5_axiom.to_parquet("modules/07_classification/outputs/dt_level5_axiom_dtxsid.parquet")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Check models prediction""")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 
