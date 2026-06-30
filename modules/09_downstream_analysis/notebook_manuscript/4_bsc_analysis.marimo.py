@@ -49,14 +49,14 @@ def _():
 def _(mo):
     mo.md(
         r"""
-        # Analysis BSC
+    # Analysis BSC
 
-        This notebook assembles the BSC manuscript analyses from processed Cell
-        Painting profiles, feature-wise concentration-response outputs, and
-        cytotoxicity POD estimates. Data-preparation cells produce named tables
-        and dictionaries; plotting cells consume those objects and save the
-        manuscript figures.
-        """
+    This notebook assembles the BSC manuscript analyses from processed Cell
+    Painting profiles, feature-wise concentration-response outputs, and
+    cytotoxicity POD estimates. Data-preparation cells produce named tables
+    and dictionaries; plotting cells consume those objects and save the
+    manuscript figures.
+    """
     )
     return
 
@@ -65,13 +65,13 @@ def _(mo):
 def _(mo):
     mo.md(
         r"""
-        ## Input
+    ## Input
 
-        Load processed profiles, BSC annotations, POD estimates, and shared
-        plotting configuration. Summary prints are included at the point where
-        result tables are created so reruns expose the sample sizes used
-        downstream.
-        """
+    Load processed profiles, BSC annotations, POD estimates, and shared
+    plotting configuration. Summary prints are included at the point where
+    result tables are created so reruns expose the sample sizes used
+    downstream.
+    """
     )
     return
 
@@ -1330,7 +1330,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""### POD Cell Painting VS MT VS LDH - All cytotoxicity """)
+    mo.md(r"""### POD Cell Painting VS MT VS LDH - All cytotoxicity""")
     return
 
 
