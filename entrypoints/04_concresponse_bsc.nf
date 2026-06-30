@@ -1,9 +1,9 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run entrypoints/06_concresponse_bsc.nf -params-file configs/config_base_bsc.json -profile slurm -resume
+// To RUN BSC: nextflow run entrypoints/04_concresponse_bsc.nf -params-file configs/config_base_bsc.json -profile slurm -resume
 
-include { concresponse_workflow_metadata } from '../workflows/06_concresponse.nf'
-include { concresponse_workflow_feature_wise } from '../workflows/06_concresponse.nf'
+include { concresponse_workflow_metadata } from '../workflows/04_concresponse.nf'
+include { concresponse_workflow_feature_wise } from '../workflows/04_concresponse.nf'
 
 // Generate a unique run code with date + short UUID
 def today = new Date()
@@ -19,4 +19,3 @@ workflow {
     concresponse_results_metadata = concresponse_workflow_metadata(path_data_level4, path_data_level5)
     concresponse_results = concresponse_workflow_feature_wise(path_data_level4, path_data_level5)
 }
-

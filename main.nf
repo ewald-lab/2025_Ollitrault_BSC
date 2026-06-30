@@ -1,68 +1,65 @@
 nextflow.enable.dsl=2
 
-// To RUN BSC: nextflow run main.nf -params-file configs/config_base_bsc.json -profile local -resume
-// To RUN Axiom: nextflow run main.nf -params-file workflows/config/config_base_axiom.json -resume
+/*
+ * Ordered entrypoint launcher.
+ *
+ * This main workflow intentionally delegates to the numbered scripts in
+ * entrypoints/ so their current stage-specific code remains the source of
+ * truth. The list below follows the sorted entrypoint order.
+ *
+ * Example:
+ *   nextflow run main.nf -profile local --entrypoint_profile slurm -resume
+ */
 
-include { preprocessing_workflow } from './workflows/01_preprocessing.nf'
-include { processing_workflow } from './workflows/02_processing.nf'
-include { postprocessing_workflow } from './workflows/03_postprocessing.nf'
-//include { evaluation_workflow } from './workflows/04_evaluation.nf'
-include { concresponse_workflow } from './workflows/06_concresponse.nf'
-include { concresponse_workflow_feature_wise } from './workflows/06_concresponse.nf'
-include { concresponse_workflow_bayesian_inference } from './workflows/06_concresponse.nf'
-include { analysis_workflow } from './workflows/05_analysis.nf'
-include { analysis_workflow_processed } from './workflows/05_analysis.nf'
-include { classification_workflow } from './workflows/07_classification.nf'
+params.entrypoint_profile = params.entrypoint_profile ?: 'slurm'
+params.entrypoint_resume = params.entrypoint_resume == null ? true : params.entrypoint_resume
 
-// Generate a unique run code with date + short UUID
-def today = new Date()
-def formattedDate = today.format('yyyyMMdd')   // e.g., 20260204
-params.run_code = "run_${formattedDate}_" + UUID.randomUUID().toString()[0..7] 
-
-params.base_dir = "${projectDir}/.."
+def ordered_entrypoints = [
+    [id: '01_preprocessing_axiom', script: 'entrypoints/01_preprocessing_axiom.nf', params_file: 'configs/config_base_axiom.json'],
+    [id: '01_preprocessing_bsc', script: 'entrypoints/01_preprocessing_bsc.nf', params_file: 'configs/config_base_bsc.json'],
+    [id: '02_processing_axiom', script: 'entrypoints/02_processing_axiom.nf', params_file: 'configs/config_base_axiom.json'],
+    [id: '02_processing_bsc', script: 'entrypoints/02_processing_bsc.nf', params_file: 'configs/config_base_bsc.json'],
+    [id: '03_postprocessing_bsc', script: 'entrypoints/03_postprocessing_bsc.nf', params_file: 'configs/config_base_bsc.json'],
+    [id: '04_concresponse_axiom', script: 'entrypoints/04_concresponse_axiom.nf', params_file: 'configs/config_base_axiom.json'],
+    [id: '04_concresponse_bsc', script: 'entrypoints/04_concresponse_bsc.nf', params_file: 'configs/config_base_bsc.json'],
+    [id: '05_batch_correction_bsc_axiom', script: 'entrypoints/05_batch_correction_bsc_axiom.nf', params_file: 'configs/config_base_bsc.json'],
+    [id: '06_classification_axiom', script: 'entrypoints/06_classification_axiom.nf', params_file: 'configs/config_base_axiom.json'],
+    [id: '07_downstream_analysis', script: 'entrypoints/07_downstream_analysis.nf', params_file: null],
+]
 
 workflow {
-    input_path = Channel.fromPath(params.input_path)
-    preprocessed_data = preprocessing_workflow(input_path)
-    processed_data = processing_workflow(preprocessed_data.path_data_level2_log)
-     
-    if( params.post_processing ) {
-        postprocessed_data = postprocessing_workflow(
-            processed_data.path_data_level2,
-            processed_data.path_data_level3,
-            processed_data.path_data_level4,
-            processed_data.path_data_level5,
-            processed_data.path_data_level6,
-            processed_data.path_data_level5_all,
-            processed_data.path_data_level6_all
-        )
-        analysis_workflow_processed(processed_data.path_data_level2 , processed_data.path_data_level3, processed_data.path_data_level4, processed_data.path_data_level5)
-    } else {
-        postprocessed_data = processed_data
-    }
-    
-    // evaluation_results = evaluation_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    concresponse_results = concresponse_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    // concresponse_results = concresponse_workflow_feature_wise(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    // concresponse_results = concresponse_workflow_bayesian_inference(postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
-    
-    if (params.input_name == "axiom") {
-        compute_meta_pods = concresponse_results
-            .flatten()
-            .map { file ->
-                def label = file.getName()
-                    .replace("pods_axiom_", "")
-                    .replace("_original_conc.parquet", "")
-                // Only keep the three PODs you care about
-                if (!["Metadata_mtt_normalized","Metadata_ldh_normalized","Metadata_Count_Cells"].contains(label)) {
-                    return null
-                }
-                // <-- use tuple() instead of list []
-                tuple(label, file)
-            }
-            .filter { it != null }
-        classification_workflow(postprocessed_data.path_data_level4, postprocessed_data.path_data_level6, compute_meta_pods)
-    }
+    RUN_ORDERED_ENTRYPOINTS(Channel.value(ordered_entrypoints))
+}
 
-    analysis_workflow(postprocessed_data.path_data_level2 , postprocessed_data.path_data_level3, postprocessed_data.path_data_level4, postprocessed_data.path_data_level5)
+process RUN_ORDERED_ENTRYPOINTS {
+    tag 'entrypoints'
+    executor 'local'
+
+    input:
+        val entrypoints
+
+    output:
+        path 'entrypoint-run-order.tsv'
+
+    script:
+        def profile_args = params.entrypoint_profile ? "-profile ${params.entrypoint_profile}" : ''
+        def resume_args = params.entrypoint_resume.toString().toBoolean() ? '-resume' : ''
+        def commands = entrypoints.collect { entry ->
+            def params_args = entry.params_file ? "-params-file ${entry.params_file}" : ''
+            """
+            echo "${entry.id}\t${entry.script}" | tee -a "\$log_file"
+            nextflow run ${entry.script} ${params_args} ${profile_args} ${resume_args}
+            """
+        }.join('\n')
+
+        """
+        set -euo pipefail
+
+        log_file="\$PWD/entrypoint-run-order.tsv"
+        : > "\$log_file"
+
+        cd "${projectDir}"
+
+        ${commands}
+        """
 }
