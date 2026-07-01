@@ -26,15 +26,9 @@ workflow {
         path_data_level5 = Channel.fromPath("${params.base_dir}/modules/05_batch_correction_bsc_axiom/outputs/level5_axiom_selected_features_batch.parquet")
         path_data_level6 = Channel.fromPath("${params.base_dir}/modules/05_batch_correction_bsc_axiom/outputs/level6_axiom_selected_features_batch.parquet")
         compute_meta_pods = Channel.of(
-<<<<<<< HEAD
-            tuple("Metadata_mtt_normalized", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")),
-            tuple("Metadata_ldh_normalized", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")),
-            tuple("Metadata_Count_Cells", file("${projectDir}/../modules/04_concresponse/outputs/pods/pods_axiom_Metadata_Count_Cells_original_conc.parquet"))
-=======
             tuple("Metadata_mtt_normalized", file("${params.base_dir}/modules/04_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet")),
             tuple("Metadata_ldh_normalized", file("${params.base_dir}/modules/04_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet")),
             tuple("Metadata_Count_Cells", file("${params.base_dir}/modules/04_concresponse/outputs/pods/pods_axiom_Metadata_Count_Cells_original_conc.parquet"))
->>>>>>> cad2d1eca293ba02de076459fbac5bffb2e29ba3
         )
     }
 

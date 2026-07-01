@@ -25,8 +25,9 @@
     },
     "classifier": {
         "label_files" : ["toxcast_cellbased_binary.parquet", "toxcast_cellfree_binary.parquet", "toxcast_cytotox_binary.parquet"],
-        "n_repeats": 2,
+        "n_repeats": 100,
         "filter_label_size": 50
-    }
+    },
+    "base_dir": "/nfs/research/ewald/2025_Ollitrault_BSC/"
 }
 
