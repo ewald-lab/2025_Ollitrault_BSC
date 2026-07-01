@@ -68,9 +68,3 @@ Exported HTML files:
 ```text
 modules/07_downstream_analysis/notebook_manuscript/__marimo__/
 ```
-
-Figures:
-
-```text
-modules/07_downstream_analysis/figures/
-```
