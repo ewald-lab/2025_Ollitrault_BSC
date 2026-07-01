@@ -225,22 +225,22 @@ workflow concresponse_workflow_feature_wise {
             ch_compound_lines
         )
 
-        ch_permutation_n_active = fit_curves_feature_wise_permutation(
-            input_data_level4.first(),
-            ch_compound_lines.randomSample(100),
-            "TRUE"
-        )
-
-        // Collect all n_actives_permutation values and compute mean
-        ch_permutation_n_active_threshold = ch_permutation_n_active.n_active_by_compound_permutation
-            .map { compound_line, permutation, n_active_file -> n_active_file }
-            .collectFile(name: "all_n_actives_permutation.txt", newLine: true)
-            | compute_percentile_permutation_active_features
-
         ch_feature_selection_score_by_line = ch_feature_selection_interdependence_score.score_by_compound
             .join(ch_compound_lines)
 
-        // Run feature-wise curve fitting with threshold
+        ch_permutation_n_active = fit_curves_feature_wise_permutation(
+            input_data_level4.first(),
+            ch_feature_selection_score_by_line.randomSample(100),
+            "TRUE"
+        )
+
+        // Collect permutation active-feature counts after interdependence-score filtering.
+        ch_permutation_n_active_threshold = ch_permutation_n_active.n_active_by_compound_permutation
+            .map { compound_line, permutation, n_active_file -> n_active_file }
+            .collectFile(name: "all_n_actives_permutation_${params.input_name}.txt", newLine: true)
+            | compute_percentile_permutation_active_features
+
+        // Run feature-wise curve fitting after interdependence-score filtering, with threshold.
         ch_fit_curves_feature_wise = fit_curves_feature_wise(
             input_data_level4.first(),
             ch_feature_selection_score_by_line,
@@ -726,7 +726,7 @@ process fit_curves_feature_wise_permutation {
 
     input:
         path input_file
-        tuple val(compound_line), path(compound_list_file)
+        tuple val(compound_line), path(feature_selection_score_file), path(compound_list_file)
         val permutation
 
     output:
@@ -750,24 +750,26 @@ process fit_curves_feature_wise_permutation {
         "${permutation}" \\
         "NA" \\
         "NA" \\
-        "NA" \\
+        "${feature_selection_score_file}" \\
         "${compound_list_file}"
     """
 }
 process compute_percentile_permutation_active_features {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: 'feature_wise_median_permutation_threshold.txt'
+    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: 'feature_wise_median_permutation_threshold_*.txt'
     input:
         path threshold_active_features_file
     output:
         stdout emit: median_val
-        path "feature_wise_median_permutation_threshold.txt", emit: median_file
-"""
+        path "feature_wise_median_permutation_threshold_${params.input_name}.txt", emit: median_file
+    script:
+        def output_file = "feature_wise_median_permutation_threshold_${params.input_name}.txt"
+    """
     Rscript - <<'EOF'
     vals <- as.numeric(readLines("${threshold_active_features_file}"))
     med <- median(vals, na.rm = TRUE)
     cat(med)
-    writeLines(as.character(med), "feature_wise_median_permutation_threshold.txt")
+    writeLines(as.character(med), "${output_file}")
 EOF
 """
 }
