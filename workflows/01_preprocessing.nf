@@ -74,7 +74,6 @@ process axiom_metadata_preparation {
         df["Metadata_compound"]
         .dropna()
         .drop_duplicates()
-        .astype(str)
     )
 
     compounds.to_csv(output_file, index=False, header=False)

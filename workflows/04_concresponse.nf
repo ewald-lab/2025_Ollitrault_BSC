@@ -600,50 +600,93 @@ process analysis_concresponse_report {
 
 process select_feature_selection_interdependence_score {
     tag { "${input_file.baseName} ${compound}" }
-    publishDir { "modules/04_concresponse/outputs/interdependence_score" }, mode: 'symlink', pattern: '*.txt'
+    publishDir "modules/04_concresponse/outputs/interdependence_score",
+        mode: 'symlink',
+        pattern: '*.txt'
     input:
         path input_file
         val compound
     output:
-        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: score_by_compound
+        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_*.txt"), emit: score_by_compound
+    script:
+        def hash = java.security.MessageDigest
+            .getInstance('MD5')
+            .digest(compound.getBytes('UTF-8'))
+            .encodeHex()
+            .toString()
+            .substring(0, 8)
+
+        def safe_compound = compound
+            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
+            .replaceAll(/^_+|_+$/, "")
+            .take(100)
+
+        if (!safe_compound) {
+            safe_compound = "compound"
+        }
+
+        def output_file = "feature_selection_interdependence_score_${params.input_name}_${safe_compound}_${hash}.txt"
 
     """
-    echo test3
-    python ${params.base_dir}/modules/04_concresponse/scripts/select_features_interdependence_scores.py \\
-        --input_path ${input_file} \\
-        --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
-        --ctrl ${params.control} \\
-        --compounds ${compound} \\
-        --num_tests ${params.concentration_response.num_tests} \\
-        --p_value_correction ${params.concentration_response.p_value_correction}
+    python "${params.base_dir}/modules/04_concresponse/scripts/select_features_interdependence_scores.py" \\
+        --input_path "${input_file}" \\
+        --output_path "${output_file}" \\
+        --ctrl "${params.control}" \\
+        --compounds "${compound}" \\
+        --num_tests "${params.concentration_response.num_tests}" \\
+        --p_value_correction "${params.concentration_response.p_value_correction}"
     """
 }
 
 process fit_curves_feature_wise_permutation {
-    tag { compound }
+
+    tag { "${compound} permutation=${permutation}" }
+
     label 'r'
+
     input:
         path input_file
         val compound
         val permutation
-    output:
-        path "n_active_permutation_${params.input_name}_${compound}.txt"
 
+    output:
+        tuple val(compound), val(permutation), path("n_active_permutation_${params.input_name}_*.txt"), emit: n_active_by_compound_permutation
+
+    script:
+        def hash = java.security.MessageDigest
+            .getInstance('MD5')
+            .digest(compound.getBytes('UTF-8'))
+            .encodeHex()
+            .toString()
+            .substring(0, 8)
+
+        def safe_compound = compound
+            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
+            .replaceAll(/^_+|_+$/, "")
+            .take(100)
+
+        if (!safe_compound) {
+            safe_compound = "compound"
+        }
+
+        def output_file = "n_active_permutation_${params.input_name}_${safe_compound}_${hash}.txt"
 
     """
-    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R \\
-        ${input_file} \\
-        n_active_permutation_${params.input_name}_${compound}.txt \\
-        ${params.concentration_response.num_sds} \\
-        ${params.control} \\
-        ${params.concentration_response.dmso_mode} \\
-        ${params.categories.join(',')} \\
-        TRUE \\
-        ${compound} \\
-        ${permutation} \\
-        NA \\
-        NA \\
-        NA 
+    set -euo pipefail
+
+    Rscript "${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R" \\
+        "${input_file}" \\
+        "${output_file}" \\
+        "${params.concentration_response.num_sds}" \\
+        "${params.control}" \\
+        "${params.concentration_response.dmso_mode}" \\
+        "${params.categories.join(',')}" \\
+        "TRUE" \\
+        "${compound}" \\
+        "${permutation}" \\
+        "NA" \\
+        "NA" \\
+        "NA"
     """
 }
 process compute_percentile_permutation_active_features {
@@ -666,7 +709,9 @@ EOF
 
 process fit_curves_feature_wise {
     tag { compound }
-    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: '*_feature_wise.parquet'
+    publishDir "modules/04_concresponse/outputs/pods/feature_wise",
+        mode: 'symlink',
+        pattern: '*_feature_wise.parquet'
     label 'r'
     input:
         path input_file
@@ -674,24 +719,45 @@ process fit_curves_feature_wise {
         val thresholds_n_active
         path feature_selection_score_file
     output:
-        path "pod_${params.input_name}_${compound}.parquet", emit: pod
-        path "pod_${params.input_name}_${compound}_feature_wise.parquet", emit: pod_feature_wise
-        
+        path "pod_${params.input_name}_*_summary.parquet", emit: pod
+        path "pod_${params.input_name}_*_feature_wise.parquet", emit: pod_feature_wise
+    script:
+        def hash = java.security.MessageDigest
+            .getInstance('MD5')
+            .digest(compound.getBytes('UTF-8'))
+            .encodeHex()
+            .toString()
+            .substring(0, 8)
+
+        def safe_compound = compound
+            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
+            .replaceAll(/^_+|_+$/, "")
+            .take(100)
+
+        if (!safe_compound) {
+            safe_compound = "compound"
+        }
+
+        def pod_file = "pod_${params.input_name}_${safe_compound}_${hash}_summary.parquet"
+        def pod_feature_wise_file = "pod_${params.input_name}_${safe_compound}_${hash}_feature_wise.parquet"
+
+        // Bash-safe single quoting for all arguments
+        def q = { x -> "'${x.toString().replace("'", "'\"'\"'")}'" }
+
     """
-    echo yesss
-    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R \\
-        ${input_file} \\
-        pod_${params.input_name}_${compound}.parquet \\
-        ${params.concentration_response.num_sds} \\
-        ${params.control} \\
-        ${params.concentration_response.dmso_mode} \\
-        ${params.categories.join(',')} \\
+    Rscript ${q(params.base_dir + "/modules/04_concresponse/scripts/fit_curves_features_wise.R")} \\
+        ${q(input_file)} \\
+        ${q(pod_file)} \\
+        ${q(params.concentration_response.num_sds)} \\
+        ${q(params.control)} \\
+        ${q(params.concentration_response.dmso_mode)} \\
+        ${q(params.categories.join(','))} \\
         TRUE \\
-        ${compound} \\
+        ${q(compound)} \\
         FALSE \\
-        ${thresholds_n_active} \\
-        pod_${params.input_name}_${compound}_feature_wise.parquet \\
-        ${feature_selection_score_file}
+        ${q(thresholds_n_active)} \\
+        ${q(pod_feature_wise_file)} \\
+        ${q(feature_selection_score_file)}
     """
 }
 
