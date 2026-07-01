@@ -150,18 +150,18 @@ def _(df_bsc_annotations):
 @app.cell
 def _(pd):
     # POD Cell Painting
-    df_bsc_cp_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+    df_bsc_cp_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
     # POD Metadata MT
-    df_bsc_mtt_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
+    df_bsc_mtt_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
     # POD Metadata LDH
-    df_bsc_ldh_pod = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
+    df_bsc_ldh_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
     return df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod
 
 
 @app.cell
 def _(glob, pd):
     # POD Cell Painting feature wise
-    path_pattern_bsc_interdependence_score = "modules/06_concresponse/outputs/interdependence_score/feature_selection_interdependence_score_bsc_*.txt"
+    path_pattern_bsc_interdependence_score = "modules/04_concresponse/outputs/interdependence_score/feature_selection_interdependence_score_bsc_*.txt"
 
     # Get all matching files
     _files = glob.glob(path_pattern_bsc_interdependence_score)
@@ -181,7 +181,7 @@ def _(glob, pd):
 @app.cell
 def _(glob, pd):
     # POD Cell Painting feature wise
-    path_pattern_feature_wise = "modules/06_concresponse/outputs/pods/feature_wise/*feature_wise_original_conc.parquet"
+    path_pattern_feature_wise = "modules/04_concresponse/outputs/pods/feature_wise/*feature_wise_original_conc.parquet"
 
     # Get all matching files
     _files = glob.glob(path_pattern_feature_wise)
@@ -200,7 +200,7 @@ def _(glob, pd):
 
 @app.cell
 def _():
-    with open("modules/06_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold.txt") as _f:
+    with open("modules/04_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold.txt") as _f:
         feature_wise_permutation_threshold = float(_f.read().strip())
     return (feature_wise_permutation_threshold,)
 
@@ -235,7 +235,7 @@ def _(df_bsc_annotations, df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod):
 @app.cell
 def _(pd):
     # POD Cell Painting
-    df_bsc_cp_pod_channel = pd.read_parquet("modules/06_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
+    df_bsc_cp_pod_channel = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
     df_bsc_cp_pod_channel
     return (df_bsc_cp_pod_channel,)
 
@@ -3086,7 +3086,7 @@ def _(
                 vmin=_col_vals.min(), vmax=_col_vals.max()
             )
     _styled.to_excel(os.path.expanduser("~/Downloads/styled_table.xlsx"), engine="openpyxl")
-    _df_table.to_csv("modules/06_concresponse/outputs/pods/df_pods_bsc_cp_mt_ldh.csv")
+    _df_table.to_csv("modules/04_concresponse/outputs/pods/df_pods_bsc_cp_mt_ldh.csv")
     df_table_results_pods = _df_table
     _styled
     return (df_table_results_pods,)
@@ -9305,14 +9305,8 @@ def _(mo):
 
 @app.cell
 def _(pd):
-    df_axiom_hits_prediction = pd.read_parquet("modules/07_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
     return (df_axiom_hits_prediction,)
-
-
-@app.cell
-def _(df_axiom_hits_prediction):
-    df_axiom_hits_prediction
-    return
 
 
 @app.cell
@@ -9882,7 +9876,7 @@ def _(mo):
 
 @app.cell
 def _(glob, os, pickle):
-    _models_path = "modules/07_classification/outputs/models_batch/"
+    _models_path = "modules/06_classification/outputs/models_batch/"
 
     # Find all matching model files
     _model_files = glob.glob(os.path.join(_models_path, "*_actual_model.pkl"))
@@ -10349,7 +10343,7 @@ def _():
 
 @app.cell
 def _(pd):
-    df_ttest_results = pd.read_csv("modules/07_classification/outputs/results_performance.csv")
+    df_ttest_results = pd.read_csv("modules/06_classification/outputs/results_performance.csv")
     df_ttest_results
     return (df_ttest_results,)
 
@@ -10728,7 +10722,7 @@ def _(mo):
 @app.cell
 def _(pd):
     # load data 
-    df_toxcast_cellbased_assay_info_significant = pd.read_csv("modules/07_classification/outputs/df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv")
+    df_toxcast_cellbased_assay_info_significant = pd.read_csv("modules/06_classification/outputs/df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv")
     df_toxcast_cellbased_assay_info_significant
     return (df_toxcast_cellbased_assay_info_significant,)
 
@@ -11359,18 +11353,10 @@ def _(
     print("\n=== % Active predictions by botanical × cell-based category ===")
     print(df_pct_active_by_botanical_category.to_string(index=False))
     return (
-        df_pct_active_by_botanical,
         df_pct_active_by_botanical_category,
-        df_pct_active_by_botanical_group,
         df_pred_long_all,
         df_pred_long_botanical,
     )
-
-
-@app.cell
-def _(df_pred_long):
-    df_pred_long
-    return
 
 
 @app.cell
@@ -11395,29 +11381,6 @@ def _(df_pred_long_all):
     )
 
     _df_summary
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _(df_pct_active_by_botanical):
-    df_pct_active_by_botanical
-    return
-
-
-@app.cell
-def _(df_pct_active_by_botanical_group):
-    df_pct_active_by_botanical_group
-    return
-
-
-@app.cell
-def _(df_pct_active_by_botanical_category):
-    df_pct_active_by_botanical_category
     return
 
 
@@ -12212,12 +12175,6 @@ def _(mo):
 
 
 @app.cell
-def _(df_level6_axiom_all):
-    df_level6_axiom_all
-    return
-
-
-@app.cell
 def _(pred_matrix_filtered):
     pred_matrix_filtered[["Metadata_compound", "MT", "LDH"]]
     return
@@ -12325,6 +12282,897 @@ def _(df_ldh, df_mt, np):
 
     print(f"AUPRG MT:  {auprg_mt:.3f}")
     print(f"AUPRG LDH: {auprg_ldh:.3f}")
+    return
+
+
+@app.cell
+def _(df_pred_true_mt_ldh, plt, sns):
+    from sklearn.metrics import confusion_matrix
+
+    # Confusion matrices
+    cm_mt = confusion_matrix(
+        df_pred_true_mt_ldh["MT_label"],
+        df_pred_true_mt_ldh["MT"]
+    )
+
+    cm_ldh = confusion_matrix(
+        df_pred_true_mt_ldh["LDH_label"],
+        df_pred_true_mt_ldh["LDH"]
+    )
+
+    # Plot
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    sns.heatmap(
+        cm_mt,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        cbar=False,
+        xticklabels=["Pred 0", "Pred 1"],
+        yticklabels=["True 0", "True 1"],
+        ax=axes[0]
+    )
+    axes[0].set_title("MT Confusion Matrix")
+    axes[0].set_xlabel("Predicted")
+    axes[0].set_ylabel("True")
+
+    sns.heatmap(
+        cm_ldh,
+        annot=True,
+        fmt="d",
+        cmap="Greens",
+        cbar=False,
+        xticklabels=["Pred 0", "Pred 1"],
+        yticklabels=["True 0", "True 1"],
+        ax=axes[1]
+    )
+    axes[1].set_title("LDH Confusion Matrix")
+    axes[1].set_xlabel("Predicted")
+    axes[1].set_ylabel("True")
+
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_table_results_pods,
+    dic_botanicals_scode_name,
+    leaves_list,
+    linkage,
+    list_botanicals,
+    np,
+    pd,
+    plt,
+    pred_matrix_filtered,
+    pred_matrix_lvl5,
+    sns,
+):
+    # =============================================================================
+    # Prepare true/predicted data
+    # =============================================================================
+
+    _df_true = df_table_results_pods.copy()
+
+    # Binary labels from POD tables
+    _df_true["_MT_label"] = _df_true["MTT POD (µM)"].notna().astype(int)
+    _df_true["_LDH_label"] = _df_true["LDH POD (µM)"].notna().astype(int)
+
+    _df_pred = pred_matrix_filtered[
+        ["Metadata_compound", "MT", "LDH"]
+    ].copy()
+
+    # Threshold predictions if probabilities
+    if not set(_df_pred["MT"].dropna().unique()).issubset({0, 1}):
+        _df_pred["MT"] = (_df_pred["MT"] >= 0.5).astype(int)
+
+    if not set(_df_pred["LDH"].dropna().unique()).issubset({0, 1}):
+        _df_pred["LDH"] = (_df_pred["LDH"] >= 0.5).astype(int)
+
+    _df = _df_pred.merge(
+        _df_true[
+            ["Compound ID", "_MT_label", "_LDH_label"]
+        ],
+        left_on="Metadata_compound",
+        right_on="Compound ID",
+        how="inner",
+    )
+
+    # =============================================================================
+    # Build ordered botanical/constituent list (same ordering as previous figure)
+    # =============================================================================
+
+    _rows_ordered = []
+
+    _all_scodes = list(pred_matrix_lvl5["Metadata_compound"].unique())
+    _scode_to_idx = {s: i for i, s in enumerate(_all_scodes)}
+    _matrix = pred_matrix_lvl5.set_index("Metadata_compound").values.astype(float)
+
+
+    def _cluster_row_indices(_matrix, _indices):
+        if len(_indices) < 2:
+            return _indices
+
+        _sub = _matrix[_indices, :]
+        _valid = [
+            i for i, idx in enumerate(_indices)
+            if not np.all(np.isnan(_sub[i]))
+        ]
+
+        if len(_valid) < 2:
+            return _indices
+
+        _sub = np.nan_to_num(_sub[_valid], nan=0.0)
+
+        _Z = linkage(_sub, method="average", metric="jaccard")
+        _order = leaves_list(_Z)
+
+        return [_indices[_valid[i]] for i in _order]
+
+
+    for _scode in list_botanicals:
+
+        _plant_name = dic_botanicals_scode_name.get(_scode, _scode)
+
+        _constituents = (
+            df_bsc_annotations[
+                df_bsc_annotations["Plant scode"] == _scode
+            ][["Metadata_compound", "Constituent"]]
+            .drop_duplicates()
+        )
+
+        _const_rows = []
+
+        for _, _r in _constituents.iterrows():
+            if _r["Metadata_compound"] in pred_matrix_lvl5["Metadata_compound"].values:
+                _const_rows.append(
+                    (_r["Metadata_compound"], f"  {_r['Constituent']}")
+                )
+
+        _has_botanical = (
+            _scode in pred_matrix_lvl5["Metadata_compound"].values
+        )
+
+        if not _has_botanical and len(_const_rows) == 0:
+            continue
+
+        if _has_botanical:
+            _rows_ordered.append(
+                (_scode, _plant_name, True)
+            )
+
+        if len(_const_rows):
+
+            _indices = [
+                _scode_to_idx[s]
+                for s, _ in _const_rows
+                if s in _scode_to_idx
+            ]
+
+            _clustered = _cluster_row_indices(_matrix, _indices)
+
+            _idx_to_row = {
+                _scode_to_idx[s]: (s, lbl)
+                for s, lbl in _const_rows
+                if s in _scode_to_idx
+            }
+
+            for _idx in _clustered:
+                _s, _lbl = _idx_to_row[_idx]
+                _rows_ordered.append((_s, _lbl, False))
+
+    _ordered_scodes = [_r[0] for _r in _rows_ordered]
+    _ordered_labels = [_r[1] for _r in _rows_ordered]
+    _is_botanical = [_r[2] for _r in _rows_ordered]
+
+    # =============================================================================
+    # Create heatmap dataframe
+    # =============================================================================
+
+    _label_df = pd.DataFrame({
+        "Metadata_compound": _ordered_scodes,
+        "Display_name": _ordered_labels,
+        "Is_botanical": _is_botanical,
+        "_order": np.arange(len(_ordered_scodes)),
+    })
+
+    _heatmap = (
+        _df.merge(_label_df, on="Metadata_compound", how="inner")
+          .rename(columns={
+              "_MT_label": "True MT",
+              "MT": "Pred MT",
+              "_LDH_label": "True LDH",
+              "LDH": "Pred LDH",
+          })
+          .sort_values("_order")
+          .set_index("Display_name")
+    )
+
+    # =============================================================================
+    # Plot
+    # =============================================================================
+
+    _fig, _ax = plt.subplots(
+        figsize=(6, max(8, len(_heatmap) * 0.22))
+    )
+
+    sns.heatmap(
+        _heatmap[
+            ["True MT", "Pred MT", "True LDH", "Pred LDH"]
+        ],
+        cmap=["lightgrey", "red"],
+        vmin=0,
+        vmax=1,
+        cbar=False,
+        linewidths=0.5,
+        linecolor="white",
+        ax=_ax,
+    )
+
+    # Botanical row shading
+    for _i, _is_bot in enumerate(_heatmap["Is_botanical"]):
+        if _is_bot:
+            _ax.axhspan(
+                _i,
+                _i + 1,
+                color="lightgrey",
+                alpha=0.18,
+                zorder=-1,
+            )
+
+    # Botanical names bold
+    for _tick, _is_bot in zip(
+        _ax.get_yticklabels(),
+        _heatmap["Is_botanical"],
+    ):
+        if _is_bot:
+            _tick.set_fontweight("bold")
+            _tick.set_fontsize(11)
+            _tick.set_color("black")
+        else:
+            _tick.set_fontsize(9)
+            _tick.set_color("#444444")
+
+    _ax.set_xlabel("")
+    _ax.set_ylabel("")
+    _ax.set_title(
+        "True vs Predicted Activity",
+        fontsize=13,
+        fontweight="bold",
+    )
+
+    plt.tight_layout()
+    plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Correlation prediction BSC""")
+    return
+
+
+@app.cell
+def _(pred_matrix_filtered):
+    pred_matrix_filtered
+    return
+
+
+@app.cell
+def _(pred_matrix_filtered):
+    _predictions = pred_matrix_filtered.drop(columns="Metadata_compound") # or method="spearman"
+
+    # Compute assay-assay correlation
+    corr = _predictions.corr(method="pearson")
+    corr
+    return (corr,)
+
+
+@app.cell
+def _(corr):
+    corr.isna().sum().sort_values(ascending=False)
+    return
+
+
+@app.cell
+def _(os, plt, pred_matrix_filtered, sns):
+    # ── Matrix of assay predictions ───────────────────────────────────────────────
+    # Compute assay-assay correlation
+    _predictions = pred_matrix_filtered.drop(columns="Metadata_compound") # or method="spearman"
+
+    # remove assays with no variance
+    _predictions = _predictions.loc[:, _predictions.nunique() > 1]
+
+    # optionally remove assays containing NA
+    _predictions = _predictions.dropna(axis=1)
+
+    # Compute assay-assay correlation
+    _corr = _predictions.corr(method="pearson")
+
+    # ── Clustered heatmap ─────────────────────────────────────────────────────────
+    _cluster = sns.clustermap(
+        _corr,
+        cmap="RdBu_r",
+        center=0,
+        vmin=-1,
+        vmax=1,
+        linewidths=0.3,
+        figsize=(15, 15),
+        dendrogram_ratio=0.12,
+        cbar_kws={"label": "Correlation"},
+    )
+
+    _cluster.savefig(
+        os.path.expanduser("~/Downloads/assay_prediction_correlation_clustermap.png"),
+        dpi=300,
+        bbox_inches="tight",
+    )
+    _cluster.ax_heatmap.tick_params(axis="x", labelsize=12)
+    _cluster.ax_heatmap.tick_params(axis="y", labelsize=12)
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Percentage pos / neg in ToxCast and then in our predictions""")
+    return
+
+
+@app.cell
+def _(df_axiom_hits_prediction, pd):
+    df_axiom_hits_prediction_ = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions_batch.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions_batch.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions_batch.parquet")
+    print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
+    print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
+    print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
+    print(f"ToxCast cytotox predictions: {df_axiom_cytotox_binary_prediction.shape}")
+    return (
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction,
+        df_axiom_hits_prediction_,
+    )
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction_,
+    pd,
+    pred_matrix_filtered,
+):
+    _axiom_all_df = pd.concat(
+        [
+            df_axiom_hits_prediction_,
+            df_axiom_cellbased_binary_prediction,
+            df_axiom_cellfree_binary_prediction,
+            df_axiom_cytotox_binary_prediction,
+        ],
+        ignore_index=True,
+    )
+
+    _axiom_counts_df = (
+        _axiom_all_df[
+            [
+                "Metadata_Label",
+                "Metadata_Count_0",
+                "Metadata_Count_1",
+            ]
+        ]
+        .drop_duplicates()
+        .groupby("Metadata_Label", as_index=False)
+        .sum()
+    )
+
+    actual_active_rate_df = _axiom_counts_df.copy()
+
+    actual_active_rate_df["actual_pct_active"] = (
+        actual_active_rate_df["Metadata_Count_1"]
+        / (
+            actual_active_rate_df["Metadata_Count_0"]
+            + actual_active_rate_df["Metadata_Count_1"]
+        )
+        * 100
+    )
+
+    _prediction_columns = [
+        _column
+        for _column in pred_matrix_filtered.columns
+        if _column != "Metadata_compound"
+    ]
+
+    predicted_active_rate_df = (
+        pred_matrix_filtered[_prediction_columns]
+        .mean(axis=0)
+        .mul(100)
+        .reset_index()
+    )
+
+    predicted_active_rate_df.columns = [
+        "Metadata_Label",
+        "predicted_pct_active",
+    ]
+
+    active_rate_comparison_df = predicted_active_rate_df.merge(
+        actual_active_rate_df[
+            [
+                "Metadata_Label",
+                "actual_pct_active",
+            ]
+        ],
+        on="Metadata_Label",
+        how="inner",
+    )
+
+    active_rate_comparison_df["difference_pct_points"] = (
+        active_rate_comparison_df["predicted_pct_active"]
+        - active_rate_comparison_df["actual_pct_active"]
+    )
+
+    active_rate_comparison_df = active_rate_comparison_df.sort_values(
+        "actual_pct_active",
+        ascending=False,
+    ).reset_index(drop=True)
+
+    active_rate_comparison_df
+    return (active_rate_comparison_df,)
+
+
+@app.cell
+def _(active_rate_comparison_df, np, plt):
+    _bar_df = active_rate_comparison_df.sort_values(
+        "actual_pct_active",
+        ascending=True,
+    )
+
+    _bar_y_positions = np.arange(len(_bar_df))
+    _bar_width = 0.4
+
+    _bar_fig, _bar_ax = plt.subplots(
+        figsize=(10, max(6, len(_bar_df) * 0.25))
+    )
+
+    _bar_ax.barh(
+        _bar_y_positions - _bar_width / 2,
+        _bar_df["actual_pct_active"],
+        _bar_width,
+        label="Actual % active",
+    )
+
+    _bar_ax.barh(
+        _bar_y_positions + _bar_width / 2,
+        _bar_df["predicted_pct_active"],
+        _bar_width,
+        label="Predicted % active",
+    )
+
+    _bar_ax.set_xlabel("% active")
+    _bar_ax.set_ylabel("Assay")
+    _bar_ax.set_title("Actual vs predicted % active per assay")
+
+    _bar_ax.set_yticks(_bar_y_positions)
+    _bar_ax.set_yticklabels(_bar_df["Metadata_Label"])
+
+    _bar_ax.legend()
+    _bar_fig.tight_layout()
+
+    _bar_fig
+    return
+
+
+@app.cell
+def _(active_rate_comparison_df, plt):
+    _scatter_df = active_rate_comparison_df.dropna(
+        subset=[
+            "actual_pct_active",
+            "predicted_pct_active",
+        ]
+    )
+
+    _scatter_min_value = min(
+        _scatter_df["actual_pct_active"].min(),
+        _scatter_df["predicted_pct_active"].min(),
+    )
+
+    _scatter_max_value = max(
+        _scatter_df["actual_pct_active"].max(),
+        _scatter_df["predicted_pct_active"].max(),
+    )
+
+    _scatter_fig, _scatter_ax = plt.subplots(figsize=(6, 6))
+
+    _scatter_ax.scatter(
+        _scatter_df["actual_pct_active"],
+        _scatter_df["predicted_pct_active"],
+        alpha=0.7,
+    )
+
+    _scatter_ax.plot(
+        [_scatter_min_value, _scatter_max_value],
+        [_scatter_min_value, _scatter_max_value],
+        linestyle="--",
+    )
+
+    _scatter_ax.set_xlabel("Actual % active")
+    _scatter_ax.set_ylabel("Predicted % active")
+    _scatter_ax.set_title("Actual vs predicted % active")
+
+    _scatter_ax.set_xlim(_scatter_min_value, _scatter_max_value)
+    _scatter_ax.set_ylim(_scatter_min_value, _scatter_max_value)
+
+    _scatter_fig.tight_layout()
+
+    _scatter_fig
+    return
+
+
+@app.cell
+def _(active_rate_comparison_df, pd):
+    _corr_df = active_rate_comparison_df.dropna(
+        subset=[
+            "actual_pct_active",
+            "predicted_pct_active",
+        ]
+    )
+
+    _pearson_r = _corr_df["actual_pct_active"].corr(
+        _corr_df["predicted_pct_active"],
+        method="pearson",
+    )
+
+    _spearman_r = _corr_df["actual_pct_active"].corr(
+        _corr_df["predicted_pct_active"],
+        method="spearman",
+    )
+
+    active_rate_correlation_df = pd.DataFrame(
+        {
+            "metric": [
+                "Pearson correlation",
+                "Spearman correlation",
+                "Number of assays",
+            ],
+            "value": [
+                _pearson_r,
+                _spearman_r,
+                len(_corr_df),
+            ],
+        }
+    )
+
+    active_rate_correlation_df
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Compare if there are known assays in ToxCast for the constituents""")
+    return
+
+
+@app.cell
+def _():
+    # add path script utils
+    import sys
+    sys.path.append("/Users/ollitrault/Documents/projects/utils")
+    from util_standardizer import StandardizeMolecule
+    return (StandardizeMolecule,)
+
+
+@app.cell
+def _(pd):
+    df_axiom_cellbased_binary = pd.read_parquet("modules/06_classification/inputs/toxcast_cellbased_binary.parquet")
+    df_axiom_cellfree_binary = pd.read_parquet("modules/06_classification/inputs/toxcast_cellfree_binary.parquet")
+    df_axiom_cytotox_binary = pd.read_parquet("modules/06_classification/inputs/toxcast_cytotox_binary.parquet")
+    print(f"ToxCast cell-based : {df_axiom_cellbased_binary.shape}")
+    print(f"ToxCast cell-free : {df_axiom_cellfree_binary.shape}")
+    print(f"ToxCast cytotox : {df_axiom_cytotox_binary.shape}")
+    return (
+        df_axiom_cellbased_binary,
+        df_axiom_cellfree_binary,
+        df_axiom_cytotox_binary,
+    )
+
+
+@app.cell
+def _(pd):
+    df_axiom_cellbased_infos = pd.read_parquet("modules/06_classification/inputs/toxcast_cellbased_info.parquet")
+    df_axiom_cellfree_infos = pd.read_parquet("modules/06_classification/inputs/toxcast_cellfree_info.parquet")
+    df_axiom_cytotox_infos = pd.read_parquet("modules/06_classification/inputs/toxcast_cytotox_info.parquet")
+    print(f"ToxCast cell-based infos : {df_axiom_cellbased_infos.shape}")
+    print(f"ToxCast cell-free infos : {df_axiom_cellfree_infos.shape}")
+    print(f"ToxCast cytotox infos : {df_axiom_cytotox_infos.shape}")
+    return
+
+
+@app.cell
+def _(pd):
+    mat_annotations = pd.read_csv("modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv", sep="\t")
+    return (mat_annotations,)
+
+
+@app.cell
+def _(pd):
+    dt_oasis_dtxsid = pd.read_csv("modules/06_classification/inputs/v5_oasis_03Sept2024_simple.csv")
+    return (dt_oasis_dtxsid,)
+
+
+@app.cell
+def _(StandardizeMolecule, dt_oasis_dtxsid):
+    # standardize
+    dt_oasis_dtxsid_standardized = StandardizeMolecule(dt_oasis_dtxsid, input_column="SMILES").run()
+    return (dt_oasis_dtxsid_standardized,)
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary,
+    df_axiom_cellfree_binary,
+    df_axiom_cytotox_binary,
+    dt_oasis_dtxsid_standardized,
+    mat_annotations,
+):
+    # Map standardized SMILES -> OASIS_ID
+    smiles_to_oasis = (
+        dt_oasis_dtxsid_standardized[
+            ["SMILES_standardized", "OASIS_ID"]
+        ]
+        .drop_duplicates(subset="SMILES_standardized")
+    )
+
+    # Add OASIS_ID to mat_annotations
+    mat_annotations_oasis = mat_annotations.merge(
+        smiles_to_oasis,
+        on="SMILES_standardized",
+        how="left",
+    )
+
+    # Merge each Axiom dataset
+    mat_annotations_oasis_toxcast = (
+        mat_annotations_oasis
+        .merge(df_axiom_cellbased_binary, on="OASIS_ID", how="left")
+        .merge(df_axiom_cellfree_binary, on="OASIS_ID", how="left")
+        .merge(df_axiom_cytotox_binary, on="OASIS_ID", how="left")
+    )
+    return mat_annotations_oasis, mat_annotations_oasis_toxcast
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary,
+    df_axiom_cellfree_binary,
+    df_axiom_cytotox_binary,
+    mat_annotations_oasis,
+):
+    # OASIS IDs present in any ToxCast dataset
+    toxcast_oasis_ids = set().union(
+        df_axiom_cellbased_binary["OASIS_ID"],
+        df_axiom_cellfree_binary["OASIS_ID"],
+        df_axiom_cytotox_binary["OASIS_ID"],
+    )
+
+    # Flag compounds with any ToxCast annotation
+    mat_annotations_oasis["has_toxcast"] = (
+        mat_annotations_oasis["OASIS_ID"].isin(toxcast_oasis_ids)
+    )
+
+    print(
+        f"{mat_annotations_oasis['has_toxcast'].sum()} / "
+        f"{len(mat_annotations_oasis)} compounds have ToxCast annotations"
+    )
+
+    # Subsets
+    mat_annotations_oasis_with_toxcast = (
+        mat_annotations_oasis[mat_annotations_oasis["has_toxcast"]].copy()
+    )
+
+    mat_annotations_oasis_without_toxcast = (
+        mat_annotations_oasis[~mat_annotations_oasis["has_toxcast"]].copy()
+    )
+    return (mat_annotations_oasis_with_toxcast,)
+
+
+@app.cell
+def _(mat_annotations_oasis_with_toxcast):
+    mat_annotations_oasis_with_toxcast
+    return
+
+
+@app.cell
+def _(mat_annotations_oasis, mat_annotations_oasis_toxcast):
+    # ToxCast assay columns
+    toxcast_cols = mat_annotations_oasis_toxcast.columns.difference(
+        mat_annotations_oasis.columns
+    )
+
+    # Assays with at least one active prediction
+    active_assay_cols = toxcast_cols[
+        mat_annotations_oasis_toxcast[toxcast_cols].eq(1).any(axis=0)
+    ]
+
+    # Matrix of chemicals × active assays
+    df_active_toxcast_matrix = (
+        mat_annotations_oasis_toxcast.loc[
+            mat_annotations_oasis_toxcast[active_assay_cols].eq(1).any(axis=1),
+            ["OASIS_ID", "Constituent", "SMILES_standardized"] + list(active_assay_cols),
+        ]
+        .copy()
+    )
+
+    df_active_toxcast_matrix
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Compare with ADMELAB3.0 QSAR predictions""")
+    return
+
+
+@app.cell
+def _(mat_annotations):
+    # Write file for QSAR with ADMELAB3.0
+    mat_annotations["SMILES"].to_csv(
+        "modules/09_downstream_analysis/tables/admetlab3_to_do_smiles.txt",
+        index=False,
+        header=False,
+    )
+    return
+
+
+@app.cell
+def _(pd):
+    df_qsar_prediction = pd.read_csv("modules/09_downstream_analysis/tables/admetlab3.0_done_290626_tmp634rwz3y1782740735.csv")
+    return (df_qsar_prediction,)
+
+
+@app.cell
+def _(mat_annotations):
+    mat_annotations
+    return
+
+
+@app.cell
+def _(df_qsar_prediction):
+    df_qsar_prediction
+    return
+
+
+@app.cell
+def _(mat_annotations):
+    # Duplicates in mat_annotations
+    mat_annotations["SMILES"].value_counts().loc[lambda x: x > 1]
+    return
+
+
+@app.cell
+def _(df_qsar_prediction):
+    # Duplicates in predictions
+    df_qsar_prediction["raw_smiles"].value_counts().loc[lambda x: x > 1]
+    return
+
+
+@app.cell
+def _(df_qsar_prediction, mat_annotations):
+    mat_annotations_qsar = (
+        mat_annotations.merge(
+            df_qsar_prediction,
+            left_on="SMILES",
+            right_on="raw_smiles",
+            how="left",
+        )
+        .drop(columns="raw_smiles")
+    )
+    mat_annotations_qsar
+    return (mat_annotations_qsar,)
+
+
+@app.cell
+def _(ListedColormap, Patch, mat_annotations_qsar, plt, sns):
+    pred_cols = [
+        "Carcinogenicity",
+        "Genotoxicity",
+        "Ames",
+        "DILI",
+        "H-HT",
+        "NR-AhR",
+        "NR-AR",
+        "NR-AR-LBD",
+        "NR-Aromatase",
+        "NR-ER",
+        "NR-ER-LBD",
+        "NR-PPAR-gamma",
+    ]
+    _heatmap_df = (
+        mat_annotations_qsar
+        .sort_values(["Plant name", "Constituent"])
+        .set_index(["Plant name", "Constituent"])[pred_cols]
+        .ge(0.5)
+        .astype(int)
+    )
+
+    _fig, _ax = plt.subplots(figsize=(5.5, max(6, len(_heatmap_df) * 0.18)))
+
+    # White = inactive, red = active
+    _cmap = ListedColormap(["white", "red"])
+
+    sns.heatmap(
+        _heatmap_df,
+        cmap=_cmap,
+        vmin=0,
+        vmax=1,
+        linewidths=0.2,
+        linecolor="lightgrey",
+        cbar=False,
+        ax=_ax,
+    )
+
+    # Plant group boundaries
+    _plants = _heatmap_df.index.get_level_values(0)
+    _bounds = _plants.to_series().groupby(level=0).size().cumsum()
+
+    _start = 0
+    _x_right = len(pred_cols) + 0.3
+
+    for _plant, _end in _bounds.items():
+        # separator line between plant groups
+        _ax.hlines(
+            _end,
+            *_ax.get_xlim(),
+            colors="black",
+            linewidth=1.2,
+        )
+
+        # plant name on the right
+        _ax.text(
+            _x_right,
+            (_start + _end) / 2,
+            _plant,
+            ha="left",
+            va="center",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+        _start = _end
+
+    # Show only constituent names on y-axis
+    _ax.set_yticklabels(
+        _heatmap_df.index.get_level_values(1),
+        fontsize=8,
+    )
+
+    _ax.set_xlabel("Endpoint")
+    _ax.set_ylabel("Constituent")
+
+    # Make room for plant names on the right
+    _ax.set_xlim(0, len(pred_cols) + 2.5)
+
+    # Binary legend
+    _legend_handles = [
+        Patch(facecolor="white", edgecolor="black", label="Inactive"),
+        Patch(facecolor="red", edgecolor="black", label="Active"),
+    ]
+
+    _ax.legend(
+        handles=_legend_handles,
+        title="Prediction",
+        bbox_to_anchor=(1.02, 0.97),
+        loc="upper left",
+        frameon=False,
+    )
+
+    plt.tight_layout()
+
+    _fig
     return
 
 

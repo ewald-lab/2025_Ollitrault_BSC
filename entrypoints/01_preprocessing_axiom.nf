@@ -1,8 +1,10 @@
 nextflow.enable.dsl=2
 
-// To RUN Axiom: nextflow run entrypoints/01_preprocessing_axiom.nf -params-file entrypoints/config_base_axiom.json -resume
+// To RUN Axiom: nextflow run entrypoints/01_preprocessing_axiom.nf -params-file configs/config_base_axiom.json -resume
 
-include { preprocessing_workflow } from './workflows/01_preprocessing.nf'
+include { preprocessing_workflow } from '../workflows/01_preprocessing.nf'
+
+params.base_dir = params.base_dir ?: "${projectDir}/.."
 
 // Generate a unique run code with date + short UUID
 def today = new Date()

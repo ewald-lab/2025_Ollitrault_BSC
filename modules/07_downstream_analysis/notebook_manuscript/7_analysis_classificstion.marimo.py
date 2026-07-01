@@ -1,0 +1,1511 @@
+import marimo
+
+__generated_with = "0.17.0"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import marimo as mo
+    import pandas as pd
+    import numpy as np
+    from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
+    from scipy import stats
+    import warnings
+    import plotnine as pn
+    from plotnine import (
+        aes,
+        element_rect,
+        element_text,
+        facet_wrap,
+        geom_boxplot,
+        geom_jitter,
+        geom_point,
+        geom_smooth,
+        ggplot,
+        labs,
+        scale_x_discrete,
+        theme,
+        theme_bw,
+        theme_classic,
+        ylim,
+    )
+    from matplotlib.lines import Line2D
+    import seaborn as sns
+    from pathlib import Path
+    return (
+        Line2D,
+        Path,
+        auc,
+        mo,
+        np,
+        pd,
+        precision_recall_curve,
+        roc_auc_score,
+        sns,
+        stats,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    # Classification Performance Analysis
+
+    This notebook summarizes Axiom classification outputs, computes
+    fold-level performance metrics, identifies labels where morphology
+    outperforms the random baseline, and generates manuscript-oriented
+    performance plots.
+    """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Input predictions""")
+    return
+
+
+@app.cell
+def _(Path):
+    classification_output_dir = Path("modules/06_classification/outputs")
+    downloads_dir = Path.home() / "Downloads"
+    toxcast_cellbased_assay_info_path = Path(
+        "/Users/ollitrault/Documents/projects/databases/proc_toxcast_annotations/"
+        "toxcast_cellbased_assay_info.csv"
+    )
+    return classification_output_dir, downloads_dir
+
+
+@app.cell
+def _(pd):
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions_batch.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions_batch.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions_batch.parquet")
+    print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
+    print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
+    print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
+    print(f"ToxCast cytotox predictions: {df_axiom_cytotox_binary_prediction.shape}")
+    return (
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction,
+        df_axiom_hits_prediction,
+    )
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+):
+    # Harmonize the morphology endpoint naming used in downstream displays.
+    for _df in [
+        df_axiom_hits_prediction,
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction,
+    ]:
+        _df["Metadata_Label"] = _df["Metadata_Label"].str.replace("MTT", "MT", regex=False)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Compute performance metrics""")
+    return
+
+
+@app.cell
+def _(auc, np, pd, precision_recall_curve, roc_auc_score):
+    def precision_recall_gain_curve(y_true, y_scores):
+        """Compute precision/recall gain values from sorted prediction scores."""
+        # Sort predictions and true labels by descending score
+        sorted_indices = np.argsort(y_scores)[::-1]
+        y_true_sorted = y_true[sorted_indices]
+
+        # Calculate baseline precision and recall
+        baseline_precision = np.mean(y_true)
+        baseline_recall = np.sum(y_true) / len(y_true)
+
+        precisions = []
+        recalls = []
+        precision_gains = []
+        recall_gains = []
+
+        for threshold in range(1, len(y_true) + 1):
+            # Predictions above threshold considered positive
+            predicted_positive = y_true_sorted[:threshold]
+
+            # Calculate precision and recall
+            true_positives = np.sum(predicted_positive)
+            precision = true_positives / threshold
+            recall = true_positives / np.sum(y_true)
+
+            # Calculate precision gain and recall gain
+            precision_gain = precision - baseline_precision
+            recall_gain = recall - baseline_recall
+
+            precisions.append(precision)
+            recalls.append(recall)
+            precision_gains.append(precision_gain)
+            recall_gains.append(recall_gain)
+
+        return precisions, recalls, precision_gains, recall_gains
+
+
+    def prg_auc(y_true, y_scores):
+        """Area under the precision-recall gain curve."""
+        # Calculate PRG curve
+        _, _, precision_gains, recall_gains = precision_recall_gain_curve(y_true, y_scores)
+
+        # Calculate area under PRG curve using trapezoidal rule
+        prg_auc = np.trapz(precision_gains, x=recall_gains)
+
+        return prg_auc
+    def compute_metrics(y_pred, y_actual, y_prob):
+        """Return AUROC, PRAUC, and AUPRG for one label/model/fold."""
+        # AUROC
+        try:
+            auroc = roc_auc_score(y_actual, y_prob)
+        except ValueError:
+            auroc = None
+
+        # PRAUC
+        try:
+            precision, recall, _ = precision_recall_curve(y_actual, y_prob)
+            prauc = auc(recall, precision)
+        except ValueError:
+            prauc = None
+
+        # AUPRG
+        auprg = prg_auc(np.array(y_actual), np.array(y_prob))
+
+        return auroc, prauc, auprg
+    def process_metrics(pred: pd.DataFrame):
+        """Summarize fold-level predictions into per-label model metrics."""
+        class_balance = (
+            pred[["Metadata_Label", "Metadata_Count_0", "Metadata_Count_1", "Model_type"]]
+            .drop_duplicates()
+        )
+
+        fold_metrics = (
+            pred
+            .groupby(["Metadata_Label", "Model_type", "k_fold"], as_index=False)
+            .agg({
+                "y_pred": list,
+                "y_actual": list,
+                "y_prob": list,
+                "Metadata_Count_0": "first",
+                "Metadata_Count_1": "first",
+            })
+        )
+
+        fold_metrics[["AUROC", "PRAUC", "AUPRG"]] = fold_metrics.apply(
+            lambda row: pd.Series(
+                compute_metrics(row["y_pred"], row["y_actual"], row["y_prob"])
+            ),
+            axis=1
+        )
+
+        result = (
+            fold_metrics
+            .groupby(["Metadata_Label", "Model_type"], as_index=False)
+            .agg({
+                "AUROC":  ["mean", "std"],
+                "PRAUC":  ["mean", "std"],
+                "AUPRG":  ["mean", "std"],
+            })
+        )
+
+        result.columns = [
+            "Metadata_Label", "Model_type",
+            "AUROC",  "AUROC_std",
+            "PRAUC",  "PRAUC_std",
+            "AUPRG",  "AUPRG_std",
+        ]
+
+        result = result.merge(class_balance, on=["Metadata_Label", "Model_type"], how="left")
+
+        return result, fold_metrics
+    return (process_metrics,)
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    process_metrics,
+):
+    df_axiom_hits_metrics, df_axiom_hits_metrics_cv = process_metrics(df_axiom_hits_prediction)
+    df_axiom_cellbased_binary_metrics, df_axiom_cellbased_binary_metrics_cv = process_metrics(df_axiom_cellbased_binary_prediction)
+    df_axiom_cellfree_binary_metrics, df_axiom_cellfree_binary_metrics_cv = process_metrics(df_axiom_cellfree_binary_prediction)
+    df_axiom_cytotox_binary_metrics, df_axiom_cytotox_binary_metrics_cv = process_metrics(df_axiom_cytotox_binary_prediction)
+    print(f"Axiom cytotoxicity metrics: {df_axiom_hits_metrics.shape}")
+    print(f"ToxCast cell-based metrics: {df_axiom_cellbased_binary_metrics.shape}")
+    print(f"ToxCast cell-free metrics: {df_axiom_cellfree_binary_metrics.shape}")
+    print(f"ToxCast cytotox metrics: {df_axiom_cytotox_binary_metrics.shape}")
+    return (
+        df_axiom_cellbased_binary_metrics,
+        df_axiom_cellbased_binary_metrics_cv,
+        df_axiom_cellfree_binary_metrics,
+        df_axiom_cellfree_binary_metrics_cv,
+        df_axiom_cytotox_binary_metrics,
+        df_axiom_cytotox_binary_metrics_cv,
+        df_axiom_hits_metrics,
+        df_axiom_hits_metrics_cv,
+    )
+
+
+@app.cell
+def _(df_axiom_cytotox_binary_metrics_cv):
+    df_axiom_cytotox_binary_metrics_cv
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Annotate Metrics""")
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_metrics,
+    df_axiom_cellfree_binary_metrics,
+    df_axiom_cytotox_binary_metrics,
+    df_axiom_hits_metrics,
+    pd,
+):
+    # Map endpoint names to their corresponding metric dataframes
+    endpoint_map = {
+        "axiom_hits": df_axiom_hits_metrics,
+        "toxcast_cellbased_binary": df_axiom_cellbased_binary_metrics,
+        "toxcast_cellfree_binary": df_axiom_cellfree_binary_metrics,
+        "toxcast_cytotox_binary": df_axiom_cytotox_binary_metrics,
+    }
+
+    pred_list = []
+
+    for et, df in endpoint_map.items():
+        df = df.copy()
+
+        # Total compounds
+        df["Total_Compounds"] = df["Metadata_Count_0"] + df["Metadata_Count_1"]
+
+        # Endpoint type
+        df["Endpoint_type"] = et
+
+        pred_list.append(df)
+
+    # Concatenate
+    pred_pandas = pd.concat(pred_list, axis=0, ignore_index=True)
+
+    # Rename if needed (mimicking your Polars logic)
+    pred_pandas["Endpoint_type"] = pred_pandas["Endpoint_type"].replace({
+        "axiom_hits": "axiom_cytotox"
+    })
+    pred_pandas["Endpoint_type"] = pred_pandas["Endpoint_type"].replace({
+        "toxcast_cellbased_binary": "toxcast_cellbased"
+    })
+    pred_pandas["Endpoint_type"] = pred_pandas["Endpoint_type"].replace({
+        "toxcast_cellfree_binary": "toxcast_cellfree"
+    })
+    pred_pandas["Endpoint_type"] = pred_pandas["Endpoint_type"].replace({
+        "toxcast_cytotox_binary": "toxcast_cytotox"
+    })
+
+    # Percent positive
+    pred_pandas["Percent_Positive"] = (
+        pred_pandas["Metadata_Count_1"] / pred_pandas["Total_Compounds"]
+    )
+
+    # Ordered categorical
+    pred_pandas["Endpoint_type"] = pd.Categorical(
+        pred_pandas["Endpoint_type"],
+        categories=[
+            "axiom_cytotox",
+            "toxcast_cytotox",
+            "toxcast_cellbased",
+            "toxcast_cellfree",
+        ],
+        ordered=True
+    )
+    return (pred_pandas,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Significant Performance Labels""")
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_metrics_cv,
+    df_axiom_cellfree_binary_metrics_cv,
+    df_axiom_cytotox_binary_metrics_cv,
+    df_axiom_hits_metrics_cv,
+    pd,
+):
+    df_metrics_cv = pd.concat([df_axiom_hits_metrics_cv,
+                               df_axiom_cellbased_binary_metrics_cv,
+                               df_axiom_cellfree_binary_metrics_cv,
+                               df_axiom_cytotox_binary_metrics_cv
+                              ], axis=0, ignore_index=True)
+    df_metrics_cv
+    return (df_metrics_cv,)
+
+
+@app.cell
+def _(df_metrics_cv, pd, stats):
+    # Filter for the two models to compare
+    df_comparison = df_metrics_cv[
+        df_metrics_cv["Model_type"].isin(["Actual", "Random_baseline"])
+    ].copy()
+
+    # Pivot to get paired structure
+    df_pivot_auroc = df_comparison.pivot_table(
+        index=["Metadata_Label", "k_fold"],
+        columns="Model_type",
+        values="AUROC",
+        aggfunc="first"
+    ).reset_index()
+
+    df_pivot_auprg = df_comparison.pivot_table(
+        index=["Metadata_Label", "k_fold"],
+        columns="Model_type",
+        values="AUPRG",
+        aggfunc="first"
+    ).reset_index()
+
+    # Dataset-level class counts (constant per label)
+    df_counts = (
+        df_comparison[df_comparison["Model_type"] == "Actual"]
+        .groupby("Metadata_Label")[["Metadata_Count_0", "Metadata_Count_1"]]
+        .first()
+        .reset_index()
+    )
+    _counts_lookup = df_counts.set_index("Metadata_Label")
+
+    # Perform paired t-test for each Metadata_Label
+    results = []
+
+    for label in df_pivot_auroc["Metadata_Label"].unique():
+        auroc_data = df_pivot_auroc[df_pivot_auroc["Metadata_Label"] == label]
+        auprg_data = df_pivot_auprg[df_pivot_auprg["Metadata_Label"] == label]
+
+        t_stat_auroc, p_val_auroc = stats.ttest_rel(
+            auroc_data["Actual"], auroc_data["Random_baseline"]
+        )
+        t_stat_auprg, p_val_auprg = stats.ttest_rel(
+            auprg_data["Actual"], auprg_data["Random_baseline"]
+        )
+
+        mean_diff_auroc = auroc_data["Actual"].mean() - auroc_data["Random_baseline"].mean()
+        mean_diff_auprg = auprg_data["Actual"].mean() - auprg_data["Random_baseline"].mean()
+
+        results.append({
+            "Metadata_Label":        label,
+            "Metadata_Count_0":      _counts_lookup.loc[label, "Metadata_Count_0"],
+            "Metadata_Count_1":      _counts_lookup.loc[label, "Metadata_Count_1"],
+            "AUROC_mean_Actual":     auroc_data["Actual"].mean(),
+            "AUROC_mean_Random_baseline":  auroc_data["Random_baseline"].mean(),
+            "AUROC_diff":            mean_diff_auroc,
+            "AUROC_t_stat":          t_stat_auroc,
+            "AUROC_p_value":         p_val_auroc,
+            "AUPRG_mean_Actual":     auprg_data["Actual"].mean(),
+            "AUPRG_mean_Random_baseline":  auprg_data["Random_baseline"].mean(),
+            "AUPRG_diff":            mean_diff_auprg,
+            "AUPRG_t_stat":          t_stat_auprg,
+            "AUPRG_p_value":         p_val_auprg,
+            "n_folds":               len(auroc_data)
+        })
+
+    # Create results dataframe
+    df_ttest_results = pd.DataFrame(results)
+
+    # Add significance indicators
+    df_ttest_results["AUROC_significant"] = df_ttest_results["AUROC_p_value"] < 0.05
+    df_ttest_results["AUPRG_significant"] = df_ttest_results["AUPRG_p_value"] < 0.05
+
+    # Sort by AUROC difference
+    df_ttest_results = df_ttest_results.sort_values("AUROC_diff", ascending=False)
+
+    print(f"\nPaired t-test results (n={df_ttest_results['n_folds'].iloc[0]} folds per label)")
+    print(f"Comparing: Actual (Morphology) vs Random_baseline\n")
+    print(df_ttest_results)
+    return (df_ttest_results,)
+
+
+@app.cell
+def _(df_ttest_results):
+    df_ttest_results
+    return
+
+
+@app.cell
+def _(df_ttest_results):
+    df_ttest_results[df_ttest_results["AUPRG_significant"]][
+        ["Metadata_Label", "AUROC_mean_Actual", "AUROC_mean_Random_baseline", "AUROC_p_value", 
+         "AUPRG_mean_Actual", "AUPRG_mean_Random_baseline", "AUPRG_p_value", "Metadata_Count_0", "Metadata_Count_1"]
+    ].sort_values("AUPRG_p_value", ascending=True)
+    return
+
+
+@app.cell
+def _(df_axiom_cellbased_binary_metrics_cv, df_ttest_results, pd):
+    excluded_labels = [
+        "NVS_TR_hDAT",
+        "tissue__liver",
+        "tissue__prostate"
+    ]
+
+    # 1. Main significant performance labels
+    significant_labels = df_ttest_results[
+        (df_ttest_results["AUPRG_significant"]) &
+        (df_ttest_results["AUROC_significant"]) &
+        (df_ttest_results["AUROC_mean_Actual"] > df_ttest_results["AUROC_mean_Random_baseline"]) &
+        (df_ttest_results["AUPRG_mean_Actual"] > df_ttest_results["AUPRG_mean_Random_baseline"]) &
+        (df_ttest_results["Metadata_Count_1"] > 20) &
+        (df_ttest_results["Metadata_Label"].isin(df_axiom_cellbased_binary_metrics_cv["Metadata_Label"].unique())) &
+        (~df_ttest_results["Metadata_Label"].isin(excluded_labels))
+    ]["Metadata_Label"]
+
+    # 2. Extra labels to add separately: LDH, MT, or cell_type__HepG2
+    extra_labels = df_ttest_results[
+        (
+            df_ttest_results["Metadata_Label"].str.contains("LDH", na=False) |
+            df_ttest_results["Metadata_Label"].str.contains("MT", na=False) |
+            df_ttest_results["Metadata_Label"].str.contains("cell_type__HepG2", na=False)
+        )
+    ]["Metadata_Label"]
+
+    # Combine and remove duplicates
+    list_significative_performance = pd.Series(
+        pd.concat([significant_labels, extra_labels]).unique()
+    )
+
+    print(f"Significant performance labels retained: {len(significant_labels)}")
+    print(f"Extra LDH / MT / HepG2 labels added: {len(set(extra_labels) - set(significant_labels))}")
+    print(f"Total labels retained: {len(list_significative_performance)}")
+    return (list_significative_performance,)
+
+
+@app.cell
+def _(
+    classification_output_dir,
+    df_ttest_results,
+    list_significative_performance,
+):
+    _mask_assays = (
+        (df_ttest_results["Metadata_Label"].isin(list_significative_performance))
+    )
+
+    df_ttest_results[_mask_assays].to_csv(
+        classification_output_dir / "results_performance.csv",
+        index=False
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Correlation Between Significant Actual Models""")
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    list_significative_performance,
+    pd,
+):
+    # ── Step 1: Filter function ────────────────────────────────────────────────
+    def _filter_df(_df):
+        return _df[
+            (_df["Model_type"] == "Actual") &
+            (_df["Metadata_Label"].isin(list_significative_performance))
+        ][["Metadata_compound", "repeat", "Metadata_Label", "y_prob"]].copy()
+
+
+    # ── Step 2: Apply filtering ────────────────────────────────────────────────
+    _df_hits      = _filter_df(df_axiom_hits_prediction)
+    _df_cellbased = _filter_df(df_axiom_cellbased_binary_prediction)
+    _df_cellfree  = _filter_df(df_axiom_cellfree_binary_prediction)
+    _df_cytotox   = _filter_df(df_axiom_cytotox_binary_prediction)
+
+
+    # ── Step 3: Concatenate all datasets ───────────────────────────────────────
+    _df_all = pd.concat(
+        [_df_hits, _df_cellbased, _df_cellfree, _df_cytotox],
+        ignore_index=True
+    )
+
+
+    # ── Create combined index ────────────────────────────────────────────────
+    _df_all["_compound_repeat"] = (
+        _df_all["Metadata_compound"].astype(str) + "_r" + _df_all["repeat"].astype(str)
+    )
+
+    # ── Pivot ────────────────────────────────────────────────────────────────
+    df_pivot_correlation = _df_all.pivot_table(
+        index="_compound_repeat",
+        columns="Metadata_Label",
+        values="y_prob",
+    )
+    return (df_pivot_correlation,)
+
+
+@app.cell
+def _(df_pivot_correlation, downloads_dir, plt, sns):
+    # ── Step 5: Compute correlation matrix ─────────────────────────────────────
+    _corr = df_pivot_correlation.corr(method="pearson")
+
+
+    # ── Step 6: Clustered heatmap ──────────────────────────────────────────────
+    fig_size  = 28 # canvas grows dynamically with label count
+
+    _clustermap = sns.clustermap(
+        _corr,
+        method="average",
+        metric="euclidean",
+        cmap="coolwarm",
+        vmin=-1, vmax=1,
+        figsize=(fig_size, fig_size),  # ← dynamic, not hardcoded (20,20)
+        linewidths=0.1,
+        dendrogram_ratio=(0.10, 0.10),
+        cbar_pos=(0.02, 0.82, 0.02, 0.12),
+        xticklabels=True,              # ← forces ALL x labels (key fix)
+        yticklabels=True,              # ← forces ALL y labels (key fix)
+    )
+
+    # ── Label readability ──────────────────────────────────────────────────────
+
+    plt.setp(_clustermap.ax_heatmap.get_xticklabels(),
+             rotation=90, fontsize=16, ha="center")
+    plt.setp(_clustermap.ax_heatmap.get_yticklabels(),
+             rotation=0,  fontsize=16, va="center")
+
+    _clustermap.fig.suptitle(
+        "Clustered Correlation of Metadata_Labels (y_prob)",
+        fontsize=14, fontweight="bold", y=1.01  # y>1 avoids overlap with dendro
+    )
+    plt.savefig(downloads_dir / "correlation_heatmap_axiom_batch.png",
+                 bbox_inches="tight", dpi=300)
+    plt.show()
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Performance by Endpoint Category: Significant Labels""")
+    return
+
+
+@app.cell
+def _():
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    return mpatches, plt
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_metrics_cv,
+    df_axiom_cellfree_binary_metrics_cv,
+    df_axiom_cytotox_binary_metrics_cv,
+    df_axiom_hits_metrics_cv,
+    df_metrics_cv,
+    list_significative_performance,
+):
+    # ── 1. Build source-lookup ────────────────────────────────────────────────────
+    _source_map = {}
+    _source_dfs = {
+        "Hits":       df_axiom_hits_metrics_cv,
+        "Cell-based": df_axiom_cellbased_binary_metrics_cv,
+        "Cell-free":  df_axiom_cellfree_binary_metrics_cv,
+        "Cytotox":    df_axiom_cytotox_binary_metrics_cv,
+    }
+    for _name, _df in _source_dfs.items():
+        for _label in _df["Metadata_Label"].unique():
+            _source_map[_label] = _name
+
+    # ── 2. Significant labels (BOTH AUROC AND PRAUC p < 0.05) ────────────────────
+    _sig_labels = list_significative_performance.to_list()
+
+    # ── 3. Filter metrics ─────────────────────────────────────────────────────────
+    _MODELS  = ["Actual", "Cellcount_baseline", "Random_baseline"]
+    _df_plot = df_metrics_cv[
+        df_metrics_cv["Model_type"].isin(_MODELS) &
+        df_metrics_cv["Metadata_Label"].isin(_sig_labels)
+    ].copy()
+    _df_plot["Source"] = _df_plot["Metadata_Label"].map(_source_map)
+
+    # ── 4. Compute mean ± std ─────────────────────────────────────────────────────
+    _df_agg = (
+        _df_plot
+        .groupby(["Source","Metadata_Label", "Model_type"])["AUROC"]
+        .agg(mean="mean", std="std")
+        .reset_index()
+    )
+    _df_agg[["Source", "Metadata_Label"]].drop_duplicates()["Source"].value_counts()
+    return
+
+
+@app.cell
+def _():
+    import math
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Plot comparison AUPRG AUC""")
+    return
+
+
+@app.cell
+def _():
+    from adjustText import adjust_text
+    return (adjust_text,)
+
+
+@app.cell
+def _(
+    Line2D,
+    adjust_text,
+    df_axiom_cellbased_binary_metrics_cv,
+    df_axiom_cytotox_binary_metrics_cv,
+    df_axiom_hits_metrics_cv,
+    df_metrics_cv,
+    list_significative_performance,
+    mpatches,
+    plt,
+):
+    # ── 1. Build source-lookup ────────────────────────────────────────────────────
+    _source_map = {}
+
+    _source_dfs = {
+        "Hits":       df_axiom_hits_metrics_cv,
+        "Cell-based": df_axiom_cellbased_binary_metrics_cv,
+        # "Cell-free":  df_axiom_cellfree_binary_metrics_cv,
+        "Cytotox":    df_axiom_cytotox_binary_metrics_cv,
+    }
+
+    for _name, _df in _source_dfs.items():
+        for _label in _df["Metadata_Label"].unique():
+            _source_map[_label] = _name
+
+    # ── 2. Significant assays only ────────────────────────────────────────────────
+    _sig_labels = list_significative_performance.to_list()
+
+    # ── 3. Filter metrics to significant assays only ──────────────────────────────
+    _models = ["Actual", "Cellcount_baseline", "Random_baseline"]
+
+    _df_plot = df_metrics_cv[
+        (df_metrics_cv["Model_type"].isin(_models)) &
+        (df_metrics_cv["Metadata_Label"].isin(_sig_labels))
+    ].copy()
+
+    _df_plot["Source"] = _df_plot["Metadata_Label"].map(_source_map)
+    _df_plot = _df_plot.dropna(subset=["Source"])
+
+    # ── 4. Aggregate AUROC and AUPRG ──────────────────────────────────────────────
+    _df_agg_auroc = (
+        _df_plot
+        .groupby(["Metadata_Label", "Model_type"])["AUROC"]
+        .agg(auroc_mean="mean", auroc_std="std")
+        .reset_index()
+    )
+
+    _df_agg_auprg = (
+        _df_plot
+        .groupby(["Metadata_Label", "Model_type"])["AUPRG"]
+        .agg(auprg_mean="mean", auprg_std="std")
+        .reset_index()
+    )
+
+    _df_scatter = (
+        _df_agg_auroc[_df_agg_auroc["Model_type"] == "Actual"]
+        .merge(
+            _df_agg_auprg[_df_agg_auprg["Model_type"] == "Actual"],
+            on=["Metadata_Label", "Model_type"]
+        )
+    )
+
+    _df_scatter["Source"] = _df_scatter["Metadata_Label"].map(_source_map)
+    _df_scatter = _df_scatter.dropna(subset=["Source"])
+
+    # ── 5. Thresholds ─────────────────────────────────────────────────────────────
+    _auroc_t1, _auroc_t2 = 0.5, 0.70
+    _auprg_t1, _auprg_t2 = 0.0, 0.3
+
+    # ── 6. Background colors ──────────────────────────────────────────────────────
+    _bg = {
+        "worse":    "#f7d4d4",
+        "moderate": "#fff4cc",
+        "well":     "#d4edda",
+    }
+
+    # ── 7. Source colors and lowercase labels ────────────────────────────────────
+    _source_colors = {
+        "Hits":       "#4C72B0",
+        "Cell-based": "#DD8452",
+        "Cell-free":  "#55A868",
+        "Cytotox":    "#C44E52",
+    }
+
+    _label_map = {
+        "Hits": "cytotox",
+        "Cell-based": "toxcast cell-based",
+        "Cell-free": "toxcast cell-free",
+        "Cytotox": "toxcast cytotox",
+    }
+
+    # ── 8. Figure ─────────────────────────────────────────────────────────────────
+    _fig, _ax = plt.subplots(figsize=(6, 6))
+
+    _xmin, _xmax = -0.2, 1
+    _ymin, _ymax = 0.2, 1
+
+    # ── 9. Background regions ─────────────────────────────────────────────────────
+    _ax.fill_between(
+        [_xmin, _xmax],
+        _ymin,
+        _ymax,
+        color=_bg["worse"],
+        zorder=0
+    )
+
+    _ax.fill_between(
+        [_auprg_t1, _xmax],
+        _auroc_t1,
+        _ymax,
+        color=_bg["moderate"],
+        zorder=0
+    )
+
+    _ax.fill_between(
+        [_auprg_t2, _xmax],
+        _auroc_t2,
+        _ymax,
+        color=_bg["well"],
+        zorder=0
+    )
+
+    # ── 10. Scatter points: significant assays only ───────────────────────────────
+    texts = []
+
+    for _src, _df_src in _df_scatter.groupby("Source"):
+        _color = _source_colors.get(_src, "grey")
+
+        _ax.scatter(
+            _df_src["auprg_mean"],
+            _df_src["auroc_mean"],
+            color=_color,
+            s=60,
+            alpha=0.85,
+            edgecolors="white",
+            linewidths=0.5,
+            marker="o",
+            zorder=4,
+            label=_src.lower(),
+        )
+
+        for _, _row in _df_src.iterrows():
+            if _row["auprg_mean"] > _auprg_t2 and _row["auroc_mean"] > _auroc_t2:
+                texts.append(
+                    _ax.text(
+                        _row["auprg_mean"],
+                        _row["auroc_mean"],
+                        _row["Metadata_Label"],
+                        fontsize=12,
+                        color="#1a1a1a",
+                        fontstyle="italic",
+                        zorder=6,
+                    )
+                )
+
+    # ── 11. Label repulsion ───────────────────────────────────────────────────────
+    adjust_text(
+        texts,
+        x=_df_scatter["auprg_mean"].values,
+        y=_df_scatter["auroc_mean"].values,
+        ax=_ax,
+        max_move=3.0,
+        force_points=(0.3, 0.3),
+        add_objects=[],
+        arrowprops=dict(
+            arrowstyle="-",
+            color="grey",
+            lw=0.4,
+            alpha=0.6,
+            shrinkA=0,
+            shrinkB=3
+        ),
+    )
+
+    # ── 12. Region counts ─────────────────────────────────────────────────────────
+    _df_sig = _df_scatter.copy()
+
+    _n_worse = (
+        (_df_sig["auprg_mean"] < _auprg_t1) |
+        (_df_sig["auroc_mean"] < _auroc_t1)
+    ).sum()
+
+    _n_moderate = (
+        ((_df_sig["auprg_mean"] >= _auprg_t1) & (_df_sig["auroc_mean"] >= _auroc_t1)) &
+        ~((_df_sig["auprg_mean"] >= _auprg_t2) & (_df_sig["auroc_mean"] >= _auroc_t2))
+    ).sum()
+
+    _n_well = (
+        (_df_sig["auprg_mean"] >= _auprg_t2) &
+        (_df_sig["auroc_mean"] >= _auroc_t2)
+    ).sum()
+
+    _ax.text(
+        0.55,
+        0.40,
+        f"worse than random\n(n={_n_worse})",
+        fontsize=10,
+        color="#c0392b",
+        alpha=0.7,
+        fontstyle="italic",
+        ha="center"
+    )
+
+    _ax.text(
+        0.65,
+        0.53,
+        f"moderately predicted\n(n={_n_moderate})",
+        fontsize=10,
+        color="#b7950b",
+        alpha=0.7,
+        fontstyle="italic",
+        ha="center"
+    )
+
+    _ax.text(
+        0.8,
+        0.73,
+        f"well predicted\n(n={_n_well})",
+        fontsize=10,
+        color="#1e8449",
+        alpha=0.7,
+        fontstyle="italic",
+        ha="center"
+    )
+
+    # ── 13. Style ─────────────────────────────────────────────────────────────────
+    _ax.set_xlim(_xmin, _xmax)
+    _ax.set_ylim(_ymin, _ymax)
+
+    _ax.set_xlabel("auprg (mean)", fontsize=12)
+    _ax.set_ylabel("auroc (mean)", fontsize=12)
+
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+
+    _ax.spines["left"].set_color("black")
+    _ax.spines["left"].set_linewidth(1)
+
+    _ax.spines["bottom"].set_color("black")
+    _ax.spines["bottom"].set_linewidth(1)
+
+    _ax.tick_params(
+        axis="both",
+        which="major",
+        colors="black",
+        length=4,
+        width=1,
+        direction="out"
+    )
+
+    _ax.grid(False)
+
+    # ── 14. Legend ────────────────────────────────────────────────────────────────
+    _src_patches = [
+        mpatches.Patch(
+            facecolor=_source_colors[_s],
+            edgecolor="none",
+            label=_label_map.get(_s, _s).lower()
+        )
+        for _s in _source_dfs
+    ]
+
+    _marker_patches = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="grey",
+            linestyle="none",
+            markersize=7,
+            label="significant assays"
+        )
+    ]
+
+    _ax.legend(
+        handles=_src_patches + _marker_patches,
+        loc="lower right",
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=8,
+        borderpad=0.8,
+        title="assays",
+        title_fontsize=10,
+    ).get_title().set_fontweight("bold")
+
+    plt.tight_layout()
+
+    plt.savefig(
+        "modules/09_downstream_analysis/figures/Figure_6.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.show()
+
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Focus performance""")
+    return
+
+
+@app.cell
+def _(pd):
+    # Visualisation function
+    def create_styled_metrics_table(
+        df: pd.DataFrame,
+        sort_by: str = "PRAUC",
+        ascending: bool = False,
+        model_type_rename: dict = None,
+        model_type_order: list = None
+    ):
+        """
+        Create a styled table with AUROC and PRAUC metrics.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input dataframe with predictions and metrics
+        sort_by : str, default "PRAUC"
+            Metric to sort by ("PRAUC" or "AUROC")
+        ascending : bool, default False
+            Sort order (False for descending, True for ascending)
+        model_type_rename : dict, optional
+            Dictionary to rename Model_type values
+            Default: {"Actual": "Morphology", "Cellcount_baseline": "Cell count", 
+                      "Random_baseline": "Random baseline"}
+        model_type_order : list, optional
+            Ordered list of model types for display
+            Default: ["Morphology", "Cell count", "Random baseline"]
+
+        Returns
+        -------
+        pandas.io.formats.style.Styler
+            Styled dataframe ready for display
+        """
+        # Default rename mapping
+        if model_type_rename is None:
+            model_type_rename = {
+                "Actual": "Morphology",
+                "Cellcount_baseline": "Cell count",
+                "Random_baseline": "Random baseline"
+            }
+
+        # Default order
+        if model_type_order is None:
+            model_type_order = ["Morphology", "Cell count", "Random baseline"]
+
+        # Copy to avoid modifying original
+        _df = df.copy()
+
+        # Rename Model_type values
+        _df["Model_type"] = _df["Model_type"].replace(model_type_rename)
+
+        # Make Model_type categorical with specified order
+        _df["Model_type"] = pd.Categorical(
+            _df["Model_type"],
+            categories=model_type_order,
+            ordered=True
+        )
+
+        # Filter Morphology rows for sorting
+        _morph_data = _df[_df["Model_type"] == model_type_order[0]]
+
+        # Sort Metadata_Label by specified metric
+        _ordered_labels = _morph_data.sort_values(sort_by, ascending=ascending)["Metadata_Label"]
+
+        # Pivot for AUPRG
+        _pivot_prauc = _df.pivot_table(
+            index='Metadata_Label',
+            columns='Model_type',
+            values='AUPRG',
+            aggfunc='first'
+        ).reindex(_ordered_labels)
+
+        # Pivot for AUROC
+        _pivot_auroc = _df.pivot_table(
+            index='Metadata_Label',
+            columns='Model_type',
+            values='AUROC',
+            aggfunc='first'
+        ).reindex(_ordered_labels)
+
+        # Rename columns to indicate metric
+        _pivot_prauc.columns = [f'{col} AUPRG' for col in _pivot_prauc.columns]
+        _pivot_auroc.columns = [f'{col} AUROC' for col in _pivot_auroc.columns]
+
+        # Add metadata columns
+        _metadata = _df[["Metadata_Label", "Metadata_Count_0", "Metadata_Count_1", "Total_Compounds"]].drop_duplicates()
+        _metadata = _metadata.set_index("Metadata_Label").reindex(_ordered_labels)
+
+        # Combine all tables: metadata + AUPRG + AUROC
+        _final_table = pd.concat([_metadata, _pivot_prauc, _pivot_auroc], axis=1)
+
+        # Reset index
+        _final_table = _final_table.reset_index()
+
+        # Rename columns for clarity
+        _final_table.columns.name = None
+        _final_table = _final_table.rename(columns={
+            "Metadata_Label": "Metadata Label",
+            "Metadata_Count_0": "Inactive",
+            "Metadata_Count_1": "Active",
+            "Total_Compounds": "Total"
+        })
+
+        # Get all AUPRG and AUROC columns for styling
+        _prauc_cols = [col for col in _final_table.columns if 'AUPRG' in col]
+        _auroc_cols = [col for col in _final_table.columns if 'AUROC' in col]
+
+        # Style the table
+        _styled_table = (_final_table.style
+            .format({
+                **{col: '{:.3f}' for col in _prauc_cols},
+                **{col: '{:.3f}' for col in _auroc_cols},
+                'Inactive': '{:.0f}',
+                'Active': '{:.0f}',
+                'Total': '{:.0f}'
+            })
+            .background_gradient(
+                subset=_prauc_cols + _auroc_cols,
+                cmap='RdYlGn',
+                vmin=0,
+                vmax=1
+            )
+            .bar(
+                subset=['Inactive', 'Active', 'Total'],
+                color='#5fba7d',
+                vmin=0
+            )
+            .set_properties(**{
+                'text-align': 'center',
+                'font-family': 'Arial',
+                'font-size': '10pt'
+            })
+            .set_table_styles([
+                {'selector': 'th', 'props': [
+                    ('background-color', '#2c3e50'),
+                    ('color', 'white'),
+                    ('font-weight', 'bold'),
+                    ('text-align', 'center'),
+                    ('font-size', '11pt'),
+                ]},
+                {'selector': 'td', 'props': [
+                    ('border', '1px solid #ddd'),
+                ]},
+                {'selector': '', 'props': [
+                    ('border-collapse', 'collapse'),
+                    ('font-family', 'Arial, sans-serif'),
+                    ('box-shadow', '0 0 20px rgba(0, 0, 0, 0.15)')
+                ]}
+            ])
+        )
+
+        return _styled_table
+    return (create_styled_metrics_table,)
+
+
+@app.cell
+def _(
+    create_styled_metrics_table,
+    list_significative_performance,
+    pred_pandas,
+):
+    # Filtered dataframe
+    _df_cell_cytotox = pred_pandas[
+        pred_pandas["Metadata_Label"].isin(list_significative_performance)
+    ].copy()
+
+    # Create styled table
+    styled_table = create_styled_metrics_table(_df_cell_cytotox)
+
+    # Save styled table to Excel
+    styled_table.to_excel(
+        "modules/09_downstream_analysis/tables/Table_S2_perf_models_filtered.xlsx",
+        sheet_name="Cell Cytotox Metrics",
+        index=False,
+        engine="openpyxl"
+    )
+    styled_table
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+    # Check assays modalities cell-based using LLM
+
+    """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+    ## Use LLM to make toxicity categories
+    https://chatgpt.com/share/e/6a43ce12-158c-8017-9854-91a53900bb75
+    """
+    )
+    return
+
+
+@app.cell
+def _(pd):
+    df_toxcast_cellbased_assay_info = pd.read_csv("/Users/ollitrault/Documents/projects/databases/proc_toxcast_annotations/toxcast_cellbased_assay_info.csv")
+    return (df_toxcast_cellbased_assay_info,)
+
+
+@app.cell
+def _(list_significative_performance):
+    list(list_significative_performance)
+    return
+
+
+@app.cell
+def _():
+    dict_categories_significative_cell_based_filtered = {
+        "categories": [
+            {
+                "id": "endocrine_sex_hormones",
+                "label": "Endocrine Disruption — Sex Hormones",
+                "color": "#d62728",
+                "description": "Assays targeting ER-alpha, ER-beta, AR, PR, and aromatase — agonist and antagonist modes across hormone-responsive cell systems.",
+                "assays": [
+                    "TOX21_ERa_LUC_VM7_Agonist",
+                    "TOX21_ERa_LUC_VM7_Antagonist_0.1nM_E2",
+                    "TOX21_ERa_LUC_VM7_Antagonist_0.5nM_E2",
+                    "TOX21_ERa_BLA_Antagonist_ratio",
+                    "TOX21_ERb_BLA_Antagonist_ratio",
+                    "TOX21_AR_BLA_Agonist_ratio",
+                    "TOX21_AR_BLA_Antagonist_ratio",
+                    "TOX21_AR_LUC_MDAKB2_Agonist",
+                    "TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM_R1881",
+                    "TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881",
+                    "TOX21_PR_BLA_Agonist_ratio",
+                    "TOX21_PR_BLA_Antagonist_ratio",
+                    "TOX21_Aromatase_Inhibition",
+                    "OT_ER_ERaERb_1440",
+                    "OT_ER_ERbERb_1440",
+                    "ATG_ERE_CIS",
+                ],
+            },
+            {
+                "id": "endocrine_steroidogenesis",
+                "label": "Endocrine Disruption — Steroidogenesis & Adrenal",
+                "color": "#ff7f0e",
+                "description": "Adrenal H295R steroidogenesis assay measuring steroid hormone perturbation.",
+                "assays": [
+                    "CEETOX_H295R_11DCORT",
+                ],
+            },
+            {
+                "id": "endocrine_metabolic_nuclear_receptors",
+                "label": "Endocrine Disruption — Metabolic / Orphan Nuclear Receptors",
+                "color": "#ffbb00",
+                "description": "PPARg, LXR, FXR, VDR, PXR, CAR, GR, ERR, and PGC/ERR signaling assays involved in lipid, bile acid, glucose, steroid, and xenobiotic metabolism.",
+                "assays": [
+                    "TOX21_PPARg_BLA_Antagonist_ratio",
+                    "TOX21_PXR_agonist",
+                    "TOX21_CAR_Agonist",
+                    "TOX21_FXR_BLA_Antagonist_ratio",
+                    "TOX21_ERR_Antagonist",
+                    "TOX21_PGC_ERR_Antagonist",
+                    "TOX21_GR_BLA_Antagonist_ratio",
+                    "ATG_DR4_LXR_CIS",
+                    "ATG_PXRE_CIS",
+                    "ATG_PPRE_CIS",
+                    "ATG_VDRE_CIS",
+                ],
+            },
+            {
+                "id": "hepatotoxicity_cyp_induction",
+                "label": "Hepatotoxicity — Xenobiotic Metabolism / CYP Induction",
+                "color": "#8c564b",
+                "description": "HepaRG and related liver-relevant assays measuring CYP enzyme induction and xenobiotic metabolism pathway activation.",
+                "assays": [
+                    "LTEA_HepaRG_CYP1A1",
+                    "LTEA_HepaRG_CYP1A2",
+                    "LTEA_HepaRG_CYP2C8",
+                    "LTEA_HepaRG_CYP2C19",
+                    "LTEA_HepaRG_CYP2E1",
+                    "LTEA_HepaRG_CYP3A7",
+                    "LTEA_HepaRG_CYP4A11",
+                    "LTEA_HepaRG_CYP4A22",
+                    "TOX21_AhR_LUC_Agonist",
+                ],
+            },
+            {
+                "id": "hepatotoxicity_steatosis_lipid_transport",
+                "label": "Hepatotoxicity — Steatosis & Lipid / Bile Transport",
+                "color": "#a07040",
+                "description": "HepaRG markers linked to lipid metabolism, bile acid transport, and drug efflux transport.",
+                "assays": [
+                    "LTEA_HepaRG_HMGCS2",
+                    "LTEA_HepaRG_ABCB11",
+                    "LTEA_HepaRG_ABCB1",
+                    "LTEA_HepaRG_THRSP",
+                ],
+            },
+            {
+                "id": "hepatotoxicity_general_stress",
+                "label": "Hepatotoxicity — General Liver Stress / Adaptive Response",
+                "color": "#2ca02c",
+                "description": "Liver-relevant stress, oxidative stress, metal response, proliferation, differentiation, and transcriptional stress-response markers.",
+                "assays": [
+                    "LTEA_HepaRG_ALPP",
+                    "LTEA_HepaRG_PEG10",
+                    "ATG_NRF2_ARE_CIS",
+                    "TOX21_ARE_BLA_Agonist_ratio",
+                    "ATG_AP_1_CIS",
+                    "ATG_MRE_CIS",
+                    "ATG_Oct_MLP_CIS",
+                    "ATG_TCF_b_cat_CIS",
+                ],
+            },
+            {
+                "id": "genotoxicity_dna_damage_epigenetic",
+                "label": "Genotoxicity / DNA Damage / Epigenetic Disruption",
+                "color": "#1f77b4",
+                "description": "p53 pathway activation and HDAC inhibition assays indicating DNA damage response, cellular stress, or epigenetic perturbation.",
+                "assays": [
+                    "TOX21_p53_BLA_p1_ratio",
+                    "TOX21_p53_BLA_p2_ratio",
+                    "TOX21_p53_BLA_p3_ratio",
+                    "TOX21_p53_BLA_p4_ratio",
+                    "TOX21_p53_BLA_p5_ratio",
+                    "TOX21_HDAC_Inhibition",
+                ],
+            },
+            {
+                "id": "cardiovascular_vascular_inflammation",
+                "label": "Cardiovascular / Vascular Inflammation",
+                "color": "#9467bd",
+                "description": "BioMAP vascular, endothelial, immune-vascular, and smooth-muscle cell assays measuring inflammation, adhesion molecules, thrombomodulin, proliferation, and vascular activation.",
+                "assays": [
+                    "BSK_4H_VCAM1",
+                    "BSK_4H_MCP1",
+                    "BSK_4H_SRB",
+                    "BSK_4H_uPAR",
+                    "BSK_3C_Proliferation",
+                    "BSK_3C_uPAR",
+                    "BSK_CASM3C_Thrombomodulin",
+                    "BSK_CASM3C_Proliferation",
+                    "BSK_LPS_VCAM1",
+                    "BSK_LPS_MCSF",
+                    "BSK_LPS_CD40",
+                    "BSK_SAg_CD40",
+                    "BSK_SAg_Eselectin",
+                    "BSK_SAg_Proliferation",
+                ],
+            },
+            {
+                "id": "general_cytotoxicity_viability",
+                "label": "General Cytotoxicity / Cell Viability",
+                "color": "#7f7f7f",
+                "description": "Generic cell health, viability, membrane integrity, mitochondrial activity, or cell-number readouts.",
+                "assays": [
+                    "cell_count",
+                    "LDH",
+                    "MT",
+                ],
+            },
+            {
+                "id": "assay_context_cell_tissue_metadata",
+                "label": "Assay Context — Cell Type / Tissue Metadata",
+                "color": "#17becf",
+                "description": "Cell type and tissue annotations. These are not toxicity endpoints themselves, but describe biological assay context.",
+                "assays": [
+                    "cell_type__PGC/ERR_HEK293T",
+                    "cell_type__HepG2",
+                    "cell_type__ME-180",
+                    "tissue__kidney",
+                    "tissue__cervix",
+                    "cell_type__HEK293T",
+                    "cell_type__ERR-HEK293T",
+                    "cell_type__HeLa",
+                    "cell_type__MCF7",
+                    "tissue__breast",
+                    "cell_type__MDA-kb2",
+                    "cell_type__PR-UAS-bla-HEK293T",
+                    "cell_type__22Rv1",
+                    "cell_type__HEK293",
+                    "tissue__intestinal",
+                    "cell_type__HCT116",
+                    "tissue__vascular",
+                    "cell_type__umbilical_vein_endothelium_and_peripheral_blood_mononuclear_cells",
+                    "cell_type__VM7",
+                    "cell_type__T47D",
+                ],
+            },
+        ]
+    }
+    return (dict_categories_significative_cell_based_filtered,)
+
+
+@app.cell
+def _(dict_categories_significative_cell_based_filtered):
+    list_claudeai_assays = []
+    for i in dict_categories_significative_cell_based_filtered["categories"]:
+        print(i["assays"])
+        list_claudeai_assays += i["assays"]
+    print(len(list_claudeai_assays))
+    return (list_claudeai_assays,)
+
+
+@app.cell
+def _(
+    df_toxcast_cellbased_assay_info,
+    list_claudeai_assays,
+    list_significative_performance,
+):
+    _list_claudeai = set(list_claudeai_assays)
+    _list_df = set(
+        df_toxcast_cellbased_assay_info[
+            df_toxcast_cellbased_assay_info["assay_component_endpoint_name"].isin(list_significative_performance)
+        ]["assay_component_endpoint_name"]
+    )
+
+    print("In Claude AI list but NOT in dataframe:", _list_claudeai - _list_df)
+    print("In dataframe but NOT in Claude AI list:", _list_df - _list_claudeai)
+    return
+
+
+@app.cell
+def _(
+    df_toxcast_cellbased_assay_info,
+    dict_categories_significative_cell_based_filtered,
+    list_significative_performance,
+    pd,
+):
+    _cat_lookup = {
+        _assay: {
+            "claudeai_id":          _cat["id"],
+            "claudeai_label":       _cat["label"],
+            "claudeai_color":       _cat["color"],
+            "claudeai_description": _cat["description"],
+        }
+        for _cat in dict_categories_significative_cell_based_filtered["categories"]
+        for _assay in _cat["assays"]
+    }
+
+    df_toxcast_cellbased_assay_info_significant = (
+        df_toxcast_cellbased_assay_info[
+            df_toxcast_cellbased_assay_info["assay_component_endpoint_name"].isin(list_significative_performance)
+        ]
+        .copy()
+        .join(
+            pd.DataFrame.from_dict(_cat_lookup, orient="index"),
+            on="assay_component_endpoint_name"
+        )
+    )
+    df_toxcast_cellbased_assay_info_significant
+    return (df_toxcast_cellbased_assay_info_significant,)
+
+
+@app.cell
+def _(df_toxcast_cellbased_assay_info_significant):
+    # save it 
+    df_toxcast_cellbased_assay_info_significant.to_csv("modules/09_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Add performances and other models""")
+    return
+
+
+@app.cell
+def _(df_toxcast_cellbased_assay_info_significant):
+    df_toxcast_cellbased_assay_info_significant
+    return
+
+
+@app.cell
+def _(list_significative_performance, pd, pred_pandas):
+    _cols = pd.Series(pred_pandas["Metadata_Label"].unique())
+
+    _mask_cell_free  = _cols.str.contains("NVS|CCTE_GLTED_hIYD", regex=True)
+    _mask_hit_calls  = _cols.str.contains("MT|LDH|cell_count", regex=True)
+    _mask_cytotoxic  = _cols.str.contains("cell|tissue", regex=True) & ~_mask_hit_calls
+    _mask_cell_based = ~_mask_cell_free & ~_mask_hit_calls & ~_mask_cytotoxic
+
+    _valid_labels = set(_cols[_mask_cell_free | _mask_hit_calls | _mask_cytotoxic | _mask_cell_based])
+
+    pred_pandas_filtered = pred_pandas[
+        (pred_pandas["Model_type"] == "Actual") &
+        (pred_pandas["Metadata_Label"].isin(list_significative_performance)) &
+        (pred_pandas["Metadata_Label"].isin(_valid_labels)) &
+        (pred_pandas["Metadata_Label"] != "cell_count") &
+        (~pred_pandas["Metadata_Label"].str.startswith("NVS_", na=False)) &
+        (
+            ~(
+                pred_pandas["Metadata_Label"].str.contains("tissue", case=False, na=False) |
+                pred_pandas["Metadata_Label"].str.contains("cell_type", case=False, na=False)
+            ) |
+            (pred_pandas["Metadata_Label"] == "cell_type__HepG2")
+        )
+    ]
+    pred_pandas_filtered
+    return (pred_pandas_filtered,)
+
+
+@app.cell
+def _(df_toxcast_cellbased_assay_info_significant, pred_pandas_filtered):
+    df_toxcast_assay_info_perf_significant = pred_pandas_filtered.merge(
+        df_toxcast_cellbased_assay_info_significant,
+        left_on="Metadata_Label",
+        right_on="assay_component_endpoint_name",
+        how="left"
+    )
+    df_toxcast_assay_info_perf_significant.to_csv("modules/06_classification/outputs/df_toxcast_all_assay_info_perf_significant_claudeai_categories.csv")
+    return
+
+
+if __name__ == "__main__":
+    app.run()

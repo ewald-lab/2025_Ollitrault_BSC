@@ -1,73 +1,70 @@
-# 🧪 Ewald Lab Data Analysis of BSC
+# BSC and Axiom Cell Painting Analysis
 
- Cell Painting dataset to assess the bioactivity caused by botanicals in cells. Botanicals are typically mixtures of 100s-1000s of compounds, including “natural” compounds, and are sold to consumers with no/very little toxicity testing or safety evaluation as dietary supplements or vitamins. The OASIS members tested the botanicals themselves, as well as the individual compounds advertised as “active ingredients” within each botanical. The goal is to see if the active ingredient is the main thing that causes activity in cells, or if additional bioactivity is being triggered by the other added ingredients.
+This repository contains the workflows and notebooks used to process the BSC and Axiom OASIS Cell Painting datasets.
 
+## Download the data
 
-TODO : add sitecustomize to the environment
+Axiom OASIS data can be downloaded from:
 
-# For HPC computing
-module load r/4.5.1
-create ~/.Renviron file in home directory
-write in .Renviron : R_LIBS_USER=/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5
-write in .Renviron : R_LIBS=/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5
-For ToxicR : write in mkdir -p ~/.R
-echo "PKG_CPPFLAGS=$(gsl-config --cflags)" >> ~/.R/Makevars
-echo "PKG_LIBS=$(gsl-config --libs)" >> ~/.R/Makevars
+https://github.com/jessica-ewald/2024_09_09_Axiom_OASIS/tree/main
 
-restart session
-module load r/4.5.1
-open R and check that the path is in it:
-module load r/4.5.1
-R
-.libPaths()
-You should see :
-[1] "/usr/local/lib/R/site-library"                                  
-[2] "/usr/local/lib/R/library"                                       
-[3] "/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5"
-Install in specified place : 
-install.packages(
-  c("dplyr", "arrow", "foreach", "doParallel",
-    "ggplot2", "ggforce", "tidyr", "purrr", "data.table"),
-  repos = "https://cloud.r-project.org",
-  lib = "/nfs/research/ewald/softwares/R/x86_64-pc-linux-gnu-library/4.5"
-)
+The default config expects the Axiom data repository to be next to this repository:
 
-# replace all instances of 'mod-00-env' with the name of your environment
-uv venv mod-00-env --python=python3.11
-source mod-00-env/bin/activate
-uv pip install -r requirements.txt
-python -m ipykernel install --user --name=mod-00-env --display-name "Python (mod-00-env)"
+```bash
+git clone https://github.com/jessica-ewald/2024_09_09_Axiom_OASIS.git ../2024_09_09_Axiom_OASIS
+```
 
-echo "To activate later: source mod-00-env/bin/activate"
-echo "To install a package: uv pip install pkg-name"
-echo "To update requirements.txt after installing packages: uv pip freeze > requirements.txt"
+BSC data are included in this Git repository, mainly under:
 
+```text
+modules/01_preprocessing/inputs/
+```
 
-# Modules
-0. Download data
+Input paths are configured in `configs/config_base_axiom.json` and `configs/config_base_bsc.json`.
 
-- BSC : Level Cell Painting Dino features profiles can be downloaded at [TODO]
-- Axiom : Plates and metadata files can be downloaded at : [TODO] 
+## Set up the Python environment
 
-1. Preprocessing
+Install the Python dependencies in `envs/python-base` using `requirements-dev.txt`:
 
-- Axiom concatenate plate dino features and metadata 
-- format Level 2 BSC and axiom data to common column names and expand channels features to independent column names
-- Convert concentration (Metadta_concenrtatrion) to a specifique log10 avoiding vaues of 0 by shifting all concentration values by pl.col("min_conc") / 3).log10().abs()
+```bash
+uv venv envs/python-base --python=python3.11
+source envs/python-base/bin/activate
+uv pip install -r requirements-dev.txt
+```
 
+If `uv` is not available, use standard `venv` and `pip`:
 
+```bash
+python3.11 -m venv envs/python-base
+source envs/python-base/bin/activate
+pip install -r requirements-dev.txt
+```
 
-# Python Base Environment
+## Run the analysis
 
-Contains core dependencies shared by all analysis modules.
-Python 3.11
+Launch the full workflow with `main.nf`:
 
-# [If necessary] Python ML Environment
+```bash
+source envs/python-base/bin/activate
+nextflow run main.nf -profile local --entrypoint_profile slurm -resume
+```
 
-Extension of python-base for ML-heavy modules.
-Includes packages like xgboost, lightgbm, tensorflow, torch.
+For a fully local run, use:
 
-# R Base Environment
+```bash
+nextflow run main.nf -profile local --entrypoint_profile local -resume
+```
 
-Used for R scripts in concentration response and plots.
-Includes tidyverse, ggplot2, dplyr, data.table.
+## Explore the results
+
+Manuscript notebooks:
+
+```text
+modules/07_downstream_analysis/notebook_manuscript/
+```
+
+Exported HTML files:
+
+```text
+modules/07_downstream_analysis/notebook_manuscript/__marimo__/
+```

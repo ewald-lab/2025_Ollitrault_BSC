@@ -323,13 +323,13 @@ def _(all_selected_features):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Plates experiments focus on Botanicals [TODO]""")
+    mo.md(r"""## Plates experiments focus on Botanicals""")
     return
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Concentraation range""")
+    mo.md(r"""## Concentration range""")
     return
 
 
