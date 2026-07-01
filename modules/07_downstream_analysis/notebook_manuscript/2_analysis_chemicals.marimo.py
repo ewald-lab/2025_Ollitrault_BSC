@@ -33,7 +33,13 @@ def _(pd):
 
 @app.cell
 def _(df_annotations_composition):
-    df_annotations_composition
+    df_annotations_composition.head()
+    return
+
+
+@app.cell
+def _(df_annotations_composition):
+    df_annotations_composition.shape
     return
 
 
@@ -67,7 +73,7 @@ def _(df_annotations_composition):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""# Analysis UMAP [to extand to all CP data]""")
+    mo.md(r"""# Analysis UMAP Chemical structure""")
     return
 
 
@@ -292,6 +298,7 @@ def _(
     ax.set_aspect("equal")  # critical — keeps wedges circular
 
     plt.tight_layout()
+    plt.savefig(f"modules/09_downstream_analysis/figures/Figure_1_B.png", dpi=300, bbox_inches="tight")
     plt.show()
     return
 
@@ -349,6 +356,7 @@ def _(UpSet, from_indicators, plt, presence):
     ).plot()
 
     plt.suptitle("UpSet plot of Canonical SMILES grouped by Plant name")
+    plt.savefig(f"modules/09_downstream_analysis/figures/Figure_S1_A.png", dpi=300, bbox_inches="tight")
     plt.show()
     return
 
@@ -487,15 +495,8 @@ def _(
     )
 
     plt.tight_layout()
+    plt.savefig(f"modules/09_downstream_analysis/figures/Figure_S1_B.png", dpi=300, bbox_inches="tight")
     plt.show()
-    return
-
-
-@app.cell
-def _(df_annotations_composition_standardized_nona, mask):
-    print(type(df_annotations_composition_standardized_nona.loc[mask, "Plant name"].iloc[0]))
-    print(df_annotations_composition_standardized_nona.loc[mask, "Plant name"].iloc[0])
-    print(df_annotations_composition_standardized_nona.loc[mask, ["Constituent", "Plant name"]].head(10))
     return
 
 

@@ -6,5 +6,4 @@
 #SBATCH --cpus-per-task=32      # number of CPUs
 #SBATCH --mem=64G               # total memory for the job
 
-nextflow run main.nf -params-file configs/config_base_bsc.json -profile slurm -with-report report_bsc.html -resume
-nextflow run main.nf -params-file configs/config_base_axiom.json -profile slurm -with-report report_axiom.html -resume
+nextflow run main.nf -profile local --entrypoint_profile slurm -with-report report_entrypoints.html -resume
