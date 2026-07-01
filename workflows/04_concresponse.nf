@@ -166,8 +166,9 @@ workflow concresponse_workflow_feature_wise {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
     main:
-        ch_compounds = Channel.fromPath("${params.base_dir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
+        ch_compounds = input_list_compounds
                               .splitText()
                               .map { it.trim() }
         

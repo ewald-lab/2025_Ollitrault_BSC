@@ -15,7 +15,8 @@ workflow {
 
     path_data_level4 = Channel.fromPath("${params.base_dir}/modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     path_data_level5 = Channel.fromPath("${params.base_dir}/modules/03_postprocessing/outputs/level5_bsc_selected_features_filtered.parquet")
+    path_list_compounds = Channel.fromPath("${params.base_dir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
 
     concresponse_results_metadata = concresponse_workflow_metadata(path_data_level4, path_data_level5)
-    concresponse_results = concresponse_workflow_feature_wise(path_data_level4, path_data_level5)
+    concresponse_results = concresponse_workflow_feature_wise(path_data_level4, path_data_level5, path_list_compounds)
 }

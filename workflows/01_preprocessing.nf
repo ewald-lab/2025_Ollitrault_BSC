@@ -33,6 +33,55 @@ workflow preprocessing_workflow_bsc {
         compounds_file   = result[2]
 }
 
+workflow preprocessing_workflow_axiom {
+
+    take:
+        input_path_level2
+
+    main:
+        axiom_metadata_preparation(input_path_level2)
+
+    emit:
+        compounds_file = axiom_metadata_preparation.out.compounds_file
+}
+
+process axiom_metadata_preparation {
+
+    publishDir "modules/01_preprocessing/outputs", mode: 'copy'
+
+    tag "axiom_metadata_preparation"
+
+    input:
+        path input_file
+
+    output:
+        path "compounds_axiom.txt", emit: compounds_file
+
+    script:
+    """
+    python - <<'PY'
+    import pandas as pd
+
+    input_file = "${input_file}"
+    output_file = "compounds_axiom.txt"
+
+    df = pd.read_parquet(input_file)
+
+    if "Metadata_compound" not in df.columns:
+        raise ValueError("Column 'Metadata_compound' not found in parquet file")
+
+    compounds = (
+        df["Metadata_compound"]
+        .dropna()
+        .drop_duplicates()
+        .astype(str)
+    )
+
+    compounds.to_csv(output_file, index=False, header=False)
+    PY
+    """
+}
+
 
 process bsc_metadata_preparation {
 
