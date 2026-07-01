@@ -168,29 +168,42 @@ workflow concresponse_workflow_feature_wise {
         input_data_level5
         input_list_compounds
     main:
-        ch_compounds = input_list_compounds
-                              .splitText()
-                              .map { it.trim() }
+        ch_compound_lines = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
         
-        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(input_data_level4.first(),ch_compounds)
+        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(
+            input_data_level4.first(),
+            ch_compound_lines
+        )
 
         ch_permutation_n_active = fit_curves_feature_wise_permutation(
             input_data_level4.first(),
-            ch_compounds.randomSample(100),
+            ch_compound_lines.randomSample(100),
             "TRUE"
         )
 
         // Collect all n_actives_permutation values and compute mean
-        ch_permutation_n_active_threshold = ch_permutation_n_active
+        ch_permutation_n_active_threshold = ch_permutation_n_active.n_active_by_compound_permutation
+            .map { compound_line, permutation, n_active_file -> n_active_file }
             .collectFile(name: "all_n_actives_permutation.txt", newLine: true)
             | compute_percentile_permutation_active_features
+
+        ch_feature_selection_score_by_line = ch_feature_selection_interdependence_score.score_by_compound
+            .join(ch_compound_lines)
 
         // Run feature-wise curve fitting with threshold
         ch_fit_curves_feature_wise = fit_curves_feature_wise(
             input_data_level4.first(),
-            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> compound },
-            ch_permutation_n_active_threshold.median_val.first(),
-            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> score }
+            ch_feature_selection_score_by_line,
+            ch_permutation_n_active_threshold.median_val.first()
         )
 
         ch_fit_curves_feature_wise_log10 = transform_log10concentration(input_data_level4.first(), ch_fit_curves_feature_wise.pod_feature_wise, "cp", "modules/04_concresponse/outputs/pods/feature_wise")
@@ -599,40 +612,26 @@ process analysis_concresponse_report {
 }
 
 process select_feature_selection_interdependence_score {
-    tag { "${input_file.baseName} ${compound}" }
+    tag { "${input_file.baseName} compound_line=${compound_line}" }
     publishDir "modules/04_concresponse/outputs/interdependence_score",
         mode: 'symlink',
         pattern: '*.txt'
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(compound_list_file)
     output:
-        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_*.txt"), emit: score_by_compound
+        tuple val(compound_line), path("feature_selection_interdependence_score_${params.input_name}_line*.txt"), emit: score_by_compound
     script:
-        def hash = java.security.MessageDigest
-            .getInstance('MD5')
-            .digest(compound.getBytes('UTF-8'))
-            .encodeHex()
-            .toString()
-            .substring(0, 8)
-
-        def safe_compound = compound
-            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
-            .replaceAll(/^_+|_+$/, "")
-            .take(100)
-
-        if (!safe_compound) {
-            safe_compound = "compound"
-        }
-
-        def output_file = "feature_selection_interdependence_score_${params.input_name}_${safe_compound}_${hash}.txt"
+        def output_file = "feature_selection_interdependence_score_${params.input_name}_line${compound_line}.txt"
 
     """
     python "${params.base_dir}/modules/04_concresponse/scripts/select_features_interdependence_scores.py" \\
         --input_path "${input_file}" \\
         --output_path "${output_file}" \\
         --ctrl "${params.control}" \\
-        --compounds "${compound}" \\
+        --dmso_mode "${params.concentration_response.dmso_mode}" \\
+        --compound_list_path "${compound_list_file}" \\
+        --compound_line "${compound_line}" \\
         --num_tests "${params.concentration_response.num_tests}" \\
         --p_value_correction "${params.concentration_response.p_value_correction}"
     """
@@ -640,36 +639,20 @@ process select_feature_selection_interdependence_score {
 
 process fit_curves_feature_wise_permutation {
 
-    tag { "${compound} permutation=${permutation}" }
+    tag { "compound_line=${compound_line} permutation=${permutation}" }
 
     label 'r'
 
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(compound_list_file)
         val permutation
 
     output:
-        tuple val(compound), val(permutation), path("n_active_permutation_${params.input_name}_*.txt"), emit: n_active_by_compound_permutation
+        tuple val(compound_line), val(permutation), path("n_active_permutation_${params.input_name}_line*.txt"), emit: n_active_by_compound_permutation
 
     script:
-        def hash = java.security.MessageDigest
-            .getInstance('MD5')
-            .digest(compound.getBytes('UTF-8'))
-            .encodeHex()
-            .toString()
-            .substring(0, 8)
-
-        def safe_compound = compound
-            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
-            .replaceAll(/^_+|_+$/, "")
-            .take(100)
-
-        if (!safe_compound) {
-            safe_compound = "compound"
-        }
-
-        def output_file = "n_active_permutation_${params.input_name}_${safe_compound}_${hash}.txt"
+        def output_file = "n_active_permutation_${params.input_name}_line${compound_line}.txt"
 
     """
     set -euo pipefail
@@ -682,11 +665,12 @@ process fit_curves_feature_wise_permutation {
         "${params.concentration_response.dmso_mode}" \\
         "${params.categories.join(',')}" \\
         "TRUE" \\
-        "${compound}" \\
+        "${compound_line}" \\
         "${permutation}" \\
         "NA" \\
         "NA" \\
-        "NA"
+        "NA" \\
+        "${compound_list_file}"
     """
 }
 process compute_percentile_permutation_active_features {
@@ -708,38 +692,21 @@ EOF
 }
 
 process fit_curves_feature_wise {
-    tag { compound }
+    tag { "compound_line=${compound_line}" }
     publishDir "modules/04_concresponse/outputs/pods/feature_wise",
         mode: 'symlink',
         pattern: '*_feature_wise.parquet'
     label 'r'
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(feature_selection_score_file), path(compound_list_file)
         val thresholds_n_active
-        path feature_selection_score_file
     output:
         path "pod_${params.input_name}_*_summary.parquet", emit: pod
         path "pod_${params.input_name}_*_feature_wise.parquet", emit: pod_feature_wise
     script:
-        def hash = java.security.MessageDigest
-            .getInstance('MD5')
-            .digest(compound.getBytes('UTF-8'))
-            .encodeHex()
-            .toString()
-            .substring(0, 8)
-
-        def safe_compound = compound
-            .replaceAll(/[^A-Za-z0-9._-]+/, "_")
-            .replaceAll(/^_+|_+$/, "")
-            .take(100)
-
-        if (!safe_compound) {
-            safe_compound = "compound"
-        }
-
-        def pod_file = "pod_${params.input_name}_${safe_compound}_${hash}_summary.parquet"
-        def pod_feature_wise_file = "pod_${params.input_name}_${safe_compound}_${hash}_feature_wise.parquet"
+        def pod_file = "pod_${params.input_name}_line${compound_line}_summary.parquet"
+        def pod_feature_wise_file = "pod_${params.input_name}_line${compound_line}_feature_wise.parquet"
 
         // Bash-safe single quoting for all arguments
         def q = { x -> "'${x.toString().replace("'", "'\"'\"'")}'" }
@@ -753,11 +720,12 @@ process fit_curves_feature_wise {
         ${q(params.concentration_response.dmso_mode)} \\
         ${q(params.categories.join(','))} \\
         TRUE \\
-        ${q(compound)} \\
+        ${q(compound_line)} \\
         FALSE \\
         ${q(thresholds_n_active)} \\
         ${q(pod_feature_wise_file)} \\
-        ${q(feature_selection_score_file)}
+        ${q(feature_selection_score_file)} \\
+        ${q(compound_list_file)}
     """
 }
 

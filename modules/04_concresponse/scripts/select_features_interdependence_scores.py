@@ -9,6 +9,34 @@ import ids
 from statsmodels.stats.multitest import multipletests
 import torch
 
+def read_compound_from_list(compound_list_path, compound_line):
+    if compound_line is None or compound_line < 1:
+        raise ValueError(
+            "--compound_line must be a 1-based integer when --compound_list_path is provided"
+        )
+    if not os.path.exists(compound_list_path):
+        raise FileNotFoundError(f"Compound list file does not exist: {compound_list_path}")
+
+    compound_dt = pd.read_csv(
+        compound_list_path,
+        header=None,
+        dtype=str,
+        keep_default_na=False,
+        skip_blank_lines=False,
+    )
+
+    if compound_line > len(compound_dt):
+        raise IndexError(
+            f"Compound line {compound_line} is outside compound list with "
+            f"{len(compound_dt)} rows"
+        )
+
+    compound = compound_dt.iloc[compound_line - 1, 0]
+    if compound == "":
+        raise ValueError(f"Compound line {compound_line} is empty in {compound_list_path}")
+
+    return compound
+
 def well_to_coord(well):
     row_letter = well[0]
     col = int(well[1:])
@@ -176,7 +204,19 @@ def parse_args():
         "--compounds",
         type=str,
         default="s0654867",
-        help="'all' or comma-separated compound list"
+        help="'all' or one compound name; ignored when --compound_list_path is provided"
+    )
+    parser.add_argument(
+        "--compound_list_path",
+        type=str,
+        default=None,
+        help="Path to one-column compound list used with --compound_line"
+    )
+    parser.add_argument(
+        "--compound_line",
+        type=int,
+        default=None,
+        help="1-based line number to read from --compound_list_path"
     )
     parser.add_argument(
         "--num_tests",
@@ -213,7 +253,12 @@ if __name__ == "__main__":
     dmso_mode = args.dmso_mode
     #category = args.category.split(",")
     #log10_dose = args.log10_dose
-    compounds = [args.compounds]
+    if args.compound_list_path is not None:
+        compound = read_compound_from_list(args.compound_list_path, args.compound_line)
+        print(f"Resolved compound list line {args.compound_line} to {compound!r}")
+        compounds = [compound]
+    else:
+        compounds = [args.compounds]
 
     # Compute IDS
     dat = pd.read_parquet(input_path)
@@ -257,4 +302,3 @@ if __name__ == "__main__":
                 results[compound] = future.result()
             except Exception as e:
                 print(f"Error processing {compound}: {e}")
-

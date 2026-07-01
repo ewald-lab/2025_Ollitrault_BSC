@@ -61,6 +61,49 @@ message(sprintf("Using %d cores for curve fitting.", ncpus))
 # 1. Arguments
 args <- commandArgs(trailingOnly = TRUE)
 
+optional_arg <- function(x) {
+  if (length(x) == 0 || is.na(x) || x == "" || x == "NA") {
+    return(NA_character_)
+  }
+  x
+}
+
+read_compound_from_list <- function(compound_list_path, compound_line) {
+  if (is.na(compound_line) || compound_line < 1) {
+    stop("compound_line must be a 1-based integer when compound_list_path is provided.")
+  }
+  if (!file.exists(compound_list_path)) {
+    stop(sprintf("Compound list file does not exist: %s", compound_list_path))
+  }
+
+  compound_dt <- read.csv(
+    compound_list_path,
+    header = FALSE,
+    stringsAsFactors = FALSE,
+    check.names = FALSE,
+    colClasses = "character",
+    comment.char = "",
+    na.strings = character(),
+    blank.lines.skip = FALSE,
+    fill = TRUE
+  )
+
+  if (compound_line > nrow(compound_dt)) {
+    stop(sprintf(
+      "Compound line %d is outside compound list with %d rows.",
+      compound_line,
+      nrow(compound_dt)
+    ))
+  }
+
+  compound <- compound_dt[[1]][compound_line]
+  if (is.na(compound) || compound == "") {
+    stop(sprintf("Compound line %d is empty in %s.", compound_line, compound_list_path))
+  }
+
+  compound
+}
+
 input_path <- args[1] #"../../03_postprocessing/outputs/level4b_bsc_filtered.parquet" #distances_bsc.parquet
 output_path <- args[2] #"../outputs/pods/test.parquet"
 num.sds <- args[3] #2
@@ -69,11 +112,24 @@ ctrl <- args[4] #"s0617825"
 dmso_mode <- args[5] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
 category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
 log10.dose <- as.logical(args[7]) #TRUE
-compounds <- args[8] #"all"
+compound_selector <- args[8] #"all" or a 1-based compound-list line number
 permutation <- as.logical(args[9]) #FALSE
-thresholds_n_active <- args[10]
+thresholds_n_active <- suppressWarnings(as.numeric(args[10]))
 output_path_all <- args[11] # "../outputs/pods/feature_wise/test_cmpd.parquet"
 feature_selection_score_file <- args[12]
+compound_list_path <- if (length(args) >= 13) optional_arg(args[13]) else NA_character_
+
+if (!is.na(compound_list_path)) {
+  compound_line <- suppressWarnings(as.integer(compound_selector))
+  compounds <- read_compound_from_list(compound_list_path, compound_line)
+  message(sprintf(
+    "Resolved compound list line %d to '%s'.",
+    compound_line,
+    compounds
+  ))
+} else {
+  compounds <- compound_selector
+}
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
@@ -111,7 +167,7 @@ if (feature_selection_score_file != "NA") {
 dat <- dat %>%
   bind_cols(map_dfr(.$Metadata_well, well_to_coord))
 
-if (compounds == "all") {
+if (identical(compounds, "all")) {
   compounds <- unique(dat$Metadata_compound)
   compounds <- compounds[!grepl(ctrl, compounds)]
 }
@@ -130,7 +186,6 @@ if (dmso_mode == "plate") {
 
 # ── Loop over compounds ───────────────────────────────────────────────
 res_list <- vector("list", length(compounds))
-names(res_list) <- compounds
 
 for (i in seq_along(compounds)) {
   compound <- compounds[i]
