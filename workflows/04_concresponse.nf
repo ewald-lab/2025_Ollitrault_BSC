@@ -4,6 +4,7 @@ workflow concresponse_workflow {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
 
     main:
         // 1. compute distance
@@ -15,17 +16,37 @@ workflow concresponse_workflow {
         path_data_5b = compile_distances(path_data_5a.collect())
         // 3a. fit curves (bmds)
         path_data_5c = fit_curves(path_data_5b)
-        // 4. fit curves meta (CC, MTT, LDH)
+        // 4. fit curves meta (CC, MTT, LDH) by compound-list line
+        ch_compound_lines_5d = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
+
         channel_5d_meta_channel = Channel
             .fromList(params.concentration_response.compute_meta_pods)
 
-        path_data_5d = fit_curves_meta(
-                                        channel_5d_meta_channel
-                                            .combine(input_data_level4)
-                                            .map { meta_nm, input ->
-                                                tuple(meta_nm, input)
-                                            }
-                                    ) // Now path_data_5d emits: (meta_nm, meta_pods_path)
+        path_data_5d_by_line = fit_curves_meta(
+            channel_5d_meta_channel
+                .combine(input_data_level4)
+                .combine(ch_compound_lines_5d)
+                .map { meta_nm, input, compound_line, compound_list_file ->
+                    tuple(meta_nm, input, compound_line, compound_list_file)
+                }
+        ) // emits: (meta_nm, compound_line, meta_pods_path)
+
+        path_data_5d = path_data_5d_by_line
+            .map { meta_nm, compound_line, meta_pods_path ->
+                tuple(meta_nm, meta_pods_path)
+            }
+            .groupTuple()
+            | concatenate_metadata_pod_files
+
         // 5. select PODs
         path_data_5e = select_pod(path_data_5c)
         
@@ -132,19 +153,39 @@ workflow concresponse_workflow_metadata {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
 
     main:
-        // 1. Fit curves for metadata assays (CC, MTT, LDH, …)
+        ch_compound_lines_meta = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
+
+        // 1. Fit curves for metadata assays (CC, MTT, LDH, ...) by compound-list line
         channel_meta = Channel
             .fromList(params.concentration_response.compute_meta_pods)
 
-        path_data_meta = fit_curves_meta(
+        path_data_meta_by_line = fit_curves_meta(
             channel_meta
                 .combine(input_data_level4)
-                .map { meta_nm, input ->
-                    tuple(meta_nm, input)
+                .combine(ch_compound_lines_meta)
+                .map { meta_nm, input, compound_line, compound_list_file ->
+                    tuple(meta_nm, input, compound_line, compound_list_file)
                 }
-        ) // emits: (meta_nm, meta_pods_path)
+        ) // emits: (meta_nm, compound_line, meta_pods_path)
+
+        path_data_meta = path_data_meta_by_line
+            .map { meta_nm, compound_line, meta_pods_path ->
+                tuple(meta_nm, meta_pods_path)
+            }
+            .groupTuple()
+            | concatenate_metadata_pod_files
 
         // 2. Transform back log10 concentration — metadata branch only
         transform_input_meta = path_data_meta
@@ -379,29 +420,69 @@ process fit_curves {
 // ---------------------------------------------------------------------------
 // fit_curves_meta: CC, MTT, LDH
 // ---------------------------------------------------------------------------
-// Rscript modules/04_concresponse/scripts/fit_curves_meta.R 02_processed_data/level4b_bsc.parquet pods_Metadata_mtt_normalized.parquet 2 Metadata_ldh_normalized s0617825
+// Rscript modules/04_concresponse/scripts/fit_curves_meta.R 02_processed_data/level4b_bsc.parquet pods_Metadata_mtt_normalized_line1.parquet 2 Metadata_ldh_normalized s0617825 closest 1 compounds_bsc.txt
 // Rscript /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/compute_distances.R 02_processed_data/level4b_axiom.parquet 03_tables/distance_axiom_cmd.parquet 0.95 Metadata_Perturbation "DNA,ER,AGP,RNA,Mito,Brightfield" cmd DMSO /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/gmd_functions.R /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/cmd_functions.R
 process fit_curves_meta {
-    tag { "${input_file.baseName} ${meta_nm}" }
+    tag { "${input_file.baseName} ${meta_nm} line=${compound_line}" }
+
+    label 'r'
+
+    input:
+        tuple val(meta_nm), path(input_file), val(compound_line), path(compound_list_file)
+
+    output:
+        tuple val(meta_nm), val(compound_line), path("pods_${params.input_name}_${meta_nm}_line${compound_line}.parquet")
+
+    """
+    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_meta.R \
+        ${input_file} \
+        pods_${params.input_name}_${meta_nm}_line${compound_line}.parquet \
+        ${params.concentration_response.num_sds} \
+        ${meta_nm} \
+        ${params.control} \
+        ${params.concentration_response.dmso_mode} \
+        ${compound_line} \
+        ${compound_list_file}
+    """
+}
+
+
+// ---------------------------------------------------------------------------
+// concatenate_metadata_pod_files
+// ---------------------------------------------------------------------------
+process concatenate_metadata_pod_files {
+    tag { "${meta_nm}" }
 
     label 'r'
 
     publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
 
     input:
-        tuple val(meta_nm), path(input_file)
+        tuple val(meta_nm), path(input_files)
 
     output:
         tuple val(meta_nm), path("pods_${params.input_name}_${meta_nm}.parquet")
 
+    script:
+    def r_quote = { x -> '"' + x.toString().replace('\\', '\\\\').replace('"', '\\"') + '"' }
+    def r_files = input_files.collect { r_quote(it) }.join(', ')
+
     """
-    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_meta.R \
-        ${input_file} \
-        pods_${params.input_name}_${meta_nm}.parquet \
-        ${params.concentration_response.num_sds} \
-        ${meta_nm} \
-        ${params.control} \
-        ${params.concentration_response.dmso_mode}
+    Rscript - <<'EOF'
+    library(arrow)
+    library(dplyr)
+
+    files <- c(${r_files})
+    if (length(files) == 0) {
+      stop("No metadata POD files were provided for ${meta_nm}.")
+    }
+
+    line_number <- suppressWarnings(as.integer(gsub("[^0-9]", "", sub(".*_line", "", basename(files)))))
+    files <- files[order(line_number, na.last = TRUE)]
+
+    combined <- dplyr::bind_rows(lapply(files, arrow::read_parquet))
+    arrow::write_parquet(combined, "pods_${params.input_name}_${meta_nm}.parquet")
+EOF
     """
 }
 
