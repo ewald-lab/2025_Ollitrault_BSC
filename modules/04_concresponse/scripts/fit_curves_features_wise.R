@@ -55,9 +55,75 @@ get_closest_dmso <- function(comp_fit_coords, dat_ctrl) {
 }
 # 0. Parrallelization
 library(parallel)
+
+configure_parallel_port <- function(extra_seed = "") {
+  seed_parts <- c(
+    Sys.getenv(c(
+      "NXF_TASK_WORKDIR",
+      "SLURM_JOB_ID",
+      "SLURM_STEP_ID",
+      "SLURM_ARRAY_TASK_ID",
+      "SLURM_PROCID"
+    ), unset = ""),
+    normalizePath(getwd(), mustWork = FALSE),
+    Sys.getpid(),
+    extra_seed
+  )
+  seed_text <- paste(seed_parts, collapse = "|")
+  seed_bytes <- as.integer(charToRaw(seed_text))
+  if (length(seed_bytes) == 0) {
+    seed_bytes <- as.integer(Sys.getpid())
+  }
+
+  port_min <- 11000L
+  port_max <- 11999L
+  port_span <- port_max - port_min + 1L
+  port_offset <- sum(seed_bytes * seq_along(seed_bytes)) %% port_span
+  port <- as.integer(port_min + port_offset)
+
+  parallel_options <- get("defaultClusterOptions", envir = asNamespace("parallel"))
+  assign("port", port, envir = parallel_options)
+  Sys.setenv(R_PARALLEL_PORT = as.character(port))
+  port
+}
+
+with_parallel_port_retry <- function(expr, max_tries = 20) {
+  expr_sub <- substitute(expr)
+  expr_env <- parent.frame()
+
+  for (attempt in seq_len(max_tries)) {
+    result <- tryCatch(
+      eval(expr_sub, envir = expr_env),
+      error = function(err) err
+    )
+
+    if (!inherits(result, "error")) {
+      return(result)
+    }
+
+    is_socket_error <- grepl(
+      "server socket|cannot be opened|Cluster setup failed",
+      conditionMessage(result),
+      ignore.case = TRUE
+    )
+    if (!is_socket_error || attempt == max_tries) {
+      stop(result)
+    }
+
+    port <- configure_parallel_port(extra_seed = paste0("retry-", attempt))
+    message(sprintf(
+      "R parallel socket setup failed (%s); retrying with port %d.",
+      conditionMessage(result),
+      port
+    ))
+    Sys.sleep(stats::runif(1, min = 0.2, max = 1.0))
+  }
+}
+
+parallel_port <- configure_parallel_port()
 # ── Auto-configure ncpus ─────────────────────────────────────────────────
 ncpus <- parallelly::availableCores()
-message(sprintf("Using %d cores for curve fitting.", ncpus))
+message(sprintf("Using %d cores for curve fitting on R parallel port %d.", ncpus, parallel_port))
 # 1. Arguments
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -228,14 +294,14 @@ for (i in seq_along(compounds)) {
   dat_mat <- dat_mat + shift_vals
   
   # Compute FastBMD
-  fit_obj <- PerformCurveFitting(
+  fit_obj <- with_parallel_port_retry(PerformCurveFitting(
     data   = dat_mat[, , drop = FALSE],
     dose   = doses,
     ncpus  = ncpus,
     models = c("Exp2", "Exp3", "Exp4", "Exp5", "Poly2", "Lin", "Power", "Hill")
-  )
+  ))
   fit_obj <- FilterDRFit(fit_obj, lof.pval = 0, filt.var = "AIC.model")
-  fit_obj <- PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile")
+  fit_obj <- with_parallel_port_retry(PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile"))
   
   # Filter active and Count valid BMDs
   fit_obj$bmd_res$Metadata_compound = compound
