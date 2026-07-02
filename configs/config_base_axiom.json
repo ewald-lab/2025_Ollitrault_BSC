@@ -32,8 +32,6 @@
         "gpu_cpus": 8,
         "max_gpu_jobs": 16,
         "max_cpu_jobs": 125,
-        "label_chunk_size": 1,
-        "label_workers": 1,
         "n_repeats": 100,
         "filter_label_size": 50,
         "filter_label_size_active": 20

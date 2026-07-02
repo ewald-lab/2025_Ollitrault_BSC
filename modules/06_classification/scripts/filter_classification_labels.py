@@ -85,6 +85,7 @@ def filter_labels(
     label_column: str,
     output_path: str,
     audit_output_path: str,
+    assay_output_path: str,
     label_group_name: str,
     n_splits: int,
     min_labeled: int,
@@ -126,6 +127,21 @@ def filter_labels(
     original_labels = pl.read_parquet(label_path)
     original_labels.select([label_column, *kept_labels]).write_parquet(output_path)
     pl.DataFrame(audit_rows).write_csv(audit_output_path, separator="\t")
+    pl.DataFrame(
+        [
+            {
+                "label_group": label_group_name,
+                "assay_index": index,
+                "assay": label,
+            }
+            for index, label in enumerate(kept_labels, start=1)
+        ],
+        schema={
+            "label_group": pl.Utf8,
+            "assay_index": pl.Int64,
+            "assay": pl.Utf8,
+        },
+    ).write_csv(assay_output_path, separator="\t")
 
     print(
         f"{label_group_name}: kept {len(kept_labels)}/{len(labels)} labels "
@@ -142,6 +158,7 @@ def main() -> None:
     parser.add_argument("--label_column", default="OASIS_ID", choices=JOIN_COLUMNS.keys())
     parser.add_argument("--output", required=True, help="Output filtered label Parquet path")
     parser.add_argument("--audit_output", required=True, help="Output TSV audit path")
+    parser.add_argument("--assay_output", required=True, help="Output TSV listing kept assays")
     parser.add_argument("--label_group_name", default=None, help="Name to use in the audit table")
     parser.add_argument("--n_splits", default=5, type=int, help="CV folds; requires this many inactive and active labels")
     parser.add_argument("--filter_label_size", default=50, type=int, help="Minimum labeled examples required")
@@ -156,6 +173,7 @@ def main() -> None:
         label_column=args.label_column,
         output_path=args.output,
         audit_output_path=args.audit_output,
+        assay_output_path=args.assay_output,
         label_group_name=label_group_name,
         n_splits=args.n_splits,
         min_labeled=args.filter_label_size,

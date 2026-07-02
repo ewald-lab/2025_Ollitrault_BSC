@@ -55,48 +55,36 @@ workflow classification_workflow {
                 tuple(input_level6, input_level4, label_file, label_column, label_name)
             }
 
-        filtered_labels_ch = filter_classification_labels(filtered_labels_input_ch).labels
-
-        // Split labels into configurable chunks before CV fan-out. Set
-        // params.classifier.label_chunk_size = 1 for one Slurm task per assay.
-        label_chunks_ch = list_classification_label_chunks(filtered_labels_ch).chunks
-            .splitCsv(sep: '\t')
+        filtered_labels = filter_classification_labels(filtered_labels_input_ch)
+        filtered_labels_ch = filtered_labels.labels
+        filtered_assays_ch = filtered_labels.assays
+            .splitCsv(sep: '\t', header: true)
             .map { row ->
-                tuple(row[0], row[1] as int, row[2])
+                tuple(row.label_group, row.assay_index as int, row.assay)
             }
 
-        // Run each repeated CV repeat and label chunk as its own Nextflow task,
-        // then concatenate chunks/repeats back to the historical outputs.
+        // Parallelize only by filtered assay. Each assay task runs all repeated
+        // cross-validation internally, then assay outputs are concatenated.
         classification_jobs_ch = path_data_level6
             .combine(path_data_level4)
             .combine(filtered_labels_ch)
             .map { input_level6, input_level4, label_file, label_column, label_name ->
                 tuple(label_name, input_level6, input_level4, label_file, label_column)
             }
-
-        classification_label_jobs_ch = classification_jobs_ch
-            .join(label_chunks_ch)
-            .map { label_name, input_level6, input_level4, label_file, label_column, label_chunk_idx, include_labels ->
-                tuple(input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels)
-            }
-
-        repeat_index_ch = Channel.fromList(1..classifier_n_repeats)
-
-        classification_repeat_jobs_ch = classification_label_jobs_ch
-            .combine(repeat_index_ch)
-            .map { input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels, repeat_idx ->
-                tuple(input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels, repeat_idx)
+            .join(filtered_assays_ch)
+            .map { label_name, input_level6, input_level4, label_file, label_column, assay_index, assay_label ->
+                tuple(input_level6, input_level4, label_file, label_column, label_name, assay_index, assay_label)
             }
 
         if (classifier_device == 'gpu') {
-            classification_repeat_predictions = binary_classification_repeat_gpu(classification_repeat_jobs_ch).predictions
+            classification_predictions = binary_classification_assay_gpu(classification_jobs_ch).predictions
         } else {
-            classification_repeat_predictions = binary_classification_repeat_cpu(classification_repeat_jobs_ch).predictions
+            classification_predictions = binary_classification_assay_cpu(classification_jobs_ch).predictions
         }
 
-        path_output_classification = classification_repeat_predictions
+        path_output_classification = classification_predictions
             .groupTuple()
-            | concatenate_classification_repeats
+            | concatenate_classification_assays
        
     emit:
         path_data_level6
@@ -135,6 +123,7 @@ process filter_classification_labels {
     output:
         tuple path("${label_name}_filtered_labels.parquet"), val(label_column), val(label_name), emit: labels
         path "${label_name}_label_filter_audit.tsv", emit: audit
+        path "${label_name}_assays.tsv", emit: assays
 
     script:
     def classifier_params = params.classifier ?: [:]
@@ -148,6 +137,7 @@ process filter_classification_labels {
         --label_column ${label_column} \
         --output ${label_name}_filtered_labels.parquet \
         --audit_output ${label_name}_label_filter_audit.tsv \
+        --assay_output ${label_name}_assays.tsv \
         --label_group_name ${label_name} \
         --n_splits 5 \
         --filter_label_size ${filter_label_size} \
@@ -156,33 +146,9 @@ process filter_classification_labels {
 }
 
 
-process list_classification_label_chunks {
+process binary_classification_assay_cpu {
 
-    tag { "${label_name}" }
-
-    input:
-        tuple path(label_file), val(label_column), val(label_name)
-
-    output:
-        path "label_chunks.tsv", emit: chunks
-
-    script:
-    def label_chunk_size = params.classifier.label_chunk_size ?: 0
-    """
-    python ${params.base_dir}/modules/06_classification/scripts/classify.py \
-        --label_path ${label_file.name} \
-        --label_column ${label_column} \
-        --list_label_chunks \
-        --label_group_name ${label_name} \
-        --label_chunk_size ${label_chunk_size} \
-        > label_chunks.tsv
-    """
-}
-
-
-process binary_classification_repeat_cpu {
-
-    tag { "${label_name}:chunk_${label_chunk_idx}:repeat_${repeat_idx}:cpu" }
+    tag { "${label_name}:assay_${assay_index}:cpu" }
 
     label 'classification_cpu'
     cpus { params.classifier.cpus ?: 8 }
@@ -193,37 +159,34 @@ process binary_classification_repeat_cpu {
     publishDir "modules/06_classification/outputs/models", mode: 'copy', pattern: 'models/*.pkl', saveAs: { file -> file.toString().tokenize('/').last() }, failOnError: true
     
     input:
-        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(assay_index), val(assay_label)
     
     output:
-        tuple val(label_name), path("axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
+        tuple val(label_name), path("axiom_${label_name}_assay${assay_index}_predictions.parquet"), emit: predictions
         tuple val(label_name), path("models/*.pkl"), emit: models, optional: true
     
     script:
     def total_repeats = params.classifier.n_repeats ?: 1
-    def label_workers = params.classifier.label_workers ?: 1
-    def save_models_arg = repeat_idx == 1 ? "--save_models" : "--no_save_models"
+    def assay_arg = assay_label.toString().replace("'", "'\"'\"'")
     """
     python ${params.base_dir}/modules/06_classification/scripts/classify.py \
         --input_path_level6 ${input_level6} \
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \
         --label_column ${label_column} \
-        --output axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet \
+        --output axiom_${label_name}_assay${assay_index}_predictions.parquet \
         --n_repeats ${total_repeats} \
-        --repeat_index ${repeat_idx} \
         --device cpu \
         --n_jobs ${task.cpus} \
-        --label_workers ${label_workers} \
-        --include_labels "${include_labels}" \
-        ${save_models_arg}
+        --include_label '${assay_arg}' \
+        --save_models
     """
 }
 
 
-process binary_classification_repeat_gpu {
+process binary_classification_assay_gpu {
 
-    tag { "${label_name}:chunk_${label_chunk_idx}:repeat_${repeat_idx}:gpu" }
+    tag { "${label_name}:assay_${assay_index}:gpu" }
 
     label 'gpu'
     cpus { params.classifier.gpu_cpus ?: params.classifier.cpus ?: 8 }
@@ -234,35 +197,32 @@ process binary_classification_repeat_gpu {
     publishDir "modules/06_classification/outputs/models", mode: 'copy', pattern: 'models/*.pkl', saveAs: { file -> file.toString().tokenize('/').last() }, failOnError: true
     
     input:
-        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(assay_index), val(assay_label)
     
     output:
-        tuple val(label_name), path("axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
+        tuple val(label_name), path("axiom_${label_name}_assay${assay_index}_predictions.parquet"), emit: predictions
         tuple val(label_name), path("models/*.pkl"), emit: models, optional: true
     
     script:
     def total_repeats = params.classifier.n_repeats ?: 1
-    def label_workers = params.classifier.label_workers ?: 1
-    def save_models_arg = repeat_idx == 1 ? "--save_models" : "--no_save_models"
+    def assay_arg = assay_label.toString().replace("'", "'\"'\"'")
     """
     python ${params.base_dir}/modules/06_classification/scripts/classify.py \
         --input_path_level6 ${input_level6} \
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \
         --label_column ${label_column} \
-        --output axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet \
+        --output axiom_${label_name}_assay${assay_index}_predictions.parquet \
         --n_repeats ${total_repeats} \
-        --repeat_index ${repeat_idx} \
         --device gpu \
         --n_jobs ${task.cpus} \
-        --label_workers ${label_workers} \
-        --include_labels "${include_labels}" \
-        ${save_models_arg}
+        --include_label '${assay_arg}' \
+        --save_models
     """
 }
 
 
-process concatenate_classification_repeats {
+process concatenate_classification_assays {
 
     tag { "${label_name}" }
 
@@ -280,12 +240,12 @@ python - <<'PY'
 from pathlib import Path
 import polars as pl
 
-files = sorted(Path(".").glob("axiom_*_chunk*_repeat*_predictions.parquet"))
+files = sorted(Path(".").glob("axiom_*_assay*_predictions.parquet"))
 frames = [pl.read_parquet(path) for path in files]
 combined = pl.concat(frames, how="vertical")
 
 if {"repeat", "k_fold"}.issubset(combined.columns):
-    combined = combined.sort(["repeat", "k_fold", "Model_type", "Metadata_Label", "Metadata_compound"])
+    combined = combined.sort(["Metadata_Label", "repeat", "k_fold", "Model_type", "Metadata_compound"])
 
 combined.write_parquet("axiom_${label_name}_predictions.parquet")
 PY
