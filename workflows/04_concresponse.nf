@@ -704,7 +704,7 @@ process analysis_concresponse_report {
 process select_feature_selection_interdependence_score {
     tag { "${input_file.baseName} compound_line=${compound_line}" }
     publishDir "modules/04_concresponse/outputs/interdependence_score",
-        mode: 'symlink',
+        mode: 'copy',
         pattern: '*.txt'
     input:
         path input_file
