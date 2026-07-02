@@ -19,6 +19,11 @@ from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 
+def log_status(message: str) -> None:
+    """Print progress immediately in local and Slurm logs."""
+    print(message, flush=True)
+
+
 def empty_prediction_frame() -> pl.DataFrame:
     """Return an empty prediction table with the expected output schema."""
     return pl.DataFrame(
@@ -114,6 +119,8 @@ def binary_classifier(
     n_repeats: int = 1,
     fit_final_model: bool = True,
     n_jobs: int = 1,
+    label_name: str = "label",
+    model_type: str = "Actual",
 ) -> tuple[XGBClassifier | None, pl.DataFrame]:
     """Perform a binary XGBoost classification.
 
@@ -163,6 +170,13 @@ def binary_classifier(
         y = y.sample(frac=1, random_state=42).reset_index(drop=True)
 
     rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=42)
+    total_folds = n_splits * n_repeats
+
+    log_status(
+        f"[CV] {label_name} | {model_type}: starting {n_repeats} repeat(s) x {n_splits} fold(s) "
+        f"({total_folds} folds); samples={len(y)}, features={x.shape[1]}, "
+        f"inactive={int((y == 0).sum())}, active={int((y == 1).sum())}, device={device.upper()}",
+    )
 
     pred_df = []
     device_context = cp.cuda.Device(gpu_id) if device == "gpu" and cp is not None else nullcontext()
@@ -171,10 +185,21 @@ def binary_classifier(
             repeat_num = (split_number - 1) // n_splits + 1
             fold_num = (split_number - 1) % n_splits + 1
             global_fold = (repeat_num - 1) * n_splits + fold_num
+            if fold_num == 1:
+                log_status(f"[CV] {label_name} | {model_type}: starting repeat {repeat_num}/{n_repeats}")
 
             x_fold_train = to_model_array(x.iloc[train_index].to_numpy(), device)
             x_fold_val = to_model_array(x.iloc[val_index].to_numpy(), device)
             y_fold_train, y_fold_val = y.iloc[train_index], y.iloc[val_index]
+            train_active = int((y_fold_train == 1).sum())
+            val_active = int((y_fold_val == 1).sum())
+
+            log_status(
+                f"[CV] {label_name} | {model_type}: fold {global_fold}/{total_folds} "
+                f"(repeat {repeat_num}/{n_repeats}, fold {fold_num}/{n_splits}); "
+                f"train={len(train_index)} inactive={len(train_index) - train_active} active={train_active}; "
+                f"validation={len(val_index)} inactive={len(val_index) - val_active} active={val_active}",
+            )
 
             le = LabelEncoder()
             y_fold_train = le.fit_transform(y_fold_train)
@@ -191,6 +216,7 @@ def binary_classifier(
             # Validate the model on the fold validation set
             y_fold_prob = to_numpy(model.predict_proba(x_fold_val)[:, 1], device)
             y_fold_pred = to_numpy(model.predict(x_fold_val), device)
+            log_status(f"[CV] {label_name} | {model_type}: finished fold {global_fold}/{total_folds}")
 
             pred_df.append(
                 pl.DataFrame({
@@ -205,12 +231,14 @@ def binary_classifier(
 
         final_model = None
         if fit_final_model:
+            log_status(f"[CV] {label_name} | {model_type}: fitting final full-data model")
             le = LabelEncoder()
             y_all = le.fit_transform(y)
             final_model = make_xgb_classifier(device, gpu_id, n_jobs, y_all)
             final_model.fit(to_model_array(x.to_numpy(), device), to_model_array(y_all, device))
 
     class_results = pl.concat(pred_df, how="vertical") if pred_df else empty_prediction_frame().drop("Model_type")
+    log_status(f"[CV] {label_name} | {model_type}: complete; prediction_rows={class_results.height}")
     return final_model, class_results
 
 
@@ -231,6 +259,7 @@ def process_label(
 ):
     """Process a single label_column."""
     prof = dat.rename({label_column: "Label"})
+    model_type = "Random_baseline" if shuffle else ("Cellcount_baseline" if cc else "Actual")
 
     num_0 = prof.filter(pl.col("Label") == 0).height
     num_1 = prof.filter(pl.col("Label") == 1).height
@@ -246,6 +275,10 @@ def process_label(
 
     prof_meta = prof.select(meta_cols)
     prof = prof.drop(all_meta_cols)
+    log_status(
+        f"[Label] {label_column} | {model_type}: inactive={num_0}, active={num_1}, "
+        f"n_splits={n_splits}, n_repeats={n_repeats}",
+    )
 
     model, class_res = binary_classifier(
         prof.to_pandas(),
@@ -258,17 +291,19 @@ def process_label(
         n_repeats=n_repeats,
         fit_final_model=save_model,
         n_jobs=n_jobs,
+        label_name=label_column,
+        model_type=model_type,
     )
 
     if output_dir and save_model and model is not None:
-        model_type = "random" if shuffle else ("cellcount" if cc else "actual")
+        model_file_type = "random" if shuffle else ("cellcount" if cc else "actual")
         safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
 
-        model_filename = f"{safe_label}_{model_type}_model.pkl"
+        model_filename = f"{safe_label}_{model_file_type}_model.pkl"
         model_path = os.path.join(output_dir, model_filename)
 
         joblib.dump(model, model_path)
-        print(f"Saved model to {model_path}")
+        log_status(f"Saved model to {model_path}")
 
     class_res = class_res.with_columns(
         pl.lit(label_column).alias("Metadata_Label"),
@@ -319,7 +354,7 @@ def predict_binary(
 
     model_n_jobs = max(1, n_jobs)
 
-    print(
+    log_status(
         f"Running classification on {device.upper()} for {n_repeats} repeat(s); "
         f"visible GPUs={num_gpus}, xgboost_n_jobs={model_n_jobs}",
     )
@@ -333,13 +368,13 @@ def predict_binary(
 
     if label_column == "OASIS_ID":
         meta = pl.read_parquet(label_path).rename({"OASIS_ID": "Metadata_OASIS_ID"})
-        print(f"Data shape before join: {dat.shape}")
-        print(f"Metadata shape before join: {meta.shape}")
+        log_status(f"Data shape before join: {dat.shape}")
+        log_status(f"Metadata shape before join: {meta.shape}")
         dat = dat.join(meta, on="Metadata_OASIS_ID", how="left")
     elif label_column == "ID":
         meta = pl.read_parquet(label_path).rename({"ID": "Metadata_compound"})
-        print(f"Data shape before join: {dat.shape}")
-        print(f"Metadata shape before join: {meta.shape}")
+        log_status(f"Data shape before join: {dat.shape}")
+        log_status(f"Metadata shape before join: {meta.shape}")
         dat = dat.join(meta, on="Metadata_compound", how="left")
     else:
         raise ValueError(f"Unsupported label_column '{label_column}'. Use 'OASIS_ID' or 'ID'.")
@@ -353,7 +388,7 @@ def predict_binary(
             raise ValueError(f"Labels not found in {label_path}: {missing_labels}")
         labels = [label for label in all_labels if label in requested_labels]
 
-    print(f"Data shape after join: {dat.shape}; processing {len(labels)}/{len(all_labels)} label(s)")
+    log_status(f"Data shape after join: {dat.shape}; processing {len(labels)}/{len(all_labels)} label(s)")
 
     model_output_dir = None
     if save_models:
@@ -382,19 +417,25 @@ def predict_binary(
             return None
         return pl.concat(results, how="vertical").with_columns(pl.lit(model_type).alias("Model_type"))
 
+    log_status(f"Starting Actual models for {len(labels)} label(s)")
     pred_results = [_run_label(label, shuffle=False, save_model=save_models) for label in labels]
     pred_df = _concat_results(pred_results, "Actual")
 
+    log_status(f"Starting Random_baseline models for {len(labels)} label(s)")
     null_results = [_run_label(label, shuffle=True) for label in labels]
     null_df = _concat_results(null_results, "Random_baseline")
 
+    log_status(f"Starting Cellcount_baseline models for {len(labels)} label(s)")
     cc_results = [_run_label(label, cc=True) for label in labels]
     cc_df = _concat_results(cc_results, "Cellcount_baseline")
 
     prediction_frames = [frame for frame in [pred_df, null_df, cc_df] if frame is not None and not frame.is_empty()]
     if prediction_frames:
-        pl.concat(prediction_frames, how="vertical").write_parquet(output_path)
+        predictions = pl.concat(prediction_frames, how="vertical")
+        log_status(f"Writing {predictions.height} prediction rows to {output_path}")
+        predictions.write_parquet(output_path)
     else:
+        log_status(f"No predictions generated; writing empty prediction table to {output_path}")
         empty_prediction_frame().write_parquet(output_path)
 
 
