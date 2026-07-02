@@ -64,15 +64,16 @@ process axiom_metadata_preparation {
 
     input_file = "${input_file}"
     output_file = "compounds_axiom.txt"
+    control = "${params.control}"
 
     df = pd.read_parquet(input_file)
 
     if "Metadata_compound" not in df.columns:
         raise ValueError("Column 'Metadata_compound' not found in parquet file")
 
+    compound_series = df["Metadata_compound"].dropna()
     compounds = (
-        df["Metadata_compound"]
-        .dropna()
+        compound_series[compound_series != control]
         .drop_duplicates()
     )
 
