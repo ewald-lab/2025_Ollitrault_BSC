@@ -32,11 +32,11 @@ def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
     parser.add_argument("--name", type=str, default="Default")
-    parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_all_features_filtered_converted.parquet") # TODO : adapt for level6
+    parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_all_features_filtered.parquet") # TODO : adapt for level6
     parser.add_argument("--input_pods_cp_all", type=str, default=
-        "modules/04_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
+        "modules/04_concresponse/outputs/pods/modules/outputs/pods/feature_wise/pods_bsc_cp_feature_wise_all.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
-        "modules/04_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+        "modules/04_concresponse/outputs/pods/pods_bsc_cp.parquet")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
         "modules/04_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet",
         "modules/04_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet"
