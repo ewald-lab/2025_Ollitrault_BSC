@@ -33,23 +33,33 @@ workflow classification_workflow {
 
         // Create channel for label files with their label column
         label_files_ch = Channel.fromList(params.classifier.label_files)
-            .map { label_file -> 
+            .map { label_file ->
+                def label_path = file("${params.base_dir}/modules/06_classification/inputs/${label_file}")
                 tuple(
-                    file("${params.base_dir}/modules/06_classification/inputs/${label_file}"),
-                    "OASIS_ID"
+                    label_path,
+                    "OASIS_ID",
+                    label_path.baseName
                 )
             }
 
         // Add axiom_hits with "ID" label column
         all_labels_ch = label_files_ch
             .concat(
-                path_axiom_hits.map { file -> tuple(file, "ID") }
+                path_axiom_hits.map { file -> tuple(file, "ID", file.baseName) }
             )
 
+        filtered_labels_input_ch = all_labels_ch
+            .combine(path_data_level6)
+            .combine(path_data_level4)
+            .map { label_file, label_column, label_name, input_level6, input_level4 ->
+                tuple(input_level6, input_level4, label_file, label_column, label_name)
+            }
+
+        filtered_labels_ch = filter_classification_labels(filtered_labels_input_ch).labels
 
         // Split labels into configurable chunks before CV fan-out. Set
         // params.classifier.label_chunk_size = 1 for one Slurm task per assay.
-        label_chunks_ch = list_classification_label_chunks(all_labels_ch).chunks
+        label_chunks_ch = list_classification_label_chunks(filtered_labels_ch).chunks
             .splitCsv(sep: '\t')
             .map { row ->
                 tuple(row[0], row[1] as int, row[2])
@@ -59,9 +69,9 @@ workflow classification_workflow {
         // then concatenate chunks/repeats back to the historical outputs.
         classification_jobs_ch = path_data_level6
             .combine(path_data_level4)
-            .combine(all_labels_ch)
-            .map { input_level6, input_level4, label_file, label_column ->
-                tuple(label_file.baseName, input_level6, input_level4, label_file, label_column)
+            .combine(filtered_labels_ch)
+            .map { input_level6, input_level4, label_file, label_column, label_name ->
+                tuple(label_name, input_level6, input_level4, label_file, label_column)
             }
 
         classification_label_jobs_ch = classification_jobs_ch
@@ -113,12 +123,45 @@ process axiom_assay_hitcall {
 }
 
 
-process list_classification_label_chunks {
+process filter_classification_labels {
 
-    tag { "${label_file.baseName}" }
+    tag { "${label_name}" }
+
+    publishDir "modules/06_classification/outputs/label_filters", mode: 'copy'
 
     input:
-        tuple path(label_file), val(label_column)
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name)
+
+    output:
+        tuple path("${label_name}_filtered_labels.parquet"), val(label_column), val(label_name), emit: labels
+        path "${label_name}_label_filter_audit.tsv", emit: audit
+
+    script:
+    def classifier_params = params.classifier ?: [:]
+    def filter_label_size = classifier_params.containsKey('filter_label_size') ? classifier_params.filter_label_size : 50
+    def filter_label_size_active = classifier_params.containsKey('filter_label_size_active') ? classifier_params.filter_label_size_active : 20
+    """
+    python ${params.base_dir}/modules/06_classification/scripts/filter_classification_labels.py \
+        --input_path_level6 ${input_level6} \
+        --input_path_level4 ${input_level4} \
+        --label_path ${label_file.name} \
+        --label_column ${label_column} \
+        --output ${label_name}_filtered_labels.parquet \
+        --audit_output ${label_name}_label_filter_audit.tsv \
+        --label_group_name ${label_name} \
+        --n_splits 5 \
+        --filter_label_size ${filter_label_size} \
+        --filter_label_size_active ${filter_label_size_active}
+    """
+}
+
+
+process list_classification_label_chunks {
+
+    tag { "${label_name}" }
+
+    input:
+        tuple path(label_file), val(label_column), val(label_name)
 
     output:
         path "label_chunks.tsv", emit: chunks
@@ -130,7 +173,7 @@ process list_classification_label_chunks {
         --label_path ${label_file.name} \
         --label_column ${label_column} \
         --list_label_chunks \
-        --label_group_name ${label_file.baseName} \
+        --label_group_name ${label_name} \
         --label_chunk_size ${label_chunk_size} \
         > label_chunks.tsv
     """
@@ -158,8 +201,6 @@ process binary_classification_repeat_cpu {
     
     script:
     def total_repeats = params.classifier.n_repeats ?: 1
-    def filter_label_size = params.classifier.filter_label_size ?: 50
-    def filter_label_size_active = params.classifier.filter_label_size_active ?: 20
     def label_workers = params.classifier.label_workers ?: 1
     def save_models_arg = repeat_idx == 1 ? "--save_models" : "--no_save_models"
     """
@@ -175,8 +216,6 @@ process binary_classification_repeat_cpu {
         --n_jobs ${task.cpus} \
         --label_workers ${label_workers} \
         --include_labels "${include_labels}" \
-        --filter_label_size ${filter_label_size} \
-        --filter_label_size_active ${filter_label_size_active} \
         ${save_models_arg}
     """
 }
@@ -203,8 +242,6 @@ process binary_classification_repeat_gpu {
     
     script:
     def total_repeats = params.classifier.n_repeats ?: 1
-    def filter_label_size = params.classifier.filter_label_size ?: 50
-    def filter_label_size_active = params.classifier.filter_label_size_active ?: 20
     def label_workers = params.classifier.label_workers ?: 1
     def save_models_arg = repeat_idx == 1 ? "--save_models" : "--no_save_models"
     """
@@ -220,8 +257,6 @@ process binary_classification_repeat_gpu {
         --n_jobs ${task.cpus} \
         --label_workers ${label_workers} \
         --include_labels "${include_labels}" \
-        --filter_label_size ${filter_label_size} \
-        --filter_label_size_active ${filter_label_size_active} \
         ${save_models_arg}
     """
 }

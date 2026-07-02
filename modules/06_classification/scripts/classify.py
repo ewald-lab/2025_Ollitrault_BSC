@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import traceback  # noqa: D100
 from contextlib import nullcontext
 
 import joblib
@@ -264,66 +263,62 @@ def process_label(
     cc: bool = False,
     n_repeats: int = 1,
     repeat_index: int | None = None,
-    filter_label_size: int = 50,
-    filter_label_size_active: int = 20,
     output_dir: str | None = None,
     save_model: bool = False,
     n_jobs: int = 1,
 ):
     """Process a single label_column."""
-    try:
-        prof = dat.rename({label_column: "Label"})
+    prof = dat.rename({label_column: "Label"})
 
-        num_0 = prof.filter(pl.col("Label") == 0).height
-        num_1 = prof.filter(pl.col("Label") == 1).height
+    num_0 = prof.filter(pl.col("Label") == 0).height
+    num_1 = prof.filter(pl.col("Label") == 1).height
+    if num_0 < n_splits or num_1 < n_splits:
+        raise ValueError(
+            f"Label '{label_column}' has inactive={num_0}, active={num_1}; "
+            f"cannot run {n_splits}-fold cross-validation. "
+            "Filter labels first with filter_classification_labels.py.",
+        )
 
+    meta_cols = [i for i in prof.columns if "Metadata_" in i]
+    all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
 
-        if (num_0 >= n_splits) & (num_1 >= n_splits) & (num_0 + num_1 >= filter_label_size) & (num_1 >= filter_label_size_active):
-            meta_cols = [i for i in prof.columns if "Metadata_" in i]
-            all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
+    prof_meta = prof.select(meta_cols)
+    prof = prof.drop(all_meta_cols)
 
-            prof_meta = prof.select(meta_cols)
-            prof = prof.drop(all_meta_cols)
+    # Call your classifier
+    model, class_res = binary_classifier(
+        prof.to_pandas(),
+        prof_meta.to_pandas(),
+        n_splits=n_splits,
+        device=device,
+        gpu_id=gpu_id,
+        shuffle=shuffle,
+        cc=cc,
+        n_repeats=n_repeats,
+        repeat_index=repeat_index,
+        fit_final_model=save_model,
+        n_jobs=n_jobs,
+    )
+    # Save model if output_dir provided
+    if output_dir and save_model and model is not None:
+        model_type = "random" if shuffle else ("cellcount" if cc else "actual")
 
-            # Call your classifier
-            model, class_res = binary_classifier(
-                prof.to_pandas(),
-                prof_meta.to_pandas(),
-                n_splits=n_splits,
-                device=device,
-                gpu_id=gpu_id,
-                shuffle=shuffle,
-                cc=cc,
-                n_repeats=n_repeats,
-                repeat_index=repeat_index,
-                fit_final_model=save_model,
-                n_jobs=n_jobs,
-            )
-            # Save model if output_dir provided
-            if output_dir and save_model and model is not None:
-                model_type = "random" if shuffle else ("cellcount" if cc else "actual")
+        # Sanitize label_column to create safe filenames
+        safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
 
-                # Sanitize label_column to create safe filenames
-                safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
+        model_filename = f"{safe_label}_{model_type}_model.pkl"
+        model_path = os.path.join(output_dir, model_filename)
 
-                model_filename = f"{safe_label}_{model_type}_model.pkl"
-                model_path = os.path.join(output_dir, model_filename)
+        joblib.dump(model, model_path)
+        print(f"Saved model to {model_path}")
+    # Add the metadata columns
+    class_res = class_res.with_columns(
+        pl.lit(label_column).alias("Metadata_Label"),
+        pl.lit(num_0).alias("Metadata_Count_0"),
+        pl.lit(num_1).alias("Metadata_Count_1"),
+    )
 
-                joblib.dump(model, model_path)
-                print(f"Saved model to {model_path}")
-            # Add the metadata columns
-            class_res = class_res.with_columns(
-                pl.lit(label_column).alias("Metadata_Label"),
-                pl.lit(num_0).alias("Metadata_Count_0"),
-                pl.lit(num_1).alias("Metadata_Count_1"),
-            )
-
-            return class_res
-
-    except Exception:
-        print(f"An error occurred for label '{label_column}':")
-        print(traceback.format_exc())
-        return None
+    return class_res
 
 
 def predict_binary(
@@ -333,8 +328,6 @@ def predict_binary(
     dat: pl.DataFrame | None = None,
     n_repeats: int = 1,
     repeat_index: int | None = None,
-    filter_label_size: int = 50,
-    filter_label_size_active: int = 20,
     label_column: str = "OASIS_ID",
     device: str = "cpu",
     save_models: bool = True,
@@ -428,8 +421,6 @@ def predict_binary(
             cc=cc,
             n_repeats=n_repeats,
             repeat_index=repeat_index,
-            filter_label_size=filter_label_size,
-            filter_label_size_active=filter_label_size_active,
             output_dir=model_output_dir,
             save_model=save_model,
             n_jobs=model_n_jobs,
@@ -528,8 +519,6 @@ if __name__ == "__main__":
     parser.add_argument("--label_chunk_size", required=False, default=0, type=int, help="Number of labels per printed chunk; <=0 means all labels")
     parser.add_argument("--save_models", dest="save_models", action="store_true", help="Save final full-data models")
     parser.add_argument("--no_save_models", dest="save_models", action="store_false", help="Skip saving final full-data models")
-    parser.add_argument("--filter_label_size", required=False, default=50, type=int, help="Minimum number of samples (0 and 1 combined) required for a label to be included in the classification (default: 50)")
-    parser.add_argument("--filter_label_size_active", required=False, default=20, type=int, help="Minimum number of samples active (1 combined) required for a label to be included in the classification (default: 20)")
     parser.set_defaults(save_models=True)
     args = parser.parse_args()
 
@@ -577,8 +566,6 @@ if __name__ == "__main__":
         label_column=args.label_column,
         n_repeats=args.n_repeats,
         repeat_index=args.repeat_index,
-        filter_label_size=args.filter_label_size,
-        filter_label_size_active=args.filter_label_size_active,
         device=args.device,
         save_models=args.save_models,
         n_jobs=args.n_jobs,
