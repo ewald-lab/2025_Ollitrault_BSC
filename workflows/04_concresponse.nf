@@ -249,10 +249,19 @@ workflow concresponse_workflow_feature_wise {
 
         ch_fit_curves_feature_wise_log10 = transform_log10concentration(input_data_level4.first(), ch_fit_curves_feature_wise.pod_feature_wise, "cp", "modules/04_concresponse/outputs/pods/feature_wise")
 
-        // Collect all parquet outputs and concatenate
+        // Collect summary POD outputs and concatenate.
         ch_concatenated = ch_fit_curves_feature_wise.pod
             .collect()
             | concatenate_parquet_files
+
+        // Collect feature-wise BMD outputs into one file with all features for all compounds.
+        ch_concatenated_feature_wise = ch_fit_curves_feature_wise.pod_feature_wise
+            .collect()
+            | concatenate_feature_wise_parquet_files
+
+    emit:
+        summary_pods = ch_concatenated
+        feature_wise_pods = ch_concatenated_feature_wise
 }
 
 workflow concresponse_workflow_bayesian_inference {
@@ -828,6 +837,26 @@ process concatenate_parquet_files {
     combined <- do.call(rbind, lapply(files, arrow::read_parquet))
     
     arrow::write_parquet(combined, "pods_${params.input_name}_cp.parquet")
+EOF
+	    """
+}
+
+process concatenate_feature_wise_parquet_files {
+    label 'r'
+    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: '*.parquet'
+    input:
+        path parquet_files
+    output:
+        path "pods_${params.input_name}_cp_feature_wise_all.parquet"
+    """
+    Rscript - <<'EOF'
+    library(arrow)
+    
+    files <- strsplit("${parquet_files}", " ")[[1]]
+    
+    combined <- do.call(rbind, lapply(files, arrow::read_parquet))
+    
+    arrow::write_parquet(combined, "pods_${params.input_name}_cp_feature_wise_all.parquet")
 EOF
     """
 }

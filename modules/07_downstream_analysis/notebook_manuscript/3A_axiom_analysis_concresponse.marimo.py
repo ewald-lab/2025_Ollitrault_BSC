@@ -36,7 +36,7 @@ def _(argparse, mo, sys):
     parser.add_argument("--input_pods_cp_all", type=str, default=
         "modules/04_concresponse/outputs/pods/pods_axiom_cp_all_original_conc.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
-        "modules/04_concresponse/outputs/pods/pods_axiom_cp_original_conc.parquet")
+        "modules/04_concresponse/outputs/pods/pods_axiom_cp.parquet")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
         "modules/04_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet",
         "modules/04_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet"
