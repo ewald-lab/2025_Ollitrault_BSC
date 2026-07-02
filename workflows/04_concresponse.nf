@@ -843,7 +843,7 @@ EOF
 
 process concatenate_feature_wise_parquet_files {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods" }, mode: 'copy', pattern: '*.parquet'
+    publishDir { "modules/04_concresponse/outputs/pods" }, mode: 'copy', pattern: '*.parquet', overwrite: true
     input:
         path parquet_files
     output:
