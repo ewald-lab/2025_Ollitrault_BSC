@@ -190,7 +190,7 @@ process binary_classification_repeat_cpu {
     time '24h'
     maxForks ((params.classifier.max_cpu_jobs ?: 125) as int)
 
-    publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
+    publishDir "modules/06_classification/outputs/models", mode: 'copy', pattern: 'models/*.pkl', saveAs: { file -> file.toString().tokenize('/').last() }, failOnError: true
     
     input:
         tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
@@ -231,7 +231,7 @@ process binary_classification_repeat_gpu {
     time '24h'
     maxForks ((params.classifier.max_gpu_jobs ?: 16) as int)
 
-    publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
+    publishDir "modules/06_classification/outputs/models", mode: 'copy', pattern: 'models/*.pkl', saveAs: { file -> file.toString().tokenize('/').last() }, failOnError: true
     
     input:
         tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
