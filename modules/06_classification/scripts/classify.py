@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from contextlib import nullcontext
 
 import joblib
 import numpy as np
 import pandas as pd
 import polars as pl
+from tqdm import tqdm
 
 try:
     import cupy as cp
@@ -21,7 +23,8 @@ from xgboost import XGBClassifier
 
 def log_status(message: str) -> None:
     """Print progress immediately in local and Slurm logs."""
-    print(message, flush=True)
+    tqdm.write(message, file=sys.stdout)
+    sys.stdout.flush()
 
 
 def empty_prediction_frame() -> pl.DataFrame:
@@ -181,7 +184,15 @@ def binary_classifier(
     pred_df = []
     device_context = cp.cuda.Device(gpu_id) if device == "gpu" and cp is not None else nullcontext()
     with device_context:
-        for split_number, (train_index, val_index) in enumerate(rskf.split(x, y), start=1):
+        cv_splits = tqdm(
+            rskf.split(x, y),
+            total=total_folds,
+            desc=f"{label_name} | {model_type}",
+            unit="fold",
+            dynamic_ncols=True,
+            file=sys.stdout,
+        )
+        for split_number, (train_index, val_index) in enumerate(cv_splits, start=1):
             repeat_num = (split_number - 1) // n_splits + 1
             fold_num = (split_number - 1) % n_splits + 1
             global_fold = (repeat_num - 1) * n_splits + fold_num

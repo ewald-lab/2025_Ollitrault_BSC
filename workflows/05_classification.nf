@@ -71,7 +71,7 @@ workflow classification_workflow {
             .map { input_level6, input_level4, label_file, label_column, label_name ->
                 tuple(label_name, input_level6, input_level4, label_file, label_column)
             }
-            .join(filtered_assays_ch)
+            .combine(filtered_assays_ch, by: 0)
             .map { label_name, input_level6, input_level4, label_file, label_column, assay_index, assay_label ->
                 tuple(input_level6, input_level4, label_file, label_column, label_name, assay_index, assay_label)
             }
