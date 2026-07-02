@@ -187,12 +187,39 @@ def _(Path, np):
 
 
 @app.cell
-def _(pd):
+def _(df_bsc_cp_pod_all_featurewise, feature_wise_permutation_threshold, pd):
     # POD estimates from Cell Painting morphology and viability assays.
-    df_bsc_cp_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp.parquet")
+    _df_cp_passed = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid = _n_active[_n_active >= feature_wise_permutation_threshold].index
+
+    _all_compounds_fw = _df_cp_passed["Metadata_compound"].unique()
+    _df_cp_valid = _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)].copy()
+
+    _cp_pac_series = (
+        _df_cp_valid
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .rename("cp_POD_um")
+    )
+
+    df_bsc_cp_pod = (
+        pd.DataFrame({"Metadata_compound": _all_compounds_fw})
+        .merge(
+            _n_active.rename("n_active_features").reset_index(),
+            on="Metadata_compound",
+            how="left",
+        )
+        .merge(_cp_pac_series.reset_index(), on="Metadata_compound", how="left")
+    )
+    df_bsc_cp_pod["all.pass"] = df_bsc_cp_pod["Metadata_compound"].isin(_valid)
+
     df_bsc_mtt_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
     df_bsc_ldh_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
-    print(f"Cell Painting POD rows: {len(df_bsc_cp_pod)}")
+    print(f"Cell Painting POD rows from feature-wise CP PODs: {len(df_bsc_cp_pod)}")
+    print(f"Compounds above CP feature threshold: {df_bsc_cp_pod['all.pass'].sum()}")
     print(f"MTT POD rows: {len(df_bsc_mtt_pod)}")
     print(f"LDH POD rows: {len(df_bsc_ldh_pod)}")
     return df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod
@@ -223,18 +250,38 @@ def _(Path, glob, pd):
 
 
 @app.cell
-def _(glob, pd):
+def _(glob, os, pd):
     # Feature-wise Cell Painting POD estimates.
-    path_pattern_feature_wise = "modules/04_concresponse/outputs/pods/feature_wise/*feature_wise_original_conc.parquet"
+    _featurewise_all_path = "modules/04_concresponse/outputs/pods/pods_bsc_cp_feature_wise_all.parquet"
+    _featurewise_all_fallback = "modules/04_concresponse/outputs/pods/feature_wise/pods_bsc_cp_feature_wise_all.parquet"
 
-    _files = glob.glob(path_pattern_feature_wise)
+    _files = [_featurewise_all_path] if os.path.exists(_featurewise_all_path) else []
 
-    print(f"Feature-wise POD files: {len(_files)}")
+    if not _files and os.path.exists(_featurewise_all_fallback):
+        _files = [_featurewise_all_fallback]
 
-    df_bsc_cp_pod_all_featurewise = pd.concat(
-        [pd.read_parquet(f) for f in _files],
-        ignore_index=True
-    )
+    if not _files:
+        _files = sorted(
+            _path
+            for _path in glob.glob(
+                "modules/04_concresponse/outputs/pods/feature_wise/"
+                "pod_bsc_line*_feature_wise_original_conc.parquet"
+            )
+            if os.path.exists(_path)
+        )
+
+    if not _files:
+        raise FileNotFoundError("No BSC feature-wise CP POD parquet files found.")
+
+    print(f"Feature-wise BSC POD files: {len(_files)}")
+
+    if len(_files) == 1:
+        df_bsc_cp_pod_all_featurewise = pd.read_parquet(_files[0])
+    else:
+        df_bsc_cp_pod_all_featurewise = pd.concat(
+            [pd.read_parquet(f) for f in _files],
+            ignore_index=True
+        )
 
     print(f"Feature-wise POD rows/columns: {df_bsc_cp_pod_all_featurewise.shape}")
     print(
@@ -277,11 +324,15 @@ def _(df_bsc_annotations, df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod):
 
 
 @app.cell
-def _(pd):
+def _(df_bsc_cp_pod_all_featurewise, feature_channel):
     # Channel-specific Cell Painting POD estimates, retained for inspection.
-    df_bsc_cp_pod_channel = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
+    df_bsc_cp_pod_channel = df_bsc_cp_pod_all_featurewise.copy()
+    df_bsc_cp_pod_channel["channel"] = df_bsc_cp_pod_channel["gene.id"].apply(feature_channel)
+    df_bsc_cp_pod_channel = df_bsc_cp_pod_channel[
+        df_bsc_cp_pod_channel["channel"].notna()
+    ].copy()
     print(f"Channel-level Cell Painting POD rows: {len(df_bsc_cp_pod_channel)}")
-    return
+    return (df_bsc_cp_pod_channel,)
 
 
 @app.cell
@@ -291,7 +342,6 @@ def _(df_bsc_cp_pod, df_bsc_ldh_pod, df_bsc_mtt_pod):
             "cp_POD": "cp_POD",
             "cp_POD_um": "cp_POD_um",
             "all.pass": "cp_all.pass",
-            "adv.incr": "cp_adv.incr"
         }
     )
     df_bsc_mtt_pod_renamed = df_bsc_mtt_pod.rename(
@@ -1112,7 +1162,7 @@ def _(
         .reset_index(name="n_active")
     )
     _active_compounds = _n_active.loc[
-        _n_active["n_active"] > feature_wise_permutation_threshold,
+        _n_active["n_active"] >= feature_wise_permutation_threshold,
         "Metadata_compound"
     ].values
 
@@ -1137,7 +1187,7 @@ def _(
         .reset_index(name="n_active")
     )
     _active_botanicals = _n_active_bot.loc[
-        _n_active_bot["n_active"] > feature_wise_permutation_threshold,
+        _n_active_bot["n_active"] >= feature_wise_permutation_threshold,
         "Metadata_compound"
     ].values
 
@@ -1986,7 +2036,7 @@ def _(
         .reset_index(name="n_active")
     )
     _active_compounds = _n_active.loc[
-        _n_active["n_active"] > feature_wise_permutation_threshold,
+        _n_active["n_active"] >= feature_wise_permutation_threshold,
         "Metadata_compound"
     ].values
 
@@ -2011,7 +2061,7 @@ def _(
         .reset_index(name="n_active")
     )
     _active_botanicals = _n_active_bot.loc[
-        _n_active_bot["n_active"] > feature_wise_permutation_threshold,
+        _n_active_bot["n_active"] >= feature_wise_permutation_threshold,
         "Metadata_compound"
     ].values
 
