@@ -230,11 +230,11 @@ workflow concresponse_workflow_feature_wise {
 
         ch_permutation_n_active = fit_curves_feature_wise_permutation(
             input_data_level4.first(),
-            ch_feature_selection_score_by_line.randomSample(100),
+            ch_compound_lines.randomSample(100),
             "TRUE"
         )
 
-        // Collect permutation active-feature counts after interdependence-score filtering.
+        // Collect permutation active-feature counts across all feature columns.
         ch_permutation_n_active_threshold = ch_permutation_n_active.n_active_by_compound_permutation
             .map { compound_line, permutation, n_active_file -> n_active_file }
             .collectFile(name: "all_n_actives_permutation_${params.input_name}.txt", newLine: true)
@@ -726,7 +726,7 @@ process fit_curves_feature_wise_permutation {
 
     input:
         path input_file
-        tuple val(compound_line), path(feature_selection_score_file), path(compound_list_file)
+        tuple val(compound_line), path(compound_list_file)
         val permutation
 
     output:
@@ -750,7 +750,7 @@ process fit_curves_feature_wise_permutation {
         "${permutation}" \\
         "NA" \\
         "NA" \\
-        "${feature_selection_score_file}" \\
+        "NA" \\
         "${compound_list_file}"
     """
 }
