@@ -34,7 +34,7 @@ def _(argparse, mo, sys):
     parser.add_argument("--name", type=str, default="Default")
     parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_all_features_filtered.parquet") # TODO : adapt for level6
     parser.add_argument("--input_pods_cp_all", type=str, default=
-        "modules/04_concresponse/outputs/pods/modules/outputs/pods/feature_wise/pods_bsc_cp_feature_wise_all.parquet")
+        "modules/04_concresponse/outputs/pods/pods_bsc_cp_feature_wise_all.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
         "modules/04_concresponse/outputs/pods/pods_bsc_cp.parquet")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
@@ -73,6 +73,8 @@ def _(args, pd):
 @app.cell
 def _(args, pd):
     df_cp_pods_all = pd.read_parquet(args.input_pods_cp_all)
+    if "cp_all_POD_um" not in df_cp_pods_all.columns and "cp_POD_um" in df_cp_pods_all.columns:
+        df_cp_pods_all["cp_all_POD_um"] = df_cp_pods_all["cp_POD_um"]
     df_cp_pods_all.head()
     return (df_cp_pods_all,)
 

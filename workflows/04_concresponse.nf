@@ -254,8 +254,8 @@ workflow concresponse_workflow_feature_wise {
             .collect()
             | concatenate_parquet_files
 
-        // Collect feature-wise BMD outputs into one file with all features for all compounds.
-        ch_concatenated_feature_wise = ch_fit_curves_feature_wise.pod_feature_wise
+        // Collect transformed feature-wise BMD outputs into one file with all features for all compounds.
+        ch_concatenated_feature_wise = ch_fit_curves_feature_wise_log10
             .collect()
             | concatenate_feature_wise_parquet_files
 
@@ -843,7 +843,7 @@ EOF
 
 process concatenate_feature_wise_parquet_files {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods" }, mode: 'symlink', pattern: '*.parquet'
+    publishDir { "modules/04_concresponse/outputs/pods" }, mode: 'copy', pattern: '*.parquet'
     input:
         path parquet_files
     output:
