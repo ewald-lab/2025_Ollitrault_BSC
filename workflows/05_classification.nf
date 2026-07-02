@@ -63,8 +63,8 @@ workflow classification_workflow {
                 tuple(row.label_group, row.assay_index as int, row.assay)
             }
 
-        // Parallelize only by filtered assay. Each assay task runs all repeated
-        // cross-validation internally, then assay outputs are concatenated.
+        // Parallelize only by filtered assay label. Each assay-label task runs
+        // all repeated cross-validation internally, then outputs are concatenated.
         classification_jobs_ch = path_data_level6
             .combine(path_data_level4)
             .combine(filtered_labels_ch)
@@ -148,7 +148,7 @@ process filter_classification_labels {
 
 process binary_classification_assay_cpu {
 
-    tag { "${label_name}:assay_${assay_index}:cpu" }
+    tag { "${label_name}:${assay_label}:cpu" }
 
     label 'classification_cpu'
     cpus { params.classifier.cpus ?: 8 }
@@ -186,7 +186,7 @@ process binary_classification_assay_cpu {
 
 process binary_classification_assay_gpu {
 
-    tag { "${label_name}:assay_${assay_index}:gpu" }
+    tag { "${label_name}:${assay_label}:gpu" }
 
     label 'gpu'
     cpus { params.classifier.gpu_cpus ?: params.classifier.cpus ?: 8 }
