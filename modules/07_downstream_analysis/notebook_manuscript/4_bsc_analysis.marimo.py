@@ -37,6 +37,7 @@ def _():
         mpatches,
         mticker,
         np,
+        os,
         pd,
         plt,
         px,
@@ -228,16 +229,47 @@ def _(df_bsc_cp_pod_all_featurewise, feature_wise_permutation_threshold, pd):
 @app.cell
 def _(Path, glob, pd):
     # Feature-selection interdependence score, one file per compound.
+    # File suffixes are line numbers in compounds_bsc.txt.
     path_pattern_bsc_interdependence_score = "modules/04_concresponse/outputs/interdependence_score/feature_selection_interdependence_score_bsc_*.txt"
 
-    _files = glob.glob(path_pattern_bsc_interdependence_score)
+    _files = sorted(glob.glob(path_pattern_bsc_interdependence_score))
+    if not _files:
+        raise FileNotFoundError("No BSC interdependence score files found.")
+    _compound_list = (
+        pd.read_csv(
+            "modules/01_preprocessing/outputs/compounds_bsc.txt",
+            header=None,
+        )
+        .iloc[:, 0]
+        .astype(str)
+        .str.strip()
+        .tolist()
+    )
+    _compound_by_line = {
+        _line_number: _compound
+        for _line_number, _compound in enumerate(_compound_list, start=1)
+        if _compound
+    }
+
+    def _compound_from_score_path(_path):
+        _suffix = Path(_path).stem.replace(
+            "feature_selection_interdependence_score_bsc_", ""
+        )
+        if _suffix.startswith("line"):
+            _line_number = int(_suffix.replace("line", "", 1))
+            if _line_number not in _compound_by_line:
+                raise ValueError(
+                    f"Interdependence score file {_path} refers to line "
+                    f"{_line_number}, but compounds_bsc.txt has "
+                    f"{len(_compound_list)} entries."
+                )
+            return _compound_by_line[_line_number]
+        return _suffix
 
     df_bsc_interdependence_score = pd.concat(
         [
             pd.read_csv(f).assign(
-                Metadata_compound=Path(f).stem.replace(
-                    "feature_selection_interdependence_score_bsc_", ""
-                )
+                Metadata_compound=_compound_from_score_path(f)
             )
             for f in _files
         ],
@@ -245,6 +277,7 @@ def _(Path, glob, pd):
     )
 
     print(f"Interdependence score files: {len(_files)}")
+    print(f"Compound-list entries for interdependence mapping: {len(_compound_by_line)}")
     print(f"Interdependence score rows/columns: {df_bsc_interdependence_score.shape}")
     return (df_bsc_interdependence_score,)
 
