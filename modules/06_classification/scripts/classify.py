@@ -21,6 +21,33 @@ from tqdm.contrib.concurrent import thread_map
 from xgboost import XGBClassifier
 
 
+def label_columns_from_path(label_path: str, label_column: str) -> list[str]:
+    """Return binary label columns from a label parquet file."""
+    if label_column not in {"OASIS_ID", "ID"}:
+        raise ValueError(f"Unsupported label_column '{label_column}'. Use 'OASIS_ID' or 'ID'.")
+
+    schema = pl.scan_parquet(label_path).collect_schema()
+    return [
+        column
+        for column in schema.names()
+        if column != label_column and not column.startswith("Metadata_")
+    ]
+
+
+def print_label_chunks(label_path: str, label_column: str, label_group_name: str, label_chunk_size: int) -> None:
+    """Print tab-delimited label chunks for Nextflow fan-out."""
+    labels = label_columns_from_path(label_path, label_column)
+    chunk_size = len(labels) if label_chunk_size < 1 else label_chunk_size
+    if chunk_size < 1:
+        return
+
+    for chunk_index, start in enumerate(range(0, len(labels), chunk_size), start=1):
+        chunk_labels = labels[start : start + chunk_size]
+        if any("," in label or "\t" in label for label in chunk_labels):
+            raise ValueError("Label names cannot contain commas or tabs when chunked through Nextflow.")
+        print(f"{label_group_name}\t{chunk_index}\t{','.join(chunk_labels)}")
+
+
 def empty_prediction_frame() -> pl.DataFrame:
     """Return an empty prediction table with the expected output schema."""
     return pl.DataFrame(
@@ -50,16 +77,16 @@ def normalize_device(device: str) -> str:
 
 
 def count_available_gpus() -> int:
-    """Count visible CUDA devices when CuPy is installed."""
-    if cp is None:
-        return 0
-
+    """Count visible CUDA devices."""
     cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     if cuda_visible:
         visible_devices = [device.strip() for device in cuda_visible.split(",") if device.strip()]
         if visible_devices == ["NoDevFiles"]:
             return 0
         return len(visible_devices)
+
+    if cp is None:
+        return 0
 
     try:
         return cp.cuda.runtime.getDeviceCount()
@@ -69,14 +96,14 @@ def count_available_gpus() -> int:
 
 def to_model_array(values: np.ndarray, device: str):
     """Move arrays to the requested compute backend."""
-    if device == "gpu":
+    if device == "gpu" and cp is not None:
         return cp.asarray(values)
     return np.asarray(values)
 
 
 def to_numpy(values, device: str) -> np.ndarray:
     """Return model outputs as NumPy arrays for stable serialization."""
-    if device == "gpu":
+    if device == "gpu" and cp is not None and isinstance(values, cp.ndarray):
         return cp.asnumpy(values)
     return np.asarray(values)
 
@@ -148,8 +175,6 @@ def binary_classifier(
 
     """
     device = normalize_device(device)
-    if device == "gpu" and cp is None:
-        raise RuntimeError("GPU execution requested but CuPy is not installed.")
     if repeat_index is not None and not 1 <= repeat_index <= n_repeats:
         raise ValueError(f"repeat_index must be between 1 and n_repeats ({n_repeats}).")
 
@@ -175,7 +200,7 @@ def binary_classifier(
     rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats_to_generate, random_state=42)
 
     pred_df = []
-    device_context = cp.cuda.Device(gpu_id) if device == "gpu" else nullcontext()
+    device_context = cp.cuda.Device(gpu_id) if device == "gpu" and cp is not None else nullcontext()
     with device_context:
         for split_number, (train_index, val_index) in enumerate(rskf.split(x, y), start=1):
             repeat_num = (split_number - 1) // n_splits + 1
@@ -315,6 +340,7 @@ def predict_binary(
     save_models: bool = True,
     n_jobs: int = 1,
     label_workers: int = 1,
+    include_labels: list[str] | None = None,
 ) -> None:
     """Build classifier for binary outcomes.
 
@@ -371,9 +397,16 @@ def predict_binary(
     else:
         raise ValueError(f"Unsupported label_column '{label_column}'. Use 'OASIS_ID' or 'ID'.")
 
-    labels = [i for i in meta.columns if "Metadata_" not in i]
+    all_labels = [i for i in meta.columns if "Metadata_" not in i]
+    labels = all_labels
+    if include_labels:
+        requested_labels = set(include_labels)
+        missing_labels = sorted(requested_labels.difference(all_labels))
+        if missing_labels:
+            raise ValueError(f"Labels not found in {label_path}: {missing_labels}")
+        labels = [label for label in all_labels if label in requested_labels]
 
-    print(f"Data shape after join: {dat.shape}")
+    print(f"Data shape after join: {dat.shape}; processing {len(labels)}/{len(all_labels)} label(s)")
 
     label_jobs = list(enumerate(labels))
     model_output_dir = None
@@ -388,7 +421,7 @@ def predict_binary(
             dat,
             current_label_column,
             n_splits,
-            labels,
+            all_labels,
             device=device,
             gpu_id=gpu_id,
             shuffle=shuffle,
@@ -479,22 +512,53 @@ def preprocess_axiom_data_cell_count(
 # I have replaced all Metadata_OASIS_ID to Metadata_compound
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute prediction.")
-    parser.add_argument("--input_path_level6", required=True, help="Path to input aggregated profiles")
-    parser.add_argument("--input_path_level4", required=True, help="Path to input aggregated profiles")
+    parser.add_argument("--input_path_level6", required=False, help="Path to input aggregated profiles")
+    parser.add_argument("--input_path_level4", required=False, help="Path to input aggregated profiles")
     parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict")
     parser.add_argument("--label_column", required=False, default="OASIS_ID", help="Column in label_path to use as label (default: OASIS_ID). If using 'ID', will use Metadata_compound for join.")
-    parser.add_argument("--output", required=True, help="Directory for output Parquet file")
+    parser.add_argument("--output", required=False, help="Directory for output Parquet file")
     parser.add_argument("--n_repeats", required=False, default=1, type=int, help="Number of times to repeat cross-validation (default: 1)")
     parser.add_argument("--repeat_index", required=False, default=None, type=int, help="Run only this repeat index from the repeated cross-validation")
     parser.add_argument("--device", required=False, default="cpu", choices=["cpu", "gpu", "cuda"], help="Run XGBoost on CPU or GPU/CUDA (default: cpu)")
     parser.add_argument("--n_jobs", required=False, default=1, type=int, help="Number of CPU threads available to XGBoost")
     parser.add_argument("--label_workers", required=False, default=1, type=int, help="Number of labels to process concurrently inside this task")
+    parser.add_argument("--include_labels", required=False, default=None, help="Comma-separated label columns to process")
+    parser.add_argument("--list_label_chunks", action="store_true", help="Print label chunks and exit")
+    parser.add_argument("--label_group_name", required=False, default=None, help="Group name to print with --list_label_chunks")
+    parser.add_argument("--label_chunk_size", required=False, default=0, type=int, help="Number of labels per printed chunk; <=0 means all labels")
     parser.add_argument("--save_models", dest="save_models", action="store_true", help="Save final full-data models")
     parser.add_argument("--no_save_models", dest="save_models", action="store_false", help="Skip saving final full-data models")
     parser.add_argument("--filter_label_size", required=False, default=50, type=int, help="Minimum number of samples (0 and 1 combined) required for a label to be included in the classification (default: 50)")
     parser.add_argument("--filter_label_size_active", required=False, default=20, type=int, help="Minimum number of samples active (1 combined) required for a label to be included in the classification (default: 20)")
     parser.set_defaults(save_models=True)
     args = parser.parse_args()
+
+    if args.list_label_chunks:
+        label_group_name = args.label_group_name or os.path.splitext(os.path.basename(args.label_path))[0]
+        print_label_chunks(
+            label_path=args.label_path,
+            label_column=args.label_column,
+            label_group_name=label_group_name,
+            label_chunk_size=args.label_chunk_size,
+        )
+        raise SystemExit(0)
+
+    missing_args = [
+        arg_name
+        for arg_name, arg_value in {
+            "--input_path_level6": args.input_path_level6,
+            "--input_path_level4": args.input_path_level4,
+            "--output": args.output,
+        }.items()
+        if not arg_value
+    ]
+    if missing_args:
+        parser.error(f"the following arguments are required unless --list_label_chunks is used: {', '.join(missing_args)}")
+
+    include_labels = None
+    if args.include_labels:
+        include_labels = [label for label in args.include_labels.split(",") if label]
+
     # Preprocess
     dat_aggregated_features = preprocess_axiom_data_features(
         input_path=args.input_path_level6,
@@ -519,4 +583,5 @@ if __name__ == "__main__":
         save_models=args.save_models,
         n_jobs=args.n_jobs,
         label_workers=args.label_workers,
+        include_labels=include_labels,
     )

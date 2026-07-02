@@ -47,21 +47,35 @@ workflow classification_workflow {
             )
 
 
-        // Run each repeated CV repeat as its own Nextflow task, then concatenate
-        // repeats back to the historical axiom_*_predictions.parquet outputs.
+        // Split labels into configurable chunks before CV fan-out. Set
+        // params.classifier.label_chunk_size = 1 for one Slurm task per assay.
+        label_chunks_ch = list_classification_label_chunks(all_labels_ch).chunks
+            .splitCsv(sep: '\t')
+            .map { row ->
+                tuple(row[0], row[1] as int, row[2])
+            }
+
+        // Run each repeated CV repeat and label chunk as its own Nextflow task,
+        // then concatenate chunks/repeats back to the historical outputs.
         classification_jobs_ch = path_data_level6
             .combine(path_data_level4)
             .combine(all_labels_ch)
             .map { input_level6, input_level4, label_file, label_column ->
-                tuple(input_level6, input_level4, label_file, label_column, label_file.baseName)
+                tuple(label_file.baseName, input_level6, input_level4, label_file, label_column)
+            }
+
+        classification_label_jobs_ch = classification_jobs_ch
+            .join(label_chunks_ch)
+            .map { label_name, input_level6, input_level4, label_file, label_column, label_chunk_idx, include_labels ->
+                tuple(input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels)
             }
 
         repeat_index_ch = Channel.fromList(1..classifier_n_repeats)
 
-        classification_repeat_jobs_ch = classification_jobs_ch
+        classification_repeat_jobs_ch = classification_label_jobs_ch
             .combine(repeat_index_ch)
-            .map { input_level6, input_level4, label_file, label_column, label_name, repeat_idx ->
-                tuple(input_level6, input_level4, label_file, label_column, label_name, repeat_idx)
+            .map { input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels, repeat_idx ->
+                tuple(input_level6, input_level4, label_file, label_column, label_name, label_chunk_idx, include_labels, repeat_idx)
             }
 
         if (classifier_device == 'gpu') {
@@ -71,7 +85,7 @@ workflow classification_workflow {
         }
 
         path_output_classification = classification_repeat_predictions
-            .groupTuple(size: classifier_n_repeats)
+            .groupTuple()
             | concatenate_classification_repeats
        
     emit:
@@ -99,22 +113,47 @@ process axiom_assay_hitcall {
 }
 
 
+process list_classification_label_chunks {
+
+    tag { "${label_file.baseName}" }
+
+    input:
+        tuple path(label_file), val(label_column)
+
+    output:
+        path "label_chunks.tsv", emit: chunks
+
+    script:
+    def label_chunk_size = params.classifier.label_chunk_size ?: 0
+    """
+    python ${params.base_dir}/modules/06_classification/scripts/classify.py \
+        --label_path ${label_file.name} \
+        --label_column ${label_column} \
+        --list_label_chunks \
+        --label_group_name ${label_file.baseName} \
+        --label_chunk_size ${label_chunk_size} \
+        > label_chunks.tsv
+    """
+}
+
+
 process binary_classification_repeat_cpu {
 
-    tag { "${label_name}:repeat_${repeat_idx}:cpu" }
+    tag { "${label_name}:chunk_${label_chunk_idx}:repeat_${repeat_idx}:cpu" }
 
     label 'classification_cpu'
     cpus { params.classifier.cpus ?: 8 }
     memory { params.classifier.memory ?: '64 GB' }
     time '24h'
+    maxForks { params.classifier.max_cpu_jobs ?: 125 }
 
     publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
     
     input:
-        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(repeat_idx)
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
     
     output:
-        tuple val(label_name), path("axiom_${label_name}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
+        tuple val(label_name), path("axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
         tuple val(label_name), path("models/*.pkl"), emit: models, optional: true
     
     script:
@@ -129,12 +168,13 @@ process binary_classification_repeat_cpu {
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \
         --label_column ${label_column} \
-        --output axiom_${label_name}_repeat${repeat_idx}_predictions.parquet \
+        --output axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet \
         --n_repeats ${total_repeats} \
         --repeat_index ${repeat_idx} \
         --device cpu \
         --n_jobs ${task.cpus} \
         --label_workers ${label_workers} \
+        --include_labels "${include_labels}" \
         --filter_label_size ${filter_label_size} \
         --filter_label_size_active ${filter_label_size_active} \
         ${save_models_arg}
@@ -144,20 +184,21 @@ process binary_classification_repeat_cpu {
 
 process binary_classification_repeat_gpu {
 
-    tag { "${label_name}:repeat_${repeat_idx}:gpu" }
+    tag { "${label_name}:chunk_${label_chunk_idx}:repeat_${repeat_idx}:gpu" }
 
     label 'gpu'
     cpus { params.classifier.gpu_cpus ?: params.classifier.cpus ?: 8 }
     memory { params.classifier.memory ?: '64 GB' }
     time '24h'
+    maxForks { params.classifier.max_gpu_jobs ?: 16 }
 
     publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
     
     input:
-        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(repeat_idx)
+        tuple path(input_level6), path(input_level4), path(label_file), val(label_column), val(label_name), val(label_chunk_idx), val(include_labels), val(repeat_idx)
     
     output:
-        tuple val(label_name), path("axiom_${label_name}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
+        tuple val(label_name), path("axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet"), emit: predictions
         tuple val(label_name), path("models/*.pkl"), emit: models, optional: true
     
     script:
@@ -172,12 +213,13 @@ process binary_classification_repeat_gpu {
         --input_path_level4 ${input_level4} \
         --label_path ${label_file.name} \
         --label_column ${label_column} \
-        --output axiom_${label_name}_repeat${repeat_idx}_predictions.parquet \
+        --output axiom_${label_name}_chunk${label_chunk_idx}_repeat${repeat_idx}_predictions.parquet \
         --n_repeats ${total_repeats} \
         --repeat_index ${repeat_idx} \
         --device gpu \
         --n_jobs ${task.cpus} \
         --label_workers ${label_workers} \
+        --include_labels "${include_labels}" \
         --filter_label_size ${filter_label_size} \
         --filter_label_size_active ${filter_label_size_active} \
         ${save_models_arg}
@@ -198,12 +240,12 @@ process concatenate_classification_repeats {
         path "axiom_${label_name}_predictions.parquet"
 
     script:
-    def files_literal = prediction_files.collect { "'${it}'" }.join(", ")
     """
 python - <<'PY'
+from pathlib import Path
 import polars as pl
 
-files = [${files_literal}]
+files = sorted(Path(".").glob("axiom_*_chunk*_repeat*_predictions.parquet"))
 frames = [pl.read_parquet(path) for path in files]
 combined = pl.concat(frames, how="vertical")
 

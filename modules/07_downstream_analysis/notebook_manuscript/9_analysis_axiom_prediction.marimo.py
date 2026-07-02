@@ -274,6 +274,12 @@ def _(
     )
 
 
+@app.cell
+def _(df_model_feature_audit):
+    df_model_feature_audit
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Select Significant Prediction Assays""")

@@ -215,6 +215,7 @@ reports/*
 *.nextflow.log.*
 work
 logs/*
+!logs/.gitkeep
 
 # Slurm
 00.first_analysis_module/output.out
