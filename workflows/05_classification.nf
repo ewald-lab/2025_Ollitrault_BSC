@@ -145,7 +145,7 @@ process binary_classification_repeat_cpu {
     cpus { params.classifier.cpus ?: 8 }
     memory { params.classifier.memory ?: '64 GB' }
     time '24h'
-    maxForks { params.classifier.max_cpu_jobs ?: 125 }
+    maxForks ((params.classifier.max_cpu_jobs ?: 125) as int)
 
     publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
     
@@ -190,7 +190,7 @@ process binary_classification_repeat_gpu {
     cpus { params.classifier.gpu_cpus ?: params.classifier.cpus ?: 8 }
     memory { params.classifier.memory ?: '64 GB' }
     time '24h'
-    maxForks { params.classifier.max_gpu_jobs ?: 16 }
+    maxForks ((params.classifier.max_gpu_jobs ?: 16) as int)
 
     publishDir "modules/06_classification/outputs", mode: 'copy', pattern: 'models/*.pkl'
     
