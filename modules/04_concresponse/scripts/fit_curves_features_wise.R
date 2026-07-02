@@ -170,6 +170,75 @@ read_compound_from_list <- function(compound_list_path, compound_line) {
   compound
 }
 
+empty_feature_bmd_result <- function(compound) {
+  data.frame(
+    gene.id           = NA_character_,
+    mod.name          = NA_character_,
+    b                 = NA_real_,
+    c                 = NA_real_,
+    d                 = NA_real_,
+    e                 = NA_real_,
+    f                 = NA_real_,
+    SDres             = NA_real_,
+    AIC.model         = NA_real_,
+    lof.p             = NA_real_,
+    ctrl.mod          = NA_real_,
+    ctrl.mean         = NA_real_,
+    adv.incr          = NA,
+    bmd               = NA_real_,
+    bmdl              = NA_real_,
+    bmdu              = NA_real_,
+    bmr               = NA_real_,
+    SDctrl            = NA_real_,
+    conv.pass         = NA,
+    hd.pass           = NA,
+    CI.pass           = NA,
+    ld.pass           = NA,
+    all.pass          = FALSE,
+    Metadata_compound = compound
+  )
+}
+
+ensure_adv_incr_col <- function(df) {
+  if (!"adv.incr" %in% colnames(df)) {
+    df[["adv.incr"]] <- NA
+  }
+  df
+}
+
+as_adv_incr_logical <- function(x) {
+  if (is.logical(x)) {
+    return(x)
+  }
+  if (is.numeric(x)) {
+    return(ifelse(is.na(x), NA, x != 0))
+  }
+
+  x_chr <- tolower(as.character(x))
+  ifelse(
+    is.na(x_chr),
+    NA,
+    x_chr %in% c("true", "t", "1", "yes", "y")
+  )
+}
+
+summarise_adv_incr <- function(df) {
+  if (!"adv.incr" %in% colnames(df)) {
+    return(list(
+      adv_incr = NA,
+      n_adv_true = NA_integer_,
+      n_adv_false = NA_integer_
+    ))
+  }
+
+  adv <- as_adv_incr_logical(df[["adv.incr"]])
+  list(
+    adv_incr = if (all(is.na(adv))) NA else any(adv, na.rm = TRUE),
+    n_adv_true = sum(adv == TRUE, na.rm = TRUE),
+    n_adv_false = sum(adv == FALSE, na.rm = TRUE)
+  )
+}
+
 input_path <- args[1] #"../../03_postprocessing/outputs/level4b_bsc_filtered.parquet" #distances_bsc.parquet
 output_path <- args[2] #"../outputs/pods/test.parquet"
 num.sds <- args[3] #2
@@ -218,6 +287,9 @@ if (feature_selection_score_file != "NA") {
         bmdl_sd   = NA_real_,
         bmdu_sd   = NA_real_,
         n.active  = 0L,
+        adv.incr  = NA,
+        n.active_adv_true = 0L,
+        n.active_adv_false = 0L,
         conv.pass = NA,
         hd.pass   = NA,
         CI.pass   = NA,
@@ -225,7 +297,9 @@ if (feature_selection_score_file != "NA") {
         all.pass  = FALSE
       )
       arrow::write_parquet(empty_df, output_path)
-      if (!is.null(output_path_all)) arrow::write_parquet(empty_df, output_path_all)
+      if (!is.null(output_path_all)) {
+        arrow::write_parquet(empty_feature_bmd_result(compounds[1]), output_path_all)
+      }
     }
     
     quit(save = "no", status = 0)
@@ -305,6 +379,7 @@ for (i in seq_along(compounds)) {
   
   # Filter active and Count valid BMDs
   fit_obj$bmd_res$Metadata_compound = compound
+  fit_obj$bmd_res <- ensure_adv_incr_col(fit_obj$bmd_res)
   fit_obj_passed_bmd_res  <- fit_obj$bmd_res[fit_obj$bmd_res[, "all.pass"] == TRUE, ]
   
   if (permutation) {
@@ -315,32 +390,7 @@ for (i in seq_along(compounds)) {
   
   # write all features results
   if (nrow(fit_obj_passed_bmd_res) == 0) {
-    fit_obj_passed_bmd_res <- data.frame(
-      gene.id           = NA_character_,
-      mod.name          = NA_character_,
-      b                 = NA_real_,
-      c                 = NA_real_,
-      d                 = NA_real_,
-      e                 = NA_real_,
-      f                 = NA_real_,
-      SDres             = NA_real_,
-      AIC.model         = NA_real_,
-      lof.p             = NA_real_,
-      ctrl.mod          = NA_real_,
-      ctrl.mean         = NA_real_,
-      adv.incr          = NA,
-      bmd               = NA_real_,
-      bmdl              = NA_real_,
-      bmdu              = NA_real_,
-      bmr               = NA_real_,
-      SDctrl            = NA_real_,
-      conv.pass         = NA,
-      hd.pass           = NA,
-      CI.pass           = NA,
-      ld.pass           = NA,
-      all.pass          = FALSE,
-      Metadata_compound = compound
-    )
+    fit_obj_passed_bmd_res <- empty_feature_bmd_result(compound)
   }
   if (!permutation) {
     arrow::write_parquet(fit_obj_passed_bmd_res, file.path(output_path_all))
@@ -355,6 +405,7 @@ for (i in seq_along(compounds)) {
                 any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE) & 
                 any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE) &
                 n_active_features)
+  adv_incr_summary <- summarise_adv_incr(fit_obj_passed_bmd_res)
 
   res_list[[i]] <- data.frame(
     Metadata_compound  = compound,
@@ -365,6 +416,9 @@ for (i in seq_along(compounds)) {
     bmdl_sd   = bmd_sd(fit_obj_passed_bmd_res$bmdl),
     bmdu_sd   = bmd_sd(fit_obj_passed_bmd_res$bmdu),
     n.active  = n_active_features,
+    adv.incr  = adv_incr_summary$adv_incr,
+    n.active_adv_true = adv_incr_summary$n_adv_true,
+    n.active_adv_false = adv_incr_summary$n_adv_false,
     conv.pass = any(fit_obj_passed_bmd_res$conv.pass, na.rm = TRUE),
     hd.pass   = any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE),
     CI.pass   = any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE),

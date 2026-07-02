@@ -73,8 +73,6 @@ def _(args, pd):
 @app.cell
 def _(args, pd):
     df_cp_pods_all = pd.read_parquet(args.input_pods_cp_all)
-    if "cp_all_POD_um" not in df_cp_pods_all.columns and "cp_POD_um" in df_cp_pods_all.columns:
-        df_cp_pods_all["cp_all_POD_um"] = df_cp_pods_all["cp_POD_um"]
     df_cp_pods_all.head()
     return (df_cp_pods_all,)
 
@@ -134,6 +132,18 @@ def _(df_cp_pods, dict_df_meta_pods, pd):
     summary_table_pods = pd.DataFrame(_summary_rows)
     summary_table_pods
     return (dict_all_dfs_pods,)
+
+
+@app.cell
+def _(dict_all_dfs_pods):
+    dict_all_dfs_pods
+    return
+
+
+@app.cell
+def _(dict_all_dfs_pods):
+    dict_all_dfs_pods
+    return
 
 
 @app.cell
