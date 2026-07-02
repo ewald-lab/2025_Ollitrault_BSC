@@ -407,7 +407,7 @@ process fit_curves {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
         path input_file
@@ -464,7 +464,7 @@ process concatenate_metadata_pod_files {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
         tuple val(meta_nm), path(input_files)
@@ -505,7 +505,7 @@ process select_pod {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
     // tuple val(meta_nm), path(input_file_meta_pods), path(input_file_bmds)
@@ -531,7 +531,7 @@ process select_pod {
 process transform_back_log10concentration {
     tag { "${input_file.baseName} ${meta_nm}" }
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
     tuple val(meta_nm), path(input_file), path(input_file_metadata), val(is_metadata_pods)
@@ -561,7 +561,7 @@ process transform_back_log10concentration {
 process transform_log10concentration {
     tag { "${input_file.baseName} ${path_dt_pod}" }
 
-    publishDir "${publishdir}", mode: 'symlink', pattern: '*.parquet'
+    publishDir "${publishdir}", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
         path input_file
@@ -765,7 +765,7 @@ process fit_curves_feature_wise_permutation {
 }
 process compute_percentile_permutation_active_features {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: 'feature_wise_median_permutation_threshold_*.txt'
+    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'copy', pattern: 'feature_wise_median_permutation_threshold_*.txt', overwrite: true
     input:
         path threshold_active_features_file
     output:
@@ -786,8 +786,9 @@ EOF
 process fit_curves_feature_wise {
     tag { "compound_line=${compound_line}" }
     publishDir "modules/04_concresponse/outputs/pods/feature_wise",
-        mode: 'symlink',
-        pattern: '*_feature_wise.parquet'
+        mode: 'copy',
+        pattern: '*_feature_wise.parquet',
+        overwrite: true
     label 'r'
     input:
         path input_file
@@ -823,7 +824,7 @@ process fit_curves_feature_wise {
 
 process concatenate_parquet_files {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods/" }, mode: 'symlink', pattern: '*.parquet'
+    publishDir { "modules/04_concresponse/outputs/pods/" }, mode: 'copy', pattern: '*.parquet', overwrite: true
     input:
         path parquet_files
     output:
@@ -871,8 +872,8 @@ process fit_curves_bayesian_inferences {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.parquet'
-    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.png'
+    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'copy', pattern: '*.parquet', overwrite: true
+    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'copy', pattern: '*.png', overwrite: true
 
     input:
         path input_file
