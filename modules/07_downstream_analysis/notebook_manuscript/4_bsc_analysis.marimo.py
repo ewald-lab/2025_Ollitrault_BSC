@@ -79,12 +79,12 @@ def _(mo):
 @app.cell
 def _(pd):
     # Cell Painting profiles at plate, compound, and feature-filtered levels.
-    df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered_filtered_converted.parquet")
+    df_level4_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     df_level4_bsc = df_level4_bsc.groupby("Metadata_plate").filter(
         lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
     )
-    df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_selected_features_filtered_converted.parquet")
-    df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_filtered.parquet")
+    df_level5_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_selected_features_filtered.parquet")
+    df_level6_bsc = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_selected_features_filtered.parquet")
     df_level5_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_all_features_filtered.parquet")
     df_level6_bsc_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_selected_features_filtered.parquet")
 
@@ -189,7 +189,7 @@ def _(Path, np):
 @app.cell
 def _(pd):
     # POD estimates from Cell Painting morphology and viability assays.
-    df_bsc_cp_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+    df_bsc_cp_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_cp.parquet")
     df_bsc_mtt_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet")
     df_bsc_ldh_pod = pd.read_parquet("modules/04_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet")
     print(f"Cell Painting POD rows: {len(df_bsc_cp_pod)}")
