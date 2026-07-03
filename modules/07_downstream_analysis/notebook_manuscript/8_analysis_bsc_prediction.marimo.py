@@ -131,8 +131,6 @@ def _(bsc_annotation_path, level6_bsc_path, pd):
     )
     return (
         df_bsc_annotations,
-        df_bsc_constituent_botanical_pairs,
-        df_bsc_unique_constituents,
         df_level6_bsc_all,
         dic_botanicals_scode_name,
         list_botanicals,
@@ -962,6 +960,23 @@ def _(pd):
         df_heatmap_columns: pd.DataFrame,
     ):
         """Summarize active predictions by botanical, assay group, and category."""
+        def _add_active_summary(active_df: pd.DataFrame) -> pd.DataFrame:
+            return active_df.assign(
+                active_predictions=lambda _df: (
+                    _df["n_active"].astype(int).astype(str)
+                    + "/"
+                    + _df["n_tested"].astype(int).astype(str)
+                ),
+                active_prediction_summary=lambda _df: _df.apply(
+                    lambda _row: (
+                        f"{int(_row['n_active'])}/"
+                        f"{int(_row['n_tested'])} "
+                        f"({_row['pct_active']:.1f}%)"
+                    ),
+                    axis=1,
+                ),
+            )
+
         _annotated_compound_ids = pd.Index(
             pd.concat(
                 [
@@ -1049,6 +1064,7 @@ def _(pd):
             )
             .sort_values("pct_active", ascending=False)
             .reset_index()
+            .pipe(_add_active_summary)
         )
 
         _group_series = df_heatmap_columns.set_index("assay")["group"]
@@ -1056,7 +1072,7 @@ def _(pd):
             _group_series
         )
 
-        df_pct_active_by_botanical_group = (
+        df_active_by_botanical_group_long = (
             df_pred_long_botanical.dropna(subset=["group"])
             .groupby(["botanical", "group"])["active"]
             .agg(
@@ -1069,15 +1085,36 @@ def _(pd):
                 ).round(1)
             )
             .reset_index()
-            .pivot(index="botanical", columns="group", values="pct_active")
+            .pipe(_add_active_summary)
+        )
+        df_pct_active_by_botanical_group = (
+            df_active_by_botanical_group_long
+            .pivot(
+                index="botanical",
+                columns="group",
+                values="active_prediction_summary",
+            )
+            .rename_axis(columns=None)
             .reset_index()
         )
         if "Cell-based" in df_pct_active_by_botanical_group.columns:
+            _group_sort_order = (
+                df_active_by_botanical_group_long[
+                    df_active_by_botanical_group_long["group"] == "Cell-based"
+                ]
+                .sort_values("pct_active", ascending=False)["botanical"]
+                .tolist()
+            )
+            _remaining_botanicals = [
+                _botanical
+                for _botanical in df_pct_active_by_botanical_group["botanical"]
+                if _botanical not in _group_sort_order
+            ]
             df_pct_active_by_botanical_group = (
-                df_pct_active_by_botanical_group.sort_values(
-                    "Cell-based",
-                    ascending=False,
-                )
+                df_pct_active_by_botanical_group
+                .set_index("botanical")
+                .reindex(_group_sort_order + _remaining_botanicals)
+                .reset_index()
             )
 
         _category_series = df_heatmap_columns.set_index("assay")[
@@ -1087,7 +1124,7 @@ def _(pd):
             df_pred_long_botanical["assay"].map(_category_series)
         )
 
-        df_pct_active_by_botanical_category = (
+        df_active_by_botanical_category_long = (
             df_pred_long_botanical.dropna(subset=["category_label"])
             .groupby(["botanical", "category_label"])["active"]
             .agg(
@@ -1100,11 +1137,16 @@ def _(pd):
                 ).round(1)
             )
             .reset_index()
+            .pipe(_add_active_summary)
+        )
+        df_pct_active_by_botanical_category = (
+            df_active_by_botanical_category_long
             .pivot(
                 index="botanical",
                 columns="category_label",
-                values="pct_active",
+                values="active_prediction_summary",
             )
+            .rename_axis(columns=None)
             .reset_index()
         )
 
@@ -1114,11 +1156,26 @@ def _(pd):
             if _column != "botanical"
         ]
         if _category_sort_cols:
+            _category_sort_order = (
+                df_active_by_botanical_category_long[
+                    df_active_by_botanical_category_long["category_label"]
+                    == _category_sort_cols[0]
+                ]
+                .sort_values("pct_active", ascending=False)["botanical"]
+                .tolist()
+            )
+            _remaining_botanicals = [
+                _botanical
+                for _botanical in df_pct_active_by_botanical_category[
+                    "botanical"
+                ]
+                if _botanical not in _category_sort_order
+            ]
             df_pct_active_by_botanical_category = (
-                df_pct_active_by_botanical_category.sort_values(
-                    _category_sort_cols[0],
-                    ascending=False,
-                )
+                df_pct_active_by_botanical_category
+                .set_index("botanical")
+                .reindex(_category_sort_order + _remaining_botanicals)
+                .reset_index()
             )
 
         return (
@@ -1189,7 +1246,7 @@ def _(
 
     print("\nActive predictions by botanical and cell-based category:")
     print(df_pct_active_by_botanical_category.to_string(index=False))
-    return (df_pred_long_all, df_pred_long_constituent_unique)
+    return (df_pred_long_all,)
 
 
 @app.cell
@@ -1205,6 +1262,16 @@ def _(df_pred_long_all):
             percent_active=lambda _df: (
                 _df["active_count"] / _df["total_count"] * 100
             ).round(1)
+        )
+        .assign(
+            active_prediction_summary=lambda _df: _df.apply(
+                lambda _row: (
+                    f"{int(_row['active_count'])}/"
+                    f"{int(_row['total_count'])} "
+                    f"({_row['percent_active']:.1f}%)"
+                ),
+                axis=1,
+            )
         )
         .sort_values("percent_active", ascending=False)
         .reset_index()
