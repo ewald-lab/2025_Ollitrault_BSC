@@ -671,7 +671,7 @@ def _(
     np,
     plt,
 ):
-    _figure_path = figure_output_dir / "Figure_8_bsc_prediction_heatmap.png"
+    _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap.png"
     _download_path = (
         downloads_dir
         / "prediction_heatmap_botanical_constituents_batch_groups_claudeai.png"

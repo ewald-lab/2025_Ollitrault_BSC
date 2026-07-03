@@ -1451,8 +1451,8 @@ def _(
         ]["assay_component_endpoint_name"]
     )
 
-    print("In Claude AI list but NOT in dataframe:", _list_claudeai - _list_df)
-    print("In dataframe but NOT in Claude AI list:", _list_df - _list_claudeai)
+    print("In chagpt AI list but NOT in dataframe:", _list_claudeai - _list_df)
+    print("In dataframe but NOT in chagpt AI list:", _list_df - _list_claudeai)
     return
 
 
@@ -1465,10 +1465,10 @@ def _(
 ):
     _cat_lookup = {
         _assay: {
-            "claudeai_id":          _cat["id"],
-            "claudeai_label":       _cat["label"],
-            "claudeai_color":       _cat["color"],
-            "claudeai_description": _cat["description"],
+            "chagpt_id":          _cat["id"],
+            "chagpt_label":       _cat["label"],
+            "chagpt_color":       _cat["color"],
+            "chagpt_description": _cat["description"],
         }
         for _cat in dict_categories_significative_cell_based["categories"]
         for _assay in _cat["assays"]
@@ -1544,7 +1544,7 @@ def _(df_toxcast_cellbased_assay_info_significant, pred_pandas_filtered):
         right_on="assay_component_endpoint_name",
         how="left"
     )
-    df_toxcast_assay_info_perf_significant.to_csv("modules/06_classification/outputs/df_toxcast_all_assay_info_perf_significant_claudeai_categories.csv")
+    df_toxcast_assay_info_perf_significant.to_csv("modules/07_downstream_analysis/tables/Table_S2.csv")
     return
 
 

@@ -1176,241 +1176,422 @@ def _(
     pd,
     table_dir,
 ):
-    # Build Table 1: active constituent and botanical POD summaries.
-    _constituents_in_data = (
-        df_bsc_cp_pod_all_featurewise["Metadata_compound"]
-        .unique()
-    )
-    _constituents_in_data = [c for c in _constituents_in_data if c not in list_botanicals]
+    # Build Table 1: botanical extract PODs + constituent activity/POD summaries.
 
-    _annot = df_bsc_annotations[
-        df_bsc_annotations["Metadata_compound"].isin(_constituents_in_data)
+    DASH = "—"
+    _botanical_set = set(list_botanicals)
+
+    def _fmt_pod(x):
+        """Format POD values like 75.8 instead of 75.80, while keeping 0.49."""
+        if x is None or pd.isna(x):
+            return DASH
+        return f"{float(x):.2f}".rstrip("0").rstrip(".")
+
+    def _fmt_count(n, total):
+        if total == 0:
+            return DASH
+        return f"{int(n)}/{int(total)} ({100 * n / total:.0f}%)"
+
+    def _active_cp_pac_from_featurewise(df, compounds, pod_col="cp_POD_um"):
+        """
+        For CP feature-wise PODs:
+        - keep all.pass == True
+        - require >= feature_wise_permutation_threshold active features
+        - compute 5th percentile PAC per compound
+        """
+        _passed = df[
+            (df["all.pass"] == True) &
+            (df["Metadata_compound"].isin(compounds))
+        ].copy()
+
+        _n_active = (
+            _passed.groupby("Metadata_compound")[pod_col]
+            .count()
+            .reset_index(name="n_active")
+        )
+
+        _active = _n_active.loc[
+            _n_active["n_active"] >= feature_wise_permutation_threshold,
+            "Metadata_compound"
+        ]
+
+        _pac = (
+            _passed[_passed["Metadata_compound"].isin(_active)]
+            .groupby("Metadata_compound")[pod_col]
+            .quantile(0.05, interpolation="linear")
+            .dropna()
+        )
+
+        return _pac
+
+
+    # ── 1. Annotation table restricted to botanical-associated constituents ───────
+
+    _annot_all = df_bsc_annotations[
+        df_bsc_annotations["Plant scode"].isin(list_botanicals) &
+        (~df_bsc_annotations["Metadata_compound"].isin(list_botanicals))
     ].copy()
 
-    _df_const_passed = df_bsc_cp_pod_all_featurewise[
-        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
-        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(_constituents_in_data))
-    ]
+    _annot_all = _annot_all[["Plant scode", "Metadata_compound"]].drop_duplicates()
 
-    # Keep only constituents with n active features > threshold
-    _n_active = (
-        _df_const_passed.groupby("Metadata_compound")["cp_POD_um"]
-        .count()
-        .reset_index(name="n_active")
-    )
-    _active_compounds = _n_active.loc[
-        _n_active["n_active"] >= feature_wise_permutation_threshold,
-        "Metadata_compound"
-    ].values
 
-    _constituent_pac = (
-        _df_const_passed[_df_const_passed["Metadata_compound"].isin(_active_compounds)]
-        .groupby("Metadata_compound")["cp_POD_um"]
-        .quantile(0.05, interpolation="linear")
-        .reset_index(name="PAC")
+    # ── 2. Constituent CP PODs ────────────────────────────────────────────────────
+
+    _cp_constituents_measured = (
+        df_bsc_cp_pod_all_featurewise.loc[
+            ~df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(list_botanicals),
+            "Metadata_compound"
+        ]
+        .dropna()
+        .unique()
     )
 
-    _pac_lookup = _constituent_pac.set_index("Metadata_compound")["PAC"].to_dict()
+    _annot_cp = _annot_all[
+        _annot_all["Metadata_compound"].isin(_cp_constituents_measured)
+    ].copy()
 
-    # ── 2. PAC per botanical ──────────────────────────────────────────────────────
-    _df_bot_passed = df_bsc_cp_pod_all_featurewise[
-        (df_bsc_cp_pod_all_featurewise["all.pass"] == True) &
-        (df_bsc_cp_pod_all_featurewise["Metadata_compound"].isin(list_botanicals))
-    ]
-
-    _n_active_bot = (
-        _df_bot_passed.groupby("Metadata_compound")["cp_POD_um"]
-        .count()
-        .reset_index(name="n_active")
+    _constituent_cp_pac = _active_cp_pac_from_featurewise(
+        df_bsc_cp_pod_all_featurewise,
+        _cp_constituents_measured,
+        pod_col="cp_POD_um"
     )
-    _active_botanicals = _n_active_bot.loc[
-        _n_active_bot["n_active"] >= feature_wise_permutation_threshold,
-        "Metadata_compound"
-    ].values
 
-    _botanical_pac_dict = (
-        _df_bot_passed[_df_bot_passed["Metadata_compound"].isin(_active_botanicals)]
-        .groupby("Metadata_compound")["cp_POD_um"]
-        .quantile(0.05, interpolation="linear")
+    _df_cp_long = (
+        _annot_cp
+        .merge(
+            _constituent_cp_pac.rename("PAC"),
+            left_on="Metadata_compound",
+            right_index=True,
+            how="inner"
+        )
+    )
+
+    _cp_total_by_plant = (
+        _annot_cp.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
         .to_dict()
     )
-    # ── MTT and LDH POD per botanical ────────────────────────────────────────────
-    _mtt_pac_dict = (
+
+    _cp_active_by_plant = (
+        _df_cp_long.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    _cp_median_by_plant = (
+        _df_cp_long.groupby("Plant scode")["PAC"]
+        .median()
+        .to_dict()
+    )
+
+
+    # ── 3. Constituent MTT PODs ───────────────────────────────────────────────────
+
+    _mtt_constituents_measured = (
+        df_bsc_mtt_pod.loc[
+            ~df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals),
+            "Metadata_compound"
+        ]
+        .dropna()
+        .unique()
+    )
+
+    _annot_mtt = _annot_all[
+        _annot_all["Metadata_compound"].isin(_mtt_constituents_measured)
+    ].copy()
+
+    _constituent_mtt_pod = (
+        df_bsc_mtt_pod[
+            (df_bsc_mtt_pod["all.pass"] == True) &
+            (~df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
+        .min()
+        .dropna()
+    )
+
+    _df_mtt_long = (
+        _annot_mtt
+        .merge(
+            _constituent_mtt_pod.rename("POD"),
+            left_on="Metadata_compound",
+            right_index=True,
+            how="inner"
+        )
+    )
+
+    _mtt_total_by_plant = (
+        _annot_mtt.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    _mtt_active_by_plant = (
+        _df_mtt_long.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    _mtt_median_by_plant = (
+        _df_mtt_long.groupby("Plant scode")["POD"]
+        .median()
+        .to_dict()
+    )
+
+
+    # ── 4. Constituent LDH PODs ───────────────────────────────────────────────────
+
+    _ldh_constituents_measured = (
+        df_bsc_ldh_pod.loc[
+            ~df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals),
+            "Metadata_compound"
+        ]
+        .dropna()
+        .unique()
+    )
+
+    _annot_ldh = _annot_all[
+        _annot_all["Metadata_compound"].isin(_ldh_constituents_measured)
+    ].copy()
+
+    _constituent_ldh_pod = (
+        df_bsc_ldh_pod[
+            (df_bsc_ldh_pod["all.pass"] == True) &
+            (~df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
+        ]
+        .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
+        .min()
+        .dropna()
+    )
+
+    _df_ldh_long = (
+        _annot_ldh
+        .merge(
+            _constituent_ldh_pod.rename("POD"),
+            left_on="Metadata_compound",
+            right_index=True,
+            how="inner"
+        )
+    )
+
+    _ldh_total_by_plant = (
+        _annot_ldh.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    _ldh_active_by_plant = (
+        _df_ldh_long.groupby("Plant scode")["Metadata_compound"]
+        .nunique()
+        .to_dict()
+    )
+
+    _ldh_median_by_plant = (
+        _df_ldh_long.groupby("Plant scode")["POD"]
+        .median()
+        .to_dict()
+    )
+
+
+    # ── 5. Botanical extract CP PODs ──────────────────────────────────────────────
+
+    _botanical_cp_pac = _active_cp_pac_from_featurewise(
+        df_bsc_cp_pod_all_featurewise,
+        list_botanicals,
+        pod_col="cp_POD_um"
+    )
+
+    _botanical_cp_pac_dict = _botanical_cp_pac.to_dict()
+
+
+    # ── 6. Botanical extract MTT and LDH PODs ─────────────────────────────────────
+
+    _botanical_mtt_pac_dict = (
         df_bsc_mtt_pod[
             (df_bsc_mtt_pod["all.pass"] == True) &
             (df_bsc_mtt_pod["Metadata_compound"].isin(list_botanicals))
         ]
         .groupby("Metadata_compound")["Metadata_mtt_normalized_POD_um"]
         .min()
+        .dropna()
         .to_dict()
     )
 
-    _ldh_pac_dict = (
+    _botanical_ldh_pac_dict = (
         df_bsc_ldh_pod[
             (df_bsc_ldh_pod["all.pass"] == True) &
             (df_bsc_ldh_pod["Metadata_compound"].isin(list_botanicals))
         ]
         .groupby("Metadata_compound")["Metadata_ldh_normalized_POD_um"]
         .min()
-        .to_dict()
-    )
-    # ── 3. Map constituents to their botanicals ───────────────────────────────────
-    _constituent_to_plants = _annot.groupby("Metadata_compound")["Plant scode"].apply(list).to_dict()
-
-    _rows = []
-    for _compound, _plants in _constituent_to_plants.items():
-        if _compound not in _pac_lookup:
-            continue
-        for _plant in _plants:
-            if _plant in list_botanicals:
-                _rows.append({
-                    "Metadata_compound": _compound,
-                    "Plant name": dic_botanicals_scode_name[_plant],
-                    "Plant scode": _plant,
-                    "PAC": _pac_lookup[_compound]
-                })
-    _df_long = pd.DataFrame(_rows)  # ← build _df_long FIRST
-
-    # ── NOW compute counts (depend on _df_long) ───────────────────────────────────
-    _total_known = (
-        df_bsc_annotations[df_bsc_annotations["Plant scode"].isin(list_botanicals)]
-        .groupby("Plant scode")["Metadata_compound"]
-        .nunique()
-        .to_dict()
-    )
-    _active_counts = (
-        _df_long.groupby("Plant scode")["Metadata_compound"]
-        .nunique()
+        .dropna()
         .to_dict()
     )
 
-    # ── 4. Order botanicals by median constituent PAC ─────────────────────────────
-    # Base order on active constituents, then append botanicals with no active ones
-    _order_active = (
-        _df_long.groupby("Plant name")["PAC"]
-        .median()
+
+    # ── 7. Order botanicals by median constituent CP POD ──────────────────────────
+
+    _order_active_scodes = (
+        pd.Series(_cp_median_by_plant)
         .sort_values()
-        .index.tolist()
+        .index
+        .tolist()
     )
 
-    # All botanical names
-    _all_plant_names = [dic_botanicals_scode_name[s] for s in list_botanicals]
+    _order_inactive_scodes = [
+        s for s in list_botanicals
+        if s not in _order_active_scodes
+    ]
 
-    # Botanicals with no active constituents — append at the end
-    _order_inactive = [p for p in _all_plant_names if p not in _order_active]
+    _order_scodes = _order_active_scodes + _order_inactive_scodes
 
-    _order = _order_active + _order_inactive
+
+    # ── 8. Build table rows ───────────────────────────────────────────────────────
+
     _rows_table = []
 
-    for _plant in _order:
-        _scode = next((k for k, v in dic_botanicals_scode_name.items() if v == _plant), None)
-        if _scode is None:
-            continue
+    for _scode in _order_scodes:
+        _plant = dic_botanicals_scode_name.get(_scode, _scode)
 
-        # ── Constituent CP POD ────────────────────────────────────────────────────
-        _cp_vals = _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
-        _total_known_n = _total_known.get(_scode, 0)
-        _active_cp_n   = _active_counts.get(_scode, 0)
-        _cp_pct        = f"{_active_cp_n}/{_total_known_n} ({100*_active_cp_n/_total_known_n:.0f}%)" if _total_known_n > 0 else "—"
-        _cp_median     = f"{np.median(_cp_vals):.2f}" if len(_cp_vals) > 0 else "—"
+        _cp_total = _cp_total_by_plant.get(_scode, 0)
+        _cp_active = _cp_active_by_plant.get(_scode, 0)
 
-        # ── Botanical CP POD (whole extract) ──────────────────────────────────────
-        _bot_cp  = _botanical_pac_dict.get(_scode)
-        _bot_cp_str = f"{_bot_cp:.2f}" if _bot_cp is not None and pd.notna(_bot_cp) else "—"
+        _mtt_total = _mtt_total_by_plant.get(_scode, 0)
+        _mtt_active = _mtt_active_by_plant.get(_scode, 0)
 
-        # ── Botanical MTT POD (whole extract) ─────────────────────────────────────
-        _bot_mtt = _mtt_pac_dict.get(_scode)
-        _bot_mtt_str = f"{_bot_mtt:.2f}" if _bot_mtt is not None and pd.notna(_bot_mtt) else "—"
-
-        # ── Botanical LDH POD (whole extract) ─────────────────────────────────────
-        _bot_ldh = _ldh_pac_dict.get(_scode)
-        _bot_ldh_str = f"{_bot_ldh:.2f}" if _bot_ldh is not None and pd.notna(_bot_ldh) else "—"
-
-        # ── Constituent MTT POD ───────────────────────────────────────────────────
-        _mtt_vals = (
-            df_bsc_mtt_pod[
-                (df_bsc_mtt_pod["all.pass"] == True) &
-                (df_bsc_mtt_pod["Metadata_compound"].isin(
-                    _annot.loc[_annot["Plant scode"] == _scode, "Metadata_compound"]
-                ))
-            ]["Metadata_mtt_normalized_POD_um"].dropna().values
-        )
-        _active_mtt_n = len(_mtt_vals)
-        _mtt_pct      = f"{_active_mtt_n}/{_total_known_n} ({100*_active_mtt_n/_total_known_n:.0f}%)" if _total_known_n > 0 else "—"
-        _mtt_median   = f"{np.median(_mtt_vals):.2f}" if len(_mtt_vals) > 0 else "—"
-
-        # ── Constituent LDH POD ───────────────────────────────────────────────────
-        _ldh_vals = (
-            df_bsc_ldh_pod[
-                (df_bsc_ldh_pod["all.pass"] == True) &
-                (df_bsc_ldh_pod["Metadata_compound"].isin(
-                    _annot.loc[_annot["Plant scode"] == _scode, "Metadata_compound"]
-                ))
-            ]["Metadata_ldh_normalized_POD_um"].dropna().values
-        )
-        _active_ldh_n = len(_ldh_vals)
-        _ldh_pct      = f"{_active_ldh_n}/{_total_known_n} ({100*_active_ldh_n/_total_known_n:.0f}%)" if _total_known_n > 0 else "—"
-        _ldh_median   = f"{np.median(_ldh_vals):.2f}" if len(_ldh_vals) > 0 else "—"
+        _ldh_total = _ldh_total_by_plant.get(_scode, 0)
+        _ldh_active = _ldh_active_by_plant.get(_scode, 0)
 
         _rows_table.append({
-            "Botanical"                      : _plant,
-            "Active CP (n/total)"            : _cp_pct,
-            "Median constituent CP POD (μM)" : _cp_median,
-            "Botanical CP POD (μM)"          : _bot_cp_str,
-            "Active MTT (n/total)"           : _mtt_pct,
-            "Median constituent MTT POD (μM)": _mtt_median,
-            "Botanical MTT POD (μM)"         : _bot_mtt_str,
-            "Active LDH (n/total)"           : _ldh_pct,
-            "Median constituent LDH POD (μM)": _ldh_median,
-            "Botanical LDH POD (μM)"         : _bot_ldh_str,
+            ("Botanical", ""): _plant,
+
+            ("Botanical extracts", "CP POD (μM)"):
+                _fmt_pod(_botanical_cp_pac_dict.get(_scode)),
+            ("Botanical extracts", "MT POD (μM)"):
+                _fmt_pod(_botanical_mtt_pac_dict.get(_scode)),
+            ("Botanical extracts", "LDH POD (μM)"):
+                _fmt_pod(_botanical_ldh_pac_dict.get(_scode)),
+
+            ("Constituents", "Active CP (n/total)"):
+                _fmt_count(_cp_active, _cp_total),
+            ("Constituents", "Median CP POD (μM)"):
+                _fmt_pod(_cp_median_by_plant.get(_scode)),
+
+            ("Constituents", "Active MT (n/total)"):
+                _fmt_count(_mtt_active, _mtt_total),
+            ("Constituents", "Median MT POD (μM)"):
+                _fmt_pod(_mtt_median_by_plant.get(_scode)),
+
+            ("Constituents", "Active LDH (n/total)"):
+                _fmt_count(_ldh_active, _ldh_total),
+            ("Constituents", "Median LDH POD (μM)"):
+                _fmt_pod(_ldh_median_by_plant.get(_scode)),
         })
 
-    # ── Summary footer row ────────────────────────────────────────────────────────
-    _all_cp_vals = _df_long.drop_duplicates(subset="Metadata_compound")["PAC"].dropna().values
-    _total_known_all = df_bsc_annotations[
-        df_bsc_annotations["Plant scode"].isin(list_botanicals)
-    ]["Metadata_compound"].nunique()
-    _active_cp_all = _df_long["Metadata_compound"].nunique()
+
+    # ── 9. Overall footer row ─────────────────────────────────────────────────────
+
+    _total_botanicals = len(list_botanicals)
+
+    _active_botanical_cp_n = len(_botanical_cp_pac_dict)
+    _active_botanical_mtt_n = len(_botanical_mtt_pac_dict)
+    _active_botanical_ldh_n = len(_botanical_ldh_pac_dict)
+
+    _total_cp_all = _annot_cp["Metadata_compound"].nunique()
+    _active_cp_all = _df_cp_long["Metadata_compound"].nunique()
+
+    _total_mtt_all = _annot_mtt["Metadata_compound"].nunique()
+    _active_mtt_all = _df_mtt_long["Metadata_compound"].nunique()
+
+    _total_ldh_all = _annot_ldh["Metadata_compound"].nunique()
+    _active_ldh_all = _df_ldh_long["Metadata_compound"].nunique()
+
+    _all_cp_vals = (
+        _df_cp_long[["Metadata_compound", "PAC"]]
+        .drop_duplicates(subset="Metadata_compound")
+        ["PAC"]
+        .dropna()
+        .values
+    )
 
     _all_mtt_vals = (
-        df_bsc_mtt_pod[
-            (df_bsc_mtt_pod["all.pass"] == True) &
-            (df_bsc_mtt_pod["Metadata_compound"].isin(_annot["Metadata_compound"]))
-        ]
+        _df_mtt_long[["Metadata_compound", "POD"]]
         .drop_duplicates(subset="Metadata_compound")
-        ["Metadata_mtt_normalized_POD_um"].dropna().values
+        ["POD"]
+        .dropna()
+        .values
     )
-    _active_mtt_all = len(_all_mtt_vals)
 
     _all_ldh_vals = (
-        df_bsc_ldh_pod[
-            (df_bsc_ldh_pod["all.pass"] == True) &
-            (df_bsc_ldh_pod["Metadata_compound"].isin(_annot["Metadata_compound"]))
-        ]
+        _df_ldh_long[["Metadata_compound", "POD"]]
         .drop_duplicates(subset="Metadata_compound")
-        ["Metadata_ldh_normalized_POD_um"].dropna().values
+        ["POD"]
+        .dropna()
+        .values
     )
-    _active_ldh_all = len(_all_ldh_vals)
 
     _rows_table.append({
-        "Botanical"                      : "── OVERALL ──",
-        "Active CP (n/total)"            : f"{_active_cp_all}/{_total_known_all} ({100*_active_cp_all/_total_known_all:.0f}%)",
-        "Median constituent CP POD (μM)" : f"{np.median(_all_cp_vals):.2f}" if len(_all_cp_vals) > 0 else "—",
-        "Botanical CP POD (μM)"          : "—",
-        "Active MTT (n/total)"           : f"{_active_mtt_all}/{_total_known_all} ({100*_active_mtt_all/_total_known_all:.0f}%)",
-        "Median constituent MTT POD (μM)": f"{np.median(_all_mtt_vals):.2f}" if len(_all_mtt_vals) > 0 else "—",
-        "Botanical MTT POD (μM)"         : "—",
-        "Active LDH (n/total)"           : f"{_active_ldh_all}/{_total_known_all} ({100*_active_ldh_all/_total_known_all:.0f}%)",
-        "Median constituent LDH POD (μM)": f"{np.median(_all_ldh_vals):.2f}" if len(_all_ldh_vals) > 0 else "—",
-        "Botanical LDH POD (μM)"         : "—",
+        ("Botanical", ""): "Median POD / Overall activity rate",
+
+        ("Botanical extracts", "CP POD (μM)"):
+            _fmt_count(_active_botanical_cp_n, _total_botanicals),
+        ("Botanical extracts", "MT POD (μM)"):
+            _fmt_count(_active_botanical_mtt_n, _total_botanicals),
+        ("Botanical extracts", "LDH POD (μM)"):
+            _fmt_count(_active_botanical_ldh_n, _total_botanicals),
+
+        ("Constituents", "Active CP (n/total)"):
+            _fmt_count(_active_cp_all, _total_cp_all),
+        ("Constituents", "Median CP POD (μM)"):
+            _fmt_pod(np.median(_all_cp_vals)) if len(_all_cp_vals) > 0 else DASH,
+
+        ("Constituents", "Active MT (n/total)"):
+            _fmt_count(_active_mtt_all, _total_mtt_all),
+        ("Constituents", "Median MT POD (μM)"):
+            _fmt_pod(np.median(_all_mtt_vals)) if len(_all_mtt_vals) > 0 else DASH,
+
+        ("Constituents", "Active LDH (n/total)"):
+            _fmt_count(_active_ldh_all, _total_ldh_all),
+        ("Constituents", "Median LDH POD (μM)"):
+            _fmt_pod(np.median(_all_ldh_vals)) if len(_all_ldh_vals) > 0 else DASH,
     })
 
+
+    # ── 10. Final table ───────────────────────────────────────────────────────────
+
     df_summary_table_more = pd.DataFrame(_rows_table)
-    df_summary_table_more.to_csv(str(table_dir / "Table_1.csv"), index=False)
-    print(f"Table 1 botanicals plus overall rows: {len(df_summary_table_more)}")
-    print(f"Active CP constituents in Table 1: {_active_cp_all}/{_total_known_all}")
-    print(f"Active MTT constituents in Table 1: {_active_mtt_all}/{_total_known_all}")
-    print(f"Active LDH constituents in Table 1: {_active_ldh_all}/{_total_known_all}")
+
+    # Ensures column order is exactly as requested.
+    df_summary_table_more = df_summary_table_more[
+        [
+            ("Botanical", ""),
+
+            ("Botanical extracts", "CP POD (μM)"),
+            ("Botanical extracts", "MT POD (μM)"),
+            ("Botanical extracts", "LDH POD (μM)"),
+
+            ("Constituents", "Active CP (n/total)"),
+            ("Constituents", "Median CP POD (μM)"),
+            ("Constituents", "Active MT (n/total)"),
+            ("Constituents", "Median MT POD (μM)"),
+            ("Constituents", "Active LDH (n/total)"),
+            ("Constituents", "Median LDH POD (μM)"),
+        ]
+    ]
+
+    df_summary_table_more.to_csv(
+        str(table_dir / "Table_1.csv"),
+        index=False
+    )
+
+    print(f"Table 1 rows including overall row: {len(df_summary_table_more)}")
+    print(f"Active botanical CP extracts: {_active_botanical_cp_n}/{_total_botanicals}")
+    print(f"Active botanical MT extracts: {_active_botanical_mtt_n}/{_total_botanicals}")
+    print(f"Active botanical LDH extracts: {_active_botanical_ldh_n}/{_total_botanicals}")
+    print(f"Active CP constituents in Table 1: {_active_cp_all}/{_total_cp_all}")
+    print(f"Active MT constituents in Table 1: {_active_mtt_all}/{_total_mtt_all}")
+    print(f"Active LDH constituents in Table 1: {_active_ldh_all}/{_total_ldh_all}")
+
     df_summary_table_more
     return
 
@@ -4120,7 +4301,7 @@ def _(
     plt.tight_layout()
     _cg.fig.savefig(figure_dir / "Figure_4_A.png", format="png", bbox_inches="tight", dpi=300)
     _cg.fig
-    return (df_cosine_similarity_bsc,)
+    return
 
 
 if __name__ == "__main__":
