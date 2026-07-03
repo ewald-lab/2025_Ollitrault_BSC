@@ -1,0 +1,86 @@
+assay,group,group_color,group_display,category_color,category_label,AUROC_mean_Actual,AUPRG_mean_Actual
+ATG_AP_1_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.5690063299663299,0.0313200372659676
+ATG_Ahr_CIS,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5510531097134871,0.0238050865576983
+ATG_DR4_LXR_CIS,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5782092480359147,0.038528830354215
+ATG_ERE_CIS,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.5038393855701037,0.0124503104195874
+ATG_MRE_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6920554856743536,0.0901368822524188
+ATG_NRF2_ARE_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6607010245792855,0.1478775263719517
+ATG_Oct_MLP_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6023614022827859,0.0588764900794897
+ATG_PBREM_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.4698000324675324,0.0033157098497078
+ATG_PPRE_CIS,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5602524444444444,0.0362618248169099
+ATG_PXRE_CIS,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5944973482440807,0.0822592386960618
+ATG_SREBP_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6500172727272727,0.0688171417730337
+ATG_TCF_b_cat_CIS,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6322247077922077,0.052143970664706
+ATG_VDRE_CIS,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.6142939398072376,0.0892730097973518
+BSK_3C_Proliferation,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6617249738766979,0.142124687802125
+BSK_3C_SRB,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6383655462184874,0.0820072521556719
+BSK_3C_uPAR,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.616916507936508,0.0648077367364332
+BSK_4H_MCP1,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6092266106442578,0.0583891880606081
+BSK_4H_SRB,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.5454749999999999,0.0280307053925455
+BSK_4H_VCAM1,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6600049206349206,0.0973190763716022
+BSK_4H_uPAR,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6337060317460317,0.0662897903905175
+BSK_CASM3C_Proliferation,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6690012732365674,0.1125347900847995
+BSK_CASM3C_Thrombomodulin,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6555527777777777,0.0739148750045095
+BSK_LPS_CD40,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6609850793650794,0.0873642216600362
+BSK_LPS_MCSF,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6480894444444446,0.0678627510271272
+BSK_LPS_PGE2,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.4980513731060605,0.0021306265032908
+BSK_LPS_VCAM1,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.7129759663865547,0.136790365053076
+BSK_SAg_CD40,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.7196525490196078,0.1442270795916023
+BSK_SAg_Eselectin,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6832364145658263,0.1118040253426344
+BSK_SAg_Proliferation,Cell-based,#DD8452,ToxCast cell-based,#9467bd,Cardiovascular / Vascular Inflammation,0.6925550679205851,0.1600926656048059
+CEETOX_H295R_11DCORT,Cell-based,#DD8452,ToxCast cell-based,#ff7f0e,Endocrine Disruption — Steroidogenesis & Adrenal,0.5880763636363636,0.0575736344211344
+CEETOX_H295R_OHPREG,Cell-based,#DD8452,ToxCast cell-based,#ff7f0e,Endocrine Disruption — Steroidogenesis & Adrenal,0.5041236363636363,0.0098247083472083
+LDH,Hit calls,#4C72B0,Cytotox,#dddddd,,0.9055870459781704,0.5408143339970254
+LTEA_HepaRG_ABCB11,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.5563028735632184,0.0363950118208936
+LTEA_HepaRG_ABCB1,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.6725630511463845,0.1209532014721594
+LTEA_HepaRG_ABCG2,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.6416290640394088,0.0833358019767318
+LTEA_HepaRG_ALPP,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6565064039408867,0.0913729887247667
+LTEA_HepaRG_CYP1A1,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5522134996155326,0.0561744016921962
+LTEA_HepaRG_CYP1A2,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.4953092286501378,0.0064620485108009
+LTEA_HepaRG_CYP2B6,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.537345177045177,0.0418229333434898
+LTEA_HepaRG_CYP2C19,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.556871794871795,0.0549600680091321
+LTEA_HepaRG_CYP2C8,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5714357142857143,0.0375262938759678
+LTEA_HepaRG_CYP2E1,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5905262962962963,0.0702368248933823
+LTEA_HepaRG_CYP3A7,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5792001085334418,0.052713292336575
+LTEA_HepaRG_CYP4A11,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5280299823633158,0.0324622154353103
+LTEA_HepaRG_CYP4A22,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.564694885361552,0.039729408915847
+LTEA_HepaRG_FABP1,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.6195423645320197,0.074287747677156
+LTEA_HepaRG_HMGCS2,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.6352413793103447,0.0824569142404386
+LTEA_HepaRG_PEG10,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.6191142857142857,0.0640397845770169
+LTEA_HepaRG_THRSP,Cell-based,#DD8452,ToxCast cell-based,#a07040,Hepatotoxicity — Lipid Metabolism & Transport,0.6489004926108375,0.0749593757745322
+LTEA_HepaRG_UGT1A1,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.5625677777777778,0.0481444525746044
+MT,Hit calls,#4C72B0,Cytotox,#dddddd,,0.843912484659719,0.3849765435991978
+OT_ER_ERaERb_1440,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.5167588588588589,0.0201944713560835
+OT_ER_ERbERb_1440,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.6463650793650794,0.0699094253985
+OT_ERa_GFPERaERE_0480,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.5987250000000001,0.0431100697647993
+TOX21_AP1_BLA_Agonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.5273462837837838,0.0113070273298989
+TOX21_ARE_BLA_Agonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#2ca02c,Hepatotoxicity — General Stress Response,0.5609772626674433,0.0260623286318893
+TOX21_AR_BLA_Agonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7017036698412699,0.1988937734407384
+TOX21_AR_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.703301395730706,0.1245024565917452
+TOX21_AR_LUC_MDAKB2_Agonist,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7815384946236559,0.2826629848997117
+TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM_R1881,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.6925742574257425,0.1474918232134743
+TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7971336271808998,0.2202237707508999
+TOX21_AhR_LUC_Agonist,Cell-based,#DD8452,ToxCast cell-based,#8c564b,Hepatotoxicity — Xenobiotic Metabolism,0.6698372317460316,0.0451632659488126
+TOX21_Aromatase_Inhibition,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7683019283746556,0.1492568762914209
+TOX21_CAR_Agonist,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5350760479867622,0.0157524310849903
+TOX21_ERR_Antagonist,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5747082083997874,0.0538157222176347
+TOX21_ERa_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.6043359465737514,0.0594582847890765
+TOX21_ERa_LUC_VM7_Agonist,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.5313026082010378,0.0371428222953087
+TOX21_ERa_LUC_VM7_Antagonist_0.1nM_E2,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7465084175084176,0.1554838675056699
+TOX21_ERa_LUC_VM7_Antagonist_0.5nM_E2,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7508463114754097,0.1421990241368453
+TOX21_ERb_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.6039451681928318,0.049678151831381
+TOX21_FXR_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.661483992921493,0.0683244215527601
+TOX21_GR_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.7337691214667685,0.1273251756769863
+TOX21_HDAC_Inhibition,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.5594385964912281,0.0172384118573051
+TOX21_MMP_ratio,Cell-based,#DD8452,ToxCast cell-based,#8c6bb1,Mitochondrial Toxicity,0.5777838479593047,0.0399448497786633
+TOX21_PGC_ERR_Antagonist,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.6432666666666667,0.0534883277154363
+TOX21_PPARg_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.5278022308022308,0.0149870424774671
+TOX21_PR_BLA_Agonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.7042423340961098,0.1608791998633938
+TOX21_PR_BLA_Antagonist_ratio,Cell-based,#DD8452,ToxCast cell-based,#d62728,Endocrine Disruption — Sex Hormones,0.6742961685823755,0.1485946308454113
+TOX21_PXR_agonist,Cell-based,#DD8452,ToxCast cell-based,#ffbb00,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors,0.6394546696528555,0.0987176561550887
+TOX21_p53_BLA_p1_ratio,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.718616724738676,0.1684391028944859
+TOX21_p53_BLA_p2_ratio,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.6460499540863177,0.0730942500919938
+TOX21_p53_BLA_p3_ratio,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.692770737327189,0.0859420152479832
+TOX21_p53_BLA_p4_ratio,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.6993495934959351,0.123087007441463
+TOX21_p53_BLA_p5_ratio,Cell-based,#DD8452,ToxCast cell-based,#1f77b4,Genotoxicity / DNA Damage,0.7298523004008841,0.0914417932302172
+cell_type__HepG2,Cytotoxic,#C44E52,ToxCast cytotox,#dddddd,,0.8314178709235748,0.3855981482058572

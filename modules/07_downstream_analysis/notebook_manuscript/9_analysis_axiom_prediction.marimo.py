@@ -37,19 +37,19 @@ def _(mo):
 def _(Path):
     project_root = Path(".")
     classification_output_dir = project_root / "modules/06_classification/outputs"
-    model_dir = classification_output_dir / "models_batch"
-    figure_output_dir = project_root / "modules/09_downstream_analysis/figures"
-    table_output_dir = project_root / "modules/09_downstream_analysis/tables"
+    model_dir = classification_output_dir / "models"
+    figure_output_dir = project_root / "modules/07_downstream_analysis/figures"
+    table_output_dir = project_root / "modules/07_downstream_analysis/tables"
     downloads_dir = Path.home() / "Downloads"
 
     level6_axiom_path = (
         project_root
-        / "modules/03_postprocessing/outputs/level6_axiom_selected_features_batch.parquet"
+        / "modules/05_batch_correction_bsc_axiom/outputs/level6_axiom_selected_features_batch.parquet"
     )
     performance_path = classification_output_dir / "results_performance.csv"
     toxcast_category_path = (
-        classification_output_dir
-        / "df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv"
+        project_root
+        / "modules/07_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv"
     )
 
     n_active_filter = 20

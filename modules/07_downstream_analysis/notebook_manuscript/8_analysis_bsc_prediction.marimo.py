@@ -52,8 +52,8 @@ def _(mo):
 def _(Path):
     project_root = Path(".")
     classification_output_dir = project_root / "modules/06_classification/outputs"
-    model_dir = classification_output_dir / "models_batch"
-    figure_output_dir = project_root / "modules/09_downstream_analysis/figures"
+    model_dir = classification_output_dir / "models"
+    figure_output_dir = project_root / "modules/07_downstream_analysis/figures"
     downloads_dir = Path.home() / "Downloads"
 
     level6_bsc_path = (
@@ -65,9 +65,7 @@ def _(Path):
         / "modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv"
     )
     performance_path = classification_output_dir / "results_performance.csv"
-    toxcast_category_path = (
-        classification_output_dir
-        / "df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv"
+    toxcast_category_path = ("modules/07_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv"
     )
 
     n_active_filter = 20
@@ -148,6 +146,88 @@ def _(model_dir, pickle):
 
 @app.cell
 def _(pd, tqdm):
+    def get_model_feature_names(model):
+        """Return feature names saved with a model, if available."""
+        _feature_names = getattr(model, "feature_names_in_", None)
+        if _feature_names is not None and len(_feature_names) > 0:
+            return list(_feature_names)
+
+        _booster = model.get_booster()
+        _feature_names = _booster.feature_names
+        if _feature_names:
+            return list(_feature_names)
+
+        return None
+
+
+    def build_prediction_features(
+        feature_df: pd.DataFrame,
+        model,
+        model_name: str,
+    ) -> pd.DataFrame:
+        """Return a numeric feature matrix aligned to one trained model."""
+        _trained_features = get_model_feature_names(model)
+        if _trained_features:
+            _missing_features = [
+                _feature
+                for _feature in _trained_features
+                if _feature not in feature_df.columns
+            ]
+            if _missing_features:
+                raise ValueError(
+                    f"{model_name}: prediction data is missing "
+                    f"{len(_missing_features)} trained feature(s), including "
+                    f"{_missing_features[:5]}."
+                )
+
+            _candidate_features = _trained_features
+        else:
+            _candidate_features = [
+                _column
+                for _column in feature_df.columns
+                if _column.startswith("Feature_")
+            ]
+            if not _candidate_features:
+                _candidate_features = [
+                    _column
+                    for _column in feature_df.columns
+                    if (
+                        not _column.startswith("Metadata_")
+                        and _column != "Cell_Count"
+                        and pd.api.types.is_numeric_dtype(feature_df[_column])
+                    )
+                ]
+
+        _expected_features = getattr(model, "n_features_in_", None)
+        if (
+            _expected_features is not None
+            and len(_candidate_features) != _expected_features
+        ):
+            raise ValueError(
+                f"{model_name}: inferred {len(_candidate_features)} "
+                f"prediction feature(s), but the model expects "
+                f"{_expected_features}. Check that the BSC level-6 matrix "
+                "uses the same selected features as model training."
+            )
+
+        if not _candidate_features:
+            raise ValueError(
+                f"{model_name}: could not infer prediction feature columns."
+            )
+
+        _X_pred = feature_df.loc[:, _candidate_features]
+        _invalid_columns = _X_pred.select_dtypes(
+            exclude=["number", "bool"],
+        ).columns.tolist()
+        if _invalid_columns:
+            raise ValueError(
+                f"{model_name}: prediction features must be numeric or bool; "
+                f"invalid columns include {_invalid_columns[:5]}."
+            )
+
+        return _X_pred
+
+
     def predict_with_models(feature_df: pd.DataFrame, models: dict) -> pd.DataFrame:
         """Predict every row in feature_df with each trained model."""
         _pred_matrix = pd.DataFrame(
@@ -160,8 +240,11 @@ def _(pd, tqdm):
             total=len(models),
             desc="Predicting",
         ):
-            _trained_features = _model.get_booster().feature_names
-            _X_pred = feature_df.reindex(columns=_trained_features)
+            _X_pred = build_prediction_features(
+                feature_df,
+                _model,
+                _model_name,
+            )
             _pred_matrix[_model_name] = _model.predict(_X_pred)
 
         return _pred_matrix.reset_index(drop=True)

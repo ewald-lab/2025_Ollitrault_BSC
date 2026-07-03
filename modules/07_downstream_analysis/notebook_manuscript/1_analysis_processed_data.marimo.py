@@ -415,7 +415,7 @@ def _(
         ax.axis("off")
 
     fig.tight_layout()
-    fig.savefig("modules/09_downstream_analysis/figures/Figure_S2_A", dpi=300, bbox_inches="tight")
+    fig.savefig("modules/07_downstream_analysis/figures/Figure_S2_A", dpi=300, bbox_inches="tight")
     fig
     return (fig,)
 
@@ -506,7 +506,7 @@ def _(args, df_umap, fig, px):
         xaxis_title="UMAP 1",
         yaxis_title="UMAP 2"
     )
-    fig.savefig("modules/09_downstream_analysis/figures/Figure_S3_A", dpi=300, bbox_inches="tight")
+    fig.savefig("modules/07_downstream_analysis/figures/Figure_S3_A", dpi=300, bbox_inches="tight")
     _fig.show()
     return
 
@@ -643,7 +643,7 @@ def _(args, df_level4, math, np, plt, sns):
 
         _fig.suptitle(_column_metadata, fontsize=13, fontweight="bold", y=1.01)
         plt.tight_layout()
-        plt.savefig(f"modules/09_downstream_analysis/figures/Figure_S2_{supp_fig_letter}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"modules/07_downstream_analysis/figures/Figure_S2_{supp_fig_letter}.png", dpi=300, bbox_inches="tight")
         plt.show()
     return
 

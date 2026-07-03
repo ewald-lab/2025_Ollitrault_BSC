@@ -33,6 +33,7 @@ def _():
     from matplotlib.lines import Line2D
     import seaborn as sns
     from pathlib import Path
+    from tqdm.auto import tqdm
     return (
         Line2D,
         Path,
@@ -44,6 +45,7 @@ def _():
         roc_auc_score,
         sns,
         stats,
+        tqdm,
     )
 
 
@@ -81,10 +83,10 @@ def _(Path):
 
 @app.cell
 def _(pd):
-    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions_batch.parquet")
-    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions_batch.parquet")
-    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions_batch.parquet")
-    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions_batch.parquet")
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions.parquet")
     print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
     print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
     print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
@@ -122,113 +124,119 @@ def _(mo):
 
 
 @app.cell
-def _(auc, np, pd, precision_recall_curve, roc_auc_score):
+def _(auc, np, pd, precision_recall_curve, roc_auc_score, tqdm):
     def precision_recall_gain_curve(y_true, y_scores):
         """Compute precision/recall gain values from sorted prediction scores."""
-        # Sort predictions and true labels by descending score
+        y_true = np.asarray(y_true, dtype=np.float64)
+        y_scores = np.asarray(y_scores, dtype=np.float64)
+        positives = y_true.sum()
+        if y_true.size == 0 or positives == 0:
+            empty = np.full(y_true.size, np.nan)
+            return empty, empty, empty, empty
+
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = y_true[sorted_indices]
+        true_positives = np.cumsum(y_true_sorted)
+        thresholds = np.arange(1, y_true_sorted.size + 1, dtype=np.float64)
+        baseline = positives / y_true_sorted.size
 
-        # Calculate baseline precision and recall
-        baseline_precision = np.mean(y_true)
-        baseline_recall = np.sum(y_true) / len(y_true)
-
-        precisions = []
-        recalls = []
-        precision_gains = []
-        recall_gains = []
-
-        for threshold in range(1, len(y_true) + 1):
-            # Predictions above threshold considered positive
-            predicted_positive = y_true_sorted[:threshold]
-
-            # Calculate precision and recall
-            true_positives = np.sum(predicted_positive)
-            precision = true_positives / threshold
-            recall = true_positives / np.sum(y_true)
-
-            # Calculate precision gain and recall gain
-            precision_gain = precision - baseline_precision
-            recall_gain = recall - baseline_recall
-
-            precisions.append(precision)
-            recalls.append(recall)
-            precision_gains.append(precision_gain)
-            recall_gains.append(recall_gain)
+        precisions = true_positives / thresholds
+        recalls = true_positives / positives
+        precision_gains = precisions - baseline
+        recall_gains = recalls - baseline
 
         return precisions, recalls, precision_gains, recall_gains
 
 
     def prg_auc(y_true, y_scores):
         """Area under the precision-recall gain curve."""
-        # Calculate PRG curve
         _, _, precision_gains, recall_gains = precision_recall_gain_curve(y_true, y_scores)
+        if np.isnan(precision_gains).all():
+            return np.nan
+        return float(np.trapezoid(precision_gains, x=recall_gains))
 
-        # Calculate area under PRG curve using trapezoidal rule
-        prg_auc = np.trapz(precision_gains, x=recall_gains)
-
-        return prg_auc
-    def compute_metrics(y_pred, y_actual, y_prob):
+    def compute_metrics(y_actual, y_prob):
         """Return AUROC, PRAUC, and AUPRG for one label/model/fold."""
-        # AUROC
+        y_actual = np.asarray(y_actual)
+        y_prob = np.asarray(y_prob, dtype=np.float64)
+
         try:
             auroc = roc_auc_score(y_actual, y_prob)
         except ValueError:
-            auroc = None
+            auroc = np.nan
 
-        # PRAUC
         try:
             precision, recall, _ = precision_recall_curve(y_actual, y_prob)
             prauc = auc(recall, precision)
         except ValueError:
-            prauc = None
+            prauc = np.nan
 
-        # AUPRG
-        auprg = prg_auc(np.array(y_actual), np.array(y_prob))
+        auprg = prg_auc(y_actual, y_prob)
 
         return auroc, prauc, auprg
-    def process_metrics(pred: pd.DataFrame):
+
+    def process_metrics(pred: pd.DataFrame, *, desc: str = "Fold metrics", keep_fold_predictions: bool = False):
         """Summarize fold-level predictions into per-label model metrics."""
         class_balance = (
             pred[["Metadata_Label", "Metadata_Count_0", "Metadata_Count_1", "Model_type"]]
             .drop_duplicates()
         )
 
-        fold_metrics = (
-            pred
-            .groupby(["Metadata_Label", "Model_type", "k_fold"], as_index=False)
-            .agg({
-                "y_pred": list,
-                "y_actual": list,
-                "y_prob": list,
-                "Metadata_Count_0": "first",
-                "Metadata_Count_1": "first",
-            })
-        )
-
-        fold_metrics[["AUROC", "PRAUC", "AUPRG"]] = fold_metrics.apply(
-            lambda row: pd.Series(
-                compute_metrics(row["y_pred"], row["y_actual"], row["y_prob"])
-            ),
-            axis=1
-        )
-
-        result = (
-            fold_metrics
-            .groupby(["Metadata_Label", "Model_type"], as_index=False)
-            .agg({
-                "AUROC":  ["mean", "std"],
-                "PRAUC":  ["mean", "std"],
-                "AUPRG":  ["mean", "std"],
-            })
-        )
-
-        result.columns = [
-            "Metadata_Label", "Model_type",
-            "AUROC",  "AUROC_std",
-            "PRAUC",  "PRAUC_std",
-            "AUPRG",  "AUPRG_std",
+        group_cols = ["Metadata_Label", "Model_type", "repeat", "k_fold"]
+        grouped = pred.groupby(group_cols, sort=False, observed=True)
+        fold_records = []
+        fold_columns = [
+            *group_cols,
+            "Metadata_Count_0",
+            "Metadata_Count_1",
+            "AUROC",
+            "PRAUC",
+            "AUPRG",
         ]
+        if keep_fold_predictions:
+            fold_columns.extend(["y_pred", "y_actual", "y_prob"])
+
+        for keys, group in tqdm(
+            grouped,
+            total=grouped.ngroups,
+            desc=desc,
+            unit="fold",
+            dynamic_ncols=True,
+        ):
+            y_actual = group["y_actual"].to_numpy(copy=False)
+            y_prob = group["y_prob"].to_numpy(copy=False)
+            auroc, prauc, auprg = compute_metrics(y_actual, y_prob)
+            record = [
+                *keys,
+                group["Metadata_Count_0"].iat[0],
+                group["Metadata_Count_1"].iat[0],
+                auroc,
+                prauc,
+                auprg,
+            ]
+            if keep_fold_predictions:
+                record.extend([
+                    group["y_pred"].to_list(),
+                    group["y_actual"].to_list(),
+                    group["y_prob"].to_list(),
+                ])
+            fold_records.append(record)
+
+        fold_metrics = pd.DataFrame.from_records(fold_records, columns=fold_columns)
+
+        result = fold_metrics.groupby(
+            ["Metadata_Label", "Model_type"],
+            as_index=False,
+            sort=False,
+            observed=True,
+        ).agg(
+            AUROC=("AUROC", "mean"),
+            AUROC_std=("AUROC", "std"),
+            PRAUC=("PRAUC", "mean"),
+            PRAUC_std=("PRAUC", "std"),
+            AUPRG=("AUPRG", "mean"),
+            AUPRG_std=("AUPRG", "std"),
+        )
 
         result = result.merge(class_balance, on=["Metadata_Label", "Model_type"], how="left")
 
@@ -244,10 +252,22 @@ def _(
     df_axiom_hits_prediction,
     process_metrics,
 ):
-    df_axiom_hits_metrics, df_axiom_hits_metrics_cv = process_metrics(df_axiom_hits_prediction)
-    df_axiom_cellbased_binary_metrics, df_axiom_cellbased_binary_metrics_cv = process_metrics(df_axiom_cellbased_binary_prediction)
-    df_axiom_cellfree_binary_metrics, df_axiom_cellfree_binary_metrics_cv = process_metrics(df_axiom_cellfree_binary_prediction)
-    df_axiom_cytotox_binary_metrics, df_axiom_cytotox_binary_metrics_cv = process_metrics(df_axiom_cytotox_binary_prediction)
+    df_axiom_hits_metrics, df_axiom_hits_metrics_cv = process_metrics(
+        df_axiom_hits_prediction,
+        desc="Axiom cytotoxicity CV metrics",
+    )
+    df_axiom_cellbased_binary_metrics, df_axiom_cellbased_binary_metrics_cv = process_metrics(
+        df_axiom_cellbased_binary_prediction,
+        desc="ToxCast cell-based CV metrics",
+    )
+    df_axiom_cellfree_binary_metrics, df_axiom_cellfree_binary_metrics_cv = process_metrics(
+        df_axiom_cellfree_binary_prediction,
+        desc="ToxCast cell-free CV metrics",
+    )
+    df_axiom_cytotox_binary_metrics, df_axiom_cytotox_binary_metrics_cv = process_metrics(
+        df_axiom_cytotox_binary_prediction,
+        desc="ToxCast cytotox CV metrics",
+    )
     print(f"Axiom cytotoxicity metrics: {df_axiom_hits_metrics.shape}")
     print(f"ToxCast cell-based metrics: {df_axiom_cellbased_binary_metrics.shape}")
     print(f"ToxCast cell-free metrics: {df_axiom_cellfree_binary_metrics.shape}")
@@ -365,26 +385,23 @@ def _(
 
 
 @app.cell
-def _(df_metrics_cv, pd, stats):
+def _(df_metrics_cv, pd, stats, tqdm):
     # Filter for the two models to compare
     df_comparison = df_metrics_cv[
         df_metrics_cv["Model_type"].isin(["Actual", "Random_baseline"])
     ].copy()
 
-    # Pivot to get paired structure
-    df_pivot_auroc = df_comparison.pivot_table(
-        index=["Metadata_Label", "k_fold"],
+    # Pivot both metrics once to get paired structure
+    df_paired = df_comparison.pivot_table(
+        index=["Metadata_Label", "repeat", "k_fold"],
         columns="Model_type",
-        values="AUROC",
+        values=["AUROC", "AUPRG"],
         aggfunc="first"
     ).reset_index()
-
-    df_pivot_auprg = df_comparison.pivot_table(
-        index=["Metadata_Label", "k_fold"],
-        columns="Model_type",
-        values="AUPRG",
-        aggfunc="first"
-    ).reset_index()
+    df_paired.columns = [
+        "_".join(col).rstrip("_") if isinstance(col, tuple) else col
+        for col in df_paired.columns
+    ]
 
     # Dataset-level class counts (constant per label)
     df_counts = (
@@ -395,38 +412,52 @@ def _(df_metrics_cv, pd, stats):
     )
     _counts_lookup = df_counts.set_index("Metadata_Label")
 
+    def _paired_ttest(actual, baseline):
+        _valid = actual.notna() & baseline.notna()
+        if _valid.sum() < 2:
+            return float("nan"), float("nan")
+        return stats.ttest_rel(actual[_valid], baseline[_valid])
+
     # Perform paired t-test for each Metadata_Label
     results = []
+    label_groups = df_paired.groupby("Metadata_Label", sort=False, observed=True)
 
-    for label in df_pivot_auroc["Metadata_Label"].unique():
-        auroc_data = df_pivot_auroc[df_pivot_auroc["Metadata_Label"] == label]
-        auprg_data = df_pivot_auprg[df_pivot_auprg["Metadata_Label"] == label]
-
-        t_stat_auroc, p_val_auroc = stats.ttest_rel(
-            auroc_data["Actual"], auroc_data["Random_baseline"]
+    for label, label_data in tqdm(
+        label_groups,
+        total=label_groups.ngroups,
+        desc="Paired t-tests",
+        unit="label",
+        dynamic_ncols=True,
+    ):
+        t_stat_auroc, p_val_auroc = _paired_ttest(
+            label_data["AUROC_Actual"],
+            label_data["AUROC_Random_baseline"],
         )
-        t_stat_auprg, p_val_auprg = stats.ttest_rel(
-            auprg_data["Actual"], auprg_data["Random_baseline"]
+        t_stat_auprg, p_val_auprg = _paired_ttest(
+            label_data["AUPRG_Actual"],
+            label_data["AUPRG_Random_baseline"],
         )
 
-        mean_diff_auroc = auroc_data["Actual"].mean() - auroc_data["Random_baseline"].mean()
-        mean_diff_auprg = auprg_data["Actual"].mean() - auprg_data["Random_baseline"].mean()
+        mean_auroc_actual = label_data["AUROC_Actual"].mean()
+        mean_auroc_random = label_data["AUROC_Random_baseline"].mean()
+        mean_auprg_actual = label_data["AUPRG_Actual"].mean()
+        mean_auprg_random = label_data["AUPRG_Random_baseline"].mean()
 
         results.append({
             "Metadata_Label":        label,
             "Metadata_Count_0":      _counts_lookup.loc[label, "Metadata_Count_0"],
             "Metadata_Count_1":      _counts_lookup.loc[label, "Metadata_Count_1"],
-            "AUROC_mean_Actual":     auroc_data["Actual"].mean(),
-            "AUROC_mean_Random_baseline":  auroc_data["Random_baseline"].mean(),
-            "AUROC_diff":            mean_diff_auroc,
+            "AUROC_mean_Actual":     mean_auroc_actual,
+            "AUROC_mean_Random_baseline":  mean_auroc_random,
+            "AUROC_diff":            mean_auroc_actual - mean_auroc_random,
             "AUROC_t_stat":          t_stat_auroc,
             "AUROC_p_value":         p_val_auroc,
-            "AUPRG_mean_Actual":     auprg_data["Actual"].mean(),
-            "AUPRG_mean_Random_baseline":  auprg_data["Random_baseline"].mean(),
-            "AUPRG_diff":            mean_diff_auprg,
+            "AUPRG_mean_Actual":     mean_auprg_actual,
+            "AUPRG_mean_Random_baseline":  mean_auprg_random,
+            "AUPRG_diff":            mean_auprg_actual - mean_auprg_random,
             "AUPRG_t_stat":          t_stat_auprg,
             "AUPRG_p_value":         p_val_auprg,
-            "n_folds":               len(auroc_data)
+            "n_folds":               len(label_data)
         })
 
     # Create results dataframe
@@ -439,8 +470,9 @@ def _(df_metrics_cv, pd, stats):
     # Sort by AUROC difference
     df_ttest_results = df_ttest_results.sort_values("AUROC_diff", ascending=False)
 
-    print(f"\nPaired t-test results (n={df_ttest_results['n_folds'].iloc[0]} folds per label)")
-    print(f"Comparing: Actual (Morphology) vs Random_baseline\n")
+    if not df_ttest_results.empty:
+        print(f"\nPaired t-test results (n={df_ttest_results['n_folds'].iloc[0]} folds per label)")
+    print("Comparing: Actual (Morphology) vs Random_baseline\n")
     print(df_ttest_results)
     return (df_ttest_results,)
 
@@ -518,7 +550,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Correlation Between Significant Actual Models""")
+    mo.md(r"""# Correlation Between Significant Actual Models [outdated]""")
     return
 
 
@@ -530,6 +562,7 @@ def _(
     df_axiom_hits_prediction,
     list_significative_performance,
     pd,
+    tqdm,
 ):
     # ── Step 1: Filter function ────────────────────────────────────────────────
     def _filter_df(_df):
@@ -540,69 +573,82 @@ def _(
 
 
     # ── Step 2: Apply filtering ────────────────────────────────────────────────
-    _df_hits      = _filter_df(df_axiom_hits_prediction)
-    _df_cellbased = _filter_df(df_axiom_cellbased_binary_prediction)
-    _df_cellfree  = _filter_df(df_axiom_cellfree_binary_prediction)
-    _df_cytotox   = _filter_df(df_axiom_cytotox_binary_prediction)
+    _prediction_sources = [
+        ("Hits", df_axiom_hits_prediction),
+        ("Cell-based", df_axiom_cellbased_binary_prediction),
+        ("Cell-free", df_axiom_cellfree_binary_prediction),
+        ("Cytotox", df_axiom_cytotox_binary_prediction),
+    ]
+    _filtered_predictions = []
+    for _name, _df in tqdm(
+        _prediction_sources,
+        desc="Filter prediction matrices",
+        unit="dataset",
+        dynamic_ncols=True,
+    ):
+        _filtered = _filter_df(_df)
+        _filtered["y_prob"] = pd.to_numeric(_filtered["y_prob"], downcast="float")
+        _filtered_predictions.append(_filtered)
+        tqdm.write(f"{_name}: {_filtered.shape[0]:,} rows retained for correlation")
 
-
-    # ── Step 3: Concatenate all datasets ───────────────────────────────────────
-    _df_all = pd.concat(
-        [_df_hits, _df_cellbased, _df_cellfree, _df_cytotox],
-        ignore_index=True
-    )
-
-
-    # ── Create combined index ────────────────────────────────────────────────
-    _df_all["_compound_repeat"] = (
-        _df_all["Metadata_compound"].astype(str) + "_r" + _df_all["repeat"].astype(str)
-    )
+    # ── Step 3: Concatenate and pivot all datasets ─────────────────────────────
+    _df_all = pd.concat(_filtered_predictions, ignore_index=True)
 
     # ── Pivot ────────────────────────────────────────────────────────────────
     df_pivot_correlation = _df_all.pivot_table(
-        index="_compound_repeat",
+        index=["Metadata_compound", "repeat"],
         columns="Metadata_Label",
         values="y_prob",
+        observed=True,
     )
     return (df_pivot_correlation,)
 
 
 @app.cell
-def _(df_pivot_correlation, downloads_dir, plt, sns):
+def _(df_pivot_correlation, downloads_dir, plt, sns, tqdm):
     # ── Step 5: Compute correlation matrix ─────────────────────────────────────
-    _corr = df_pivot_correlation.corr(method="pearson")
+    with tqdm(
+        total=3,
+        desc="Correlation heatmap",
+        unit="step",
+        dynamic_ncols=True,
+    ) as _progress:
+        _corr = df_pivot_correlation.corr(method="pearson").astype("float32")
+        _progress.update()
 
+        # ── Step 6: Clustered heatmap ──────────────────────────────────────────────
+        fig_size  = 28 # canvas grows dynamically with label count
 
-    # ── Step 6: Clustered heatmap ──────────────────────────────────────────────
-    fig_size  = 28 # canvas grows dynamically with label count
+        _clustermap = sns.clustermap(
+            _corr,
+            method="average",
+            metric="euclidean",
+            cmap="coolwarm",
+            vmin=-1, vmax=1,
+            figsize=(fig_size, fig_size),  # ← dynamic, not hardcoded (20,20)
+            linewidths=0.1,
+            dendrogram_ratio=(0.10, 0.10),
+            cbar_pos=(0.02, 0.82, 0.02, 0.12),
+            xticklabels=True,              # ← forces ALL x labels (key fix)
+            yticklabels=True,              # ← forces ALL y labels (key fix)
+        )
+        _progress.update()
 
-    _clustermap = sns.clustermap(
-        _corr,
-        method="average",
-        metric="euclidean",
-        cmap="coolwarm",
-        vmin=-1, vmax=1,
-        figsize=(fig_size, fig_size),  # ← dynamic, not hardcoded (20,20)
-        linewidths=0.1,
-        dendrogram_ratio=(0.10, 0.10),
-        cbar_pos=(0.02, 0.82, 0.02, 0.12),
-        xticklabels=True,              # ← forces ALL x labels (key fix)
-        yticklabels=True,              # ← forces ALL y labels (key fix)
-    )
+        # ── Label readability ──────────────────────────────────────────────────────
 
-    # ── Label readability ──────────────────────────────────────────────────────
+        plt.setp(_clustermap.ax_heatmap.get_xticklabels(),
+                 rotation=90, fontsize=16, ha="center")
+        plt.setp(_clustermap.ax_heatmap.get_yticklabels(),
+                 rotation=0,  fontsize=16, va="center")
 
-    plt.setp(_clustermap.ax_heatmap.get_xticklabels(),
-             rotation=90, fontsize=16, ha="center")
-    plt.setp(_clustermap.ax_heatmap.get_yticklabels(),
-             rotation=0,  fontsize=16, va="center")
+        _clustermap.fig.suptitle(
+            "Clustered Correlation of Metadata_Labels (y_prob)",
+            fontsize=14, fontweight="bold", y=1.01  # y>1 avoids overlap with dendro
+        )
+        plt.savefig(downloads_dir / "correlation_heatmap_axiom_batch.png",
+                     bbox_inches="tight", dpi=300)
+        _progress.update()
 
-    _clustermap.fig.suptitle(
-        "Clustered Correlation of Metadata_Labels (y_prob)",
-        fontsize=14, fontweight="bold", y=1.01  # y>1 avoids overlap with dendro
-    )
-    plt.savefig(downloads_dir / "correlation_heatmap_axiom_batch.png",
-                 bbox_inches="tight", dpi=300)
     plt.show()
     return
 
@@ -975,13 +1021,12 @@ def _(
     plt.tight_layout()
 
     plt.savefig(
-        "modules/09_downstream_analysis/figures/Figure_6.png",
+        "modules/07_downstream_analysis/figures/Figure_6.png",
         dpi=300,
         bbox_inches="tight"
     )
 
     plt.show()
-
     return
 
 
@@ -1163,7 +1208,7 @@ def _(
 
     # Save styled table to Excel
     styled_table.to_excel(
-        "modules/09_downstream_analysis/tables/Table_S2_perf_models_filtered.xlsx",
+        "modules/07_downstream_analysis/tables/Table_S2_perf_models_filtered.xlsx",
         sheet_name="Cell Cytotox Metrics",
         index=False,
         engine="openpyxl"
@@ -1174,12 +1219,7 @@ def _(
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-    # Check assays modalities cell-based using LLM
-
-    """
-    )
+    mo.md(r"""# Check assays modalities cell-based using LLM""")
     return
 
 
@@ -1208,29 +1248,30 @@ def _(list_significative_performance):
 
 @app.cell
 def _():
-    dict_categories_significative_cell_based_filtered = {
+    dict_categories_significative_cell_based = {
         "categories": [
             {
                 "id": "endocrine_sex_hormones",
                 "label": "Endocrine Disruption — Sex Hormones",
                 "color": "#d62728",
-                "description": "Assays targeting ER-alpha, ER-beta, AR, PR, and aromatase — agonist and antagonist modes across hormone-responsive cell systems.",
+                "description": "ER, AR, PR and aromatase signaling assays.",
                 "assays": [
+                    "TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881",
+                    "TOX21_AR_LUC_MDAKB2_Agonist",
+                    "TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM_R1881",
+                    "TOX21_AR_BLA_Agonist_ratio",
+                    "TOX21_AR_BLA_Antagonist_ratio",
                     "TOX21_ERa_LUC_VM7_Agonist",
                     "TOX21_ERa_LUC_VM7_Antagonist_0.1nM_E2",
                     "TOX21_ERa_LUC_VM7_Antagonist_0.5nM_E2",
                     "TOX21_ERa_BLA_Antagonist_ratio",
                     "TOX21_ERb_BLA_Antagonist_ratio",
-                    "TOX21_AR_BLA_Agonist_ratio",
-                    "TOX21_AR_BLA_Antagonist_ratio",
-                    "TOX21_AR_LUC_MDAKB2_Agonist",
-                    "TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM_R1881",
-                    "TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881",
                     "TOX21_PR_BLA_Agonist_ratio",
                     "TOX21_PR_BLA_Antagonist_ratio",
                     "TOX21_Aromatase_Inhibition",
                     "OT_ER_ERaERb_1440",
                     "OT_ER_ERbERb_1440",
+                    "OT_ERa_GFPERaERE_0480",
                     "ATG_ERE_CIS",
                 ],
             },
@@ -1238,80 +1279,89 @@ def _():
                 "id": "endocrine_steroidogenesis",
                 "label": "Endocrine Disruption — Steroidogenesis & Adrenal",
                 "color": "#ff7f0e",
-                "description": "Adrenal H295R steroidogenesis assay measuring steroid hormone perturbation.",
+                "description": "H295R steroidogenesis assays.",
                 "assays": [
                     "CEETOX_H295R_11DCORT",
+                    "CEETOX_H295R_OHPREG",
                 ],
             },
             {
                 "id": "endocrine_metabolic_nuclear_receptors",
                 "label": "Endocrine Disruption — Metabolic / Orphan Nuclear Receptors",
                 "color": "#ffbb00",
-                "description": "PPARg, LXR, FXR, VDR, PXR, CAR, GR, ERR, and PGC/ERR signaling assays involved in lipid, bile acid, glucose, steroid, and xenobiotic metabolism.",
+                "description": "Metabolic nuclear receptor signaling.",
                 "assays": [
-                    "TOX21_PPARg_BLA_Antagonist_ratio",
+                    "TOX21_GR_BLA_Antagonist_ratio",
+                    "TOX21_FXR_BLA_Antagonist_ratio",
+                    "TOX21_PGC_ERR_Antagonist",
+                    "TOX21_ERR_Antagonist",
                     "TOX21_PXR_agonist",
                     "TOX21_CAR_Agonist",
-                    "TOX21_FXR_BLA_Antagonist_ratio",
-                    "TOX21_ERR_Antagonist",
-                    "TOX21_PGC_ERR_Antagonist",
-                    "TOX21_GR_BLA_Antagonist_ratio",
+                    "TOX21_PPARg_BLA_Antagonist_ratio",
                     "ATG_DR4_LXR_CIS",
-                    "ATG_PXRE_CIS",
                     "ATG_PPRE_CIS",
+                    "ATG_PXRE_CIS",
                     "ATG_VDRE_CIS",
                 ],
             },
             {
                 "id": "hepatotoxicity_cyp_induction",
-                "label": "Hepatotoxicity — Xenobiotic Metabolism / CYP Induction",
+                "label": "Hepatotoxicity — Xenobiotic Metabolism",
                 "color": "#8c564b",
-                "description": "HepaRG and related liver-relevant assays measuring CYP enzyme induction and xenobiotic metabolism pathway activation.",
+                "description": "Drug metabolism and xenobiotic response pathways.",
                 "assays": [
                     "LTEA_HepaRG_CYP1A1",
                     "LTEA_HepaRG_CYP1A2",
+                    "LTEA_HepaRG_CYP2B6",
                     "LTEA_HepaRG_CYP2C8",
                     "LTEA_HepaRG_CYP2C19",
                     "LTEA_HepaRG_CYP2E1",
                     "LTEA_HepaRG_CYP3A7",
                     "LTEA_HepaRG_CYP4A11",
                     "LTEA_HepaRG_CYP4A22",
+                    "LTEA_HepaRG_UGT1A1",
+                    "ATG_Ahr_CIS",
                     "TOX21_AhR_LUC_Agonist",
                 ],
             },
             {
-                "id": "hepatotoxicity_steatosis_lipid_transport",
-                "label": "Hepatotoxicity — Steatosis & Lipid / Bile Transport",
+                "id": "hepatotoxicity_lipid_transport",
+                "label": "Hepatotoxicity — Lipid Metabolism & Transport",
                 "color": "#a07040",
-                "description": "HepaRG markers linked to lipid metabolism, bile acid transport, and drug efflux transport.",
+                "description": "Markers of steatosis, lipid handling and transporter activity.",
                 "assays": [
                     "LTEA_HepaRG_HMGCS2",
-                    "LTEA_HepaRG_ABCB11",
                     "LTEA_HepaRG_ABCB1",
+                    "LTEA_HepaRG_ABCB11",
+                    "LTEA_HepaRG_ABCG2",
                     "LTEA_HepaRG_THRSP",
+                    "LTEA_HepaRG_FABP1",
                 ],
             },
             {
-                "id": "hepatotoxicity_general_stress",
-                "label": "Hepatotoxicity — General Liver Stress / Adaptive Response",
+                "id": "hepatotoxicity_general",
+                "label": "Hepatotoxicity — General Stress Response",
                 "color": "#2ca02c",
-                "description": "Liver-relevant stress, oxidative stress, metal response, proliferation, differentiation, and transcriptional stress-response markers.",
+                "description": "Oxidative stress and adaptive transcriptional responses.",
                 "assays": [
                     "LTEA_HepaRG_ALPP",
                     "LTEA_HepaRG_PEG10",
                     "ATG_NRF2_ARE_CIS",
                     "TOX21_ARE_BLA_Agonist_ratio",
                     "ATG_AP_1_CIS",
+                    "TOX21_AP1_BLA_Agonist_ratio",
                     "ATG_MRE_CIS",
                     "ATG_Oct_MLP_CIS",
                     "ATG_TCF_b_cat_CIS",
+                    "ATG_PBREM_CIS",
+                    "ATG_SREBP_CIS",
                 ],
             },
             {
-                "id": "genotoxicity_dna_damage_epigenetic",
-                "label": "Genotoxicity / DNA Damage / Epigenetic Disruption",
+                "id": "genotoxicity",
+                "label": "Genotoxicity / DNA Damage",
                 "color": "#1f77b4",
-                "description": "p53 pathway activation and HDAC inhibition assays indicating DNA damage response, cellular stress, or epigenetic perturbation.",
+                "description": "DNA damage response and epigenetic perturbation.",
                 "assays": [
                     "TOX21_p53_BLA_p1_ratio",
                     "TOX21_p53_BLA_p2_ratio",
@@ -1325,72 +1375,63 @@ def _():
                 "id": "cardiovascular_vascular_inflammation",
                 "label": "Cardiovascular / Vascular Inflammation",
                 "color": "#9467bd",
-                "description": "BioMAP vascular, endothelial, immune-vascular, and smooth-muscle cell assays measuring inflammation, adhesion molecules, thrombomodulin, proliferation, and vascular activation.",
+                "description": "BioMAP vascular and inflammatory endpoints.",
                 "assays": [
+                    "BSK_LPS_VCAM1",
+                    "BSK_LPS_CD40",
+                    "BSK_LPS_MCSF",
+                    "BSK_LPS_PGE2",
+                    "BSK_CASM3C_Thrombomodulin",
+                    "BSK_CASM3C_Proliferation",
+                    "BSK_3C_Proliferation",
+                    "BSK_3C_SRB",
+                    "BSK_3C_uPAR",
                     "BSK_4H_VCAM1",
                     "BSK_4H_MCP1",
                     "BSK_4H_SRB",
                     "BSK_4H_uPAR",
-                    "BSK_3C_Proliferation",
-                    "BSK_3C_uPAR",
-                    "BSK_CASM3C_Thrombomodulin",
-                    "BSK_CASM3C_Proliferation",
-                    "BSK_LPS_VCAM1",
-                    "BSK_LPS_MCSF",
-                    "BSK_LPS_CD40",
                     "BSK_SAg_CD40",
                     "BSK_SAg_Eselectin",
                     "BSK_SAg_Proliferation",
                 ],
             },
             {
+                "id": "mitochondrial_toxicity",
+                "label": "Mitochondrial Toxicity",
+                "color": "#8c6bb1",
+                "description": "Loss of mitochondrial membrane potential.",
+                "assays": [
+                    "TOX21_MMP_ratio",
+                ],
+            },
+            {
                 "id": "general_cytotoxicity_viability",
                 "label": "General Cytotoxicity / Cell Viability",
                 "color": "#7f7f7f",
-                "description": "Generic cell health, viability, membrane integrity, mitochondrial activity, or cell-number readouts.",
+                "description": "Generic viability and membrane integrity measurements.",
                 "assays": [
-                    "cell_count",
                     "LDH",
                     "MT",
                 ],
             },
             {
-                "id": "assay_context_cell_tissue_metadata",
-                "label": "Assay Context — Cell Type / Tissue Metadata",
+                "id": "assay_context_metadata",
+                "label": "Assay Context",
                 "color": "#17becf",
-                "description": "Cell type and tissue annotations. These are not toxicity endpoints themselves, but describe biological assay context.",
+                "description": "Metadata describing the biological assay system.",
                 "assays": [
-                    "cell_type__PGC/ERR_HEK293T",
                     "cell_type__HepG2",
-                    "cell_type__ME-180",
-                    "tissue__kidney",
-                    "tissue__cervix",
-                    "cell_type__HEK293T",
-                    "cell_type__ERR-HEK293T",
-                    "cell_type__HeLa",
-                    "cell_type__MCF7",
-                    "tissue__breast",
-                    "cell_type__MDA-kb2",
-                    "cell_type__PR-UAS-bla-HEK293T",
-                    "cell_type__22Rv1",
-                    "cell_type__HEK293",
-                    "tissue__intestinal",
-                    "cell_type__HCT116",
-                    "tissue__vascular",
-                    "cell_type__umbilical_vein_endothelium_and_peripheral_blood_mononuclear_cells",
-                    "cell_type__VM7",
-                    "cell_type__T47D",
                 ],
             },
         ]
     }
-    return (dict_categories_significative_cell_based_filtered,)
+    return (dict_categories_significative_cell_based,)
 
 
 @app.cell
-def _(dict_categories_significative_cell_based_filtered):
+def _(dict_categories_significative_cell_based):
     list_claudeai_assays = []
-    for i in dict_categories_significative_cell_based_filtered["categories"]:
+    for i in dict_categories_significative_cell_based["categories"]:
         print(i["assays"])
         list_claudeai_assays += i["assays"]
     print(len(list_claudeai_assays))
@@ -1418,7 +1459,7 @@ def _(
 @app.cell
 def _(
     df_toxcast_cellbased_assay_info,
-    dict_categories_significative_cell_based_filtered,
+    dict_categories_significative_cell_based,
     list_significative_performance,
     pd,
 ):
@@ -1429,7 +1470,7 @@ def _(
             "claudeai_color":       _cat["color"],
             "claudeai_description": _cat["description"],
         }
-        for _cat in dict_categories_significative_cell_based_filtered["categories"]
+        for _cat in dict_categories_significative_cell_based["categories"]
         for _assay in _cat["assays"]
     }
 
@@ -1450,7 +1491,7 @@ def _(
 @app.cell
 def _(df_toxcast_cellbased_assay_info_significant):
     # save it 
-    df_toxcast_cellbased_assay_info_significant.to_csv("modules/09_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv")
+    df_toxcast_cellbased_assay_info_significant.to_csv("modules/07_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv")
     return
 
 

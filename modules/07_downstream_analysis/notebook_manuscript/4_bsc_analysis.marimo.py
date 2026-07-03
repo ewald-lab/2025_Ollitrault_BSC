@@ -13,6 +13,7 @@ def _():
     import numpy as np
     import umap
     import plotly.express as px
+    import seaborn as sns
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
     import matplotlib.patches as mpatches
@@ -23,12 +24,14 @@ def _():
     from pathlib import Path
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
+    from sklearn.metrics.pairwise import cosine_similarity
     return (
         Line2D,
         LogNorm,
         Patch,
         Path,
         combinations,
+        cosine_similarity,
         dfi,
         glob,
         kruskal,
@@ -41,6 +44,7 @@ def _():
         pd,
         plt,
         px,
+        sns,
         umap,
         wilcoxon,
     )
@@ -124,8 +128,8 @@ def _(df_bsc_annotations):
 @app.cell
 def _(Path, np):
     # Shared output locations and figure palettes.
-    figure_dir = Path("modules/09_downstream_analysis/figures")
-    table_dir = Path("modules/09_downstream_analysis/tables")
+    figure_dir = Path("modules/07_downstream_analysis/figures")
+    table_dir = Path("modules/07_downstream_analysis/tables")
     downloads_dir = Path.home() / "Downloads"
     for _output_dir in (figure_dir, table_dir):
         _output_dir.mkdir(parents=True, exist_ok=True)
@@ -365,7 +369,7 @@ def _(df_bsc_cp_pod_all_featurewise, feature_channel):
         df_bsc_cp_pod_channel["channel"].notna()
     ].copy()
     print(f"Channel-level Cell Painting POD rows: {len(df_bsc_cp_pod_channel)}")
-    return (df_bsc_cp_pod_channel,)
+    return
 
 
 @app.cell
@@ -2029,6 +2033,144 @@ def _(
 
 
 @app.cell
+def _(Patch, figure_dir, np, plt, pod_comparison_breakdown):
+    # Figure 2C — Activity breakdown barplot only
+    # (run in the same marimo notebook where pod_comparison_breakdown is defined)
+
+    # Extract data
+    _labels = pod_comparison_breakdown["labels"]
+    _colors = pod_comparison_breakdown["colors"]
+    _totals_const = pod_comparison_breakdown["totals_const"]
+    _totals_bot = pod_comparison_breakdown["totals_bot"]
+    _active_const = pod_comparison_breakdown["active_const"]
+    _active_bot = pod_comparison_breakdown["active_bot"]
+
+    # Create figure
+    _fig, _ax = plt.subplots(figsize=(7, 3.2))
+
+    _x = np.arange(len(_labels)) + 1
+    _width = 0.35
+
+    # ------------------------------------------------------------------
+    # Background bars (Total tested)
+    # ------------------------------------------------------------------
+    _ax.bar(
+        _x - _width / 2,
+        _totals_const,
+        width=_width,
+        color="lightgrey",
+        alpha=0.6,
+        zorder=1,
+    )
+
+    _ax.bar(
+        _x + _width / 2,
+        _totals_bot,
+        width=_width,
+        color="lightgrey",
+        alpha=0.6,
+        zorder=1,
+    )
+
+    # ------------------------------------------------------------------
+    # Foreground bars (Active)
+    # ------------------------------------------------------------------
+    _rects1 = _ax.bar(
+        _x - _width / 2,
+        _active_const,
+        width=_width,
+        color=_colors,
+        alpha=0.9,
+        zorder=2,
+    )
+
+    _rects2 = _ax.bar(
+        _x + _width / 2,
+        _active_bot,
+        width=_width,
+        color=_colors,
+        alpha=0.5,
+        hatch="///",
+        edgecolor="white",
+        zorder=2,
+    )
+
+    # ------------------------------------------------------------------
+    # Labels on active bars
+    # ------------------------------------------------------------------
+    def _autolabel(rects):
+        for rect in rects:
+            h = rect.get_height()
+            _ax.annotate(
+                f"{int(h)}",
+                xy=(rect.get_x() + rect.get_width() / 2, h),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
+
+    _autolabel(_rects1)
+    _autolabel(_rects2)
+
+    # ------------------------------------------------------------------
+    # Legend
+    # ------------------------------------------------------------------
+    _legend_elements = [
+        Patch(facecolor="lightgrey", edgecolor="none", label="Total tested"),
+        Patch(facecolor="steelblue", label="Active (Constituents)"),
+        Patch(
+            facecolor="steelblue",
+            alpha=0.5,
+            hatch="///",
+            label="Active (Botanicals)",
+        ),
+    ]
+
+    _ax.legend(
+        handles=_legend_elements,
+        frameon=False,
+        fontsize=9,
+        loc="upper right",
+    )
+
+    # ------------------------------------------------------------------
+    # Formatting (matches existing Marimo notebook style)
+    # ------------------------------------------------------------------
+    _ax.set_ylabel("Active (N)", fontsize=11)
+    _ax.set_xticks(_x)
+    _ax.set_xticklabels(_labels, fontsize=10)
+
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
+    _ax.spines["left"].set_color("black")
+    _ax.spines["left"].set_linewidth(0.5)
+    _ax.spines["bottom"].set_color("black")
+    _ax.spines["bottom"].set_linewidth(0.5)
+
+    _ax.tick_params(axis="x", which="major", length=5, width=1, direction="out")
+    _ax.tick_params(axis="y", labelsize=9)
+
+    _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
+    _ax.set_facecolor("white")
+    _fig.patch.set_facecolor("white")
+
+    plt.tight_layout()
+
+    # Save figure
+    plt.savefig(
+        figure_dir / "Figure_2_C.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+
+    plt.show()
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""### POD Cell Painting - Botanicals VS Constituents""")
     return
@@ -2180,6 +2322,7 @@ def _(
     Line2D,
     botanical_cp_constituent_plot_data,
     dic_botanicals_scode_name,
+    figure_dir,
     mpatches,
     mticker,
     np,
@@ -2351,6 +2494,12 @@ def _(
         _a.spines["left"].set_linewidth(0.5)
     plt.draw()
     _fig.subplots_adjust(wspace=0.05)
+    # Save figure
+    plt.savefig(
+        figure_dir / "Figure_3_B.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
     _fig
     return
 
@@ -2498,7 +2647,7 @@ def _(
 
 
 @app.cell
-def _(Line2D, downloads_dir, mticker, np, pd, plt, tox_pod_plot_data):
+def _(Line2D, figure_dir, mticker, np, pd, plt, tox_pod_plot_data):
     # Render and export MTT/LDH botanical and constituent POD plot.
     _df_sorted = tox_pod_plot_data["df_sorted"]
     _bot_order = tox_pod_plot_data["bot_order"]
@@ -2608,8 +2757,13 @@ def _(Line2D, downloads_dir, mticker, np, pd, plt, tox_pod_plot_data):
     _ax.set_yticks(_df_sorted["_y"].tolist())
     _ax.set_yticklabels(_df_sorted["constituent"].tolist(), fontsize=10)
 
-    plt.savefig(downloads_dir / "botanical_constituent_plot.png",
-                dpi=300, bbox_inches="tight")
+    # Save figure
+    plt.savefig(
+        figure_dir / "Figure_3_A.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+
     plt.show()
     return
 
@@ -3251,8 +3405,8 @@ def _(
 
 @app.cell
 def _(
-    downloads_dir,
     feature_wise_permutation_threshold,
+    figure_dir,
     np,
     pac_category_heatmap_data,
     plt,
@@ -3413,10 +3567,13 @@ def _(
     )
 
     plt.tight_layout()
-    _fig.savefig(
-        downloads_dir / "heatmap_pac_category_botanicals.pdf",
-        bbox_inches="tight", dpi=200
+    # Save figure
+    plt.savefig(
+        figure_dir / "Figure_4_B.png",
+        dpi=300,
+        bbox_inches="tight",
     )
+
     _fig
     return
 
@@ -3712,6 +3869,258 @@ def _(
     )
     _fig
     return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Cosine similarity""")
+    return
+
+
+@app.cell
+def _(
+    Patch,
+    all_selected_features,
+    botanical_colors,
+    cosine_similarity,
+    df_bsc_all_pod_annotations,
+    df_level6_bsc,
+    df_table_results_pods,
+    dic_botanicals_scode_name,
+    figure_dir,
+    pd,
+    plt,
+    sns,
+):
+    # ── 1. Select active Level 6 profiles ─────────────────────────────────────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _classify_point(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    _threshold = df_table_results_pods["Below threshold"]
+    if pd.api.types.is_bool_dtype(_threshold):
+        _usable_mask = _threshold.fillna(False)
+    else:
+        _usable_mask = _threshold.fillna("").ne("✗")
+
+    _usable_compounds = (
+        df_table_results_pods.loc[_usable_mask, "Compound ID"]
+        .dropna()
+        .astype(str)
+        .unique()
+    )
+
+    _df = df_level6_bsc[
+        df_level6_bsc["Metadata_compound"].astype(str).isin(_usable_compounds)
+    ].copy()
+    if _df.empty:
+        raise ValueError(
+            "No Level 6 BSC profiles matched compounds passing the CP feature threshold."
+        )
+
+    _df["PointType"] = _df["Metadata_compound"].apply(_classify_point)
+
+    _compound_to_plant = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+    _df["Plant name"] = _df["Metadata_compound"].apply(
+        lambda _c: _compound_to_plant.get(_c)
+                   if _c in _compound_to_plant
+                   else dic_botanicals_scode_name.get(_c) if _c in _botanical_scodes
+                   else "DMSO" if _c in ("s0617825", "DMSO")
+                   else "—"
+    )
+    _constituent_lookup = (
+        df_bsc_all_pod_annotations[["Metadata_compound", "Constituent"]]
+        .drop_duplicates()
+        .dropna(subset=["Constituent"])
+        .set_index("Metadata_compound")["Constituent"]
+        .to_dict()
+    )
+
+    _df["DisplayName"] = _df["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c)    if _c in _botanical_scodes
+                   else _constituent_lookup.get(_c, _c)  if _c not in ("s0617825", "DMSO")
+                   else _c
+    )
+
+    # ── 2. Cosine similarity matrix ───────────────────────────────────────────────
+    _feature_cols = [c for c in all_selected_features if c in _df.columns]
+    if not _feature_cols:
+        raise ValueError("No selected Cell Painting feature columns were found in Level 6 BSC profiles.")
+
+    _df = _df.dropna(subset=_feature_cols).copy()
+    if _df.empty:
+        raise ValueError("No complete Level 6 BSC profiles were available for cosine similarity.")
+
+    _seen_labels = {}
+    _display_labels = []
+    for _label, _compound in zip(_df["DisplayName"].astype(str), _df["Metadata_compound"].astype(str)):
+        _seen_labels[_label] = _seen_labels.get(_label, 0) + 1
+        if _seen_labels[_label] == 1:
+            _display_labels.append(_label)
+        else:
+            _display_labels.append(f"{_label} ({_compound})")
+
+    _X = _df[_feature_cols].to_numpy(dtype=float)
+    _cos_sim = cosine_similarity(_X)
+    df_cosine_similarity_bsc = pd.DataFrame(
+        _cos_sim,
+        index=_display_labels,
+        columns=_display_labels,
+    )
+    print(f"Figure 4A cosine similarity matrix: {df_cosine_similarity_bsc.shape}")
+
+    # ── 3. Row color annotations ──────────────────────────────────────────────────
+    _unique_plants = [
+        _p for _p in _df["Plant name"].dropna().unique()
+        if _p not in ("—", "DMSO")
+    ]
+    _fallback_plants = [_p for _p in _unique_plants if _p not in botanical_colors]
+    _fallback_colors = dict(zip(
+        _fallback_plants,
+        sns.color_palette("tab20", len(_fallback_plants)).as_hex()
+    ))
+    _plant_palette = {
+        **botanical_colors,
+        **_fallback_colors,
+        "DMSO": "#000000",
+        "—": "#f0f0f0",
+    }
+
+    _row_colors = pd.DataFrame({
+        "Plant name": _df["Plant name"].map(_plant_palette).fillna("#f0f0f0").values,
+    }, index=df_cosine_similarity_bsc.index)
+
+    _ytick_labels = _display_labels
+    # ── 4. Clustermap ─────────────────────────────────────────────────────────────
+    sns.set(font_scale=0.65)
+    _cg = sns.clustermap(
+        df_cosine_similarity_bsc,
+        method="ward",
+        metric="euclidean",
+        cmap="RdBu_r",
+        vmin=-1, vmax=1,
+        figsize=(14, 12),
+        row_cluster=True,
+        col_cluster=True,
+        row_colors=_row_colors,
+        xticklabels=_ytick_labels,
+        yticklabels=_ytick_labels,
+        #cbar_pos=(0.02, 0.8, 0.03, 0.15),
+    )
+    _cg.ax_heatmap.set_yticklabels(
+        _cg.ax_heatmap.get_yticklabels(), rotation=0, fontsize=6
+    )
+    _cg.ax_heatmap.set_xticklabels(
+        _cg.ax_heatmap.get_xticklabels(), rotation=90, fontsize=6
+    )
+
+    for _tick in _cg.ax_heatmap.get_yticklabels():
+        _label = _tick.get_text()
+        if _label in botanical_colors:
+            _tick.set_fontweight("bold")
+            _tick.set_fontsize(10)
+        else:
+            _tick.set_fontsize(9)
+
+    # Mirror the same bold/size logic for x labels
+    for _tick in _cg.ax_heatmap.get_xticklabels():
+        _label = _tick.get_text()
+        if _label in botanical_colors:
+            _tick.set_fontweight("bold")
+            _tick.set_fontsize(10)
+        else:
+            _tick.set_fontsize(9)
+
+    # Move row dendrogram closer and shrink it
+    _hm_pos  = _cg.ax_heatmap.get_position()
+    _rd_pos  = _cg.ax_row_dendrogram.get_position()
+    _rc_pos  = _cg.ax_row_colors.get_position()
+    _cd_pos  = _cg.ax_col_dendrogram.get_position()
+
+    _new_rd_width = _rd_pos.width * 0.3
+    _new_cd_height = _cd_pos.height * 0.3
+    _new_rc_width = _rc_pos.width * 0.4
+
+    _cg.ax_row_colors.set_xticklabels([])
+    _cg.ax_row_colors.set_yticklabels([])
+
+    # Dendrogram on the far left
+    _cg.ax_row_dendrogram.set_position([
+        _hm_pos.x0 - _new_rd_width - _new_rc_width - 0.002,
+        _rd_pos.y0,
+        _new_rd_width,
+        _rd_pos.height
+    ])
+
+    # Row colors between dendrogram and heatmap
+    _cg.ax_row_colors.set_position([
+        _hm_pos.x0 - _new_rc_width - 0.001,
+        _rc_pos.y0,
+        _new_rc_width,
+        _rc_pos.height
+    ])
+
+    # Dendrogram on the top
+    _cg.ax_col_dendrogram.set_position([
+        _cd_pos.x0,
+        _hm_pos.y0 + _hm_pos.height + 0.001,
+        _cd_pos.width,
+        _new_cd_height
+    ])
+
+    # Row colors between dendrogram and heatmap
+    _cg.ax_row_colors.set_position([
+        _hm_pos.x0 - _new_rc_width - 0.001,
+        _rc_pos.y0,
+        _new_rc_width,
+        _rc_pos.height
+    ])
+
+    _cg.ax_cbar.set_position((1.06, 0.2, 0.1, 0.2))
+
+
+    #_cg.ax_heatmap.set_xlabel("Compound", fontsize=9)
+    #_cg.ax_heatmap.set_ylabel("Compound", fontsize=9)
+    #_cg.fig.suptitle("Cosine similarity clustermap — Level 6 compound profiles",y=1.01, fontsize=12)
+
+    # ── 5. Legends ────────────────────────────────────────────────────────────────
+    # Add legend outside the plot
+    _legend_elements = [
+        Patch(facecolor=_plant_palette[_plant], edgecolor="none", label=_plant)
+        for _plant in botanical_colors
+        if _plant in _unique_plants
+    ]
+
+    _cg.ax_heatmap.legend(
+        handles=_legend_elements,
+        loc="upper left",        # or "best" to let matplotlib decide
+        bbox_to_anchor=(1.15, 1),
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=14,
+        borderpad=0.8,
+        title="Botanical extracts",
+        title_fontsize=16,
+    ).get_title().set_fontweight("bold")
+
+    plt.tight_layout()
+    _cg.fig.savefig(figure_dir / "Figure_4_A.png", format="png", bbox_inches="tight", dpi=300)
+    _cg.fig
+    return (df_cosine_similarity_bsc,)
 
 
 if __name__ == "__main__":

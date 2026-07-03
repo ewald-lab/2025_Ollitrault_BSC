@@ -75,21 +75,21 @@ def _(pd):
 
 @app.cell
 def _(pd):
-    df_level4a_axiom = pd.read_parquet("modules/03_postprocessing/outputs/level4b_axiom_batch.parquet")
-    df_level5_axiom_all = pd.read_parquet("modules/03_postprocessing/outputs/level5_axiom_selected_features_batch.parquet")
-    df_level6_axiom_all = pd.read_parquet("modules/03_postprocessing/outputs/level6_axiom_selected_features_batch.parquet")
+    df_level4a_axiom = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level4b_axiom_batch.parquet")
+    df_level5_axiom_all = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level5_axiom_selected_features_batch.parquet")
+    df_level6_axiom_all = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level6_axiom_selected_features_batch.parquet")
     return df_level4a_axiom, df_level5_axiom_all, df_level6_axiom_all
 
 
 @app.cell
 def _(pd):
     # Cell Painting profiles
-    df_level4_bsc_batch = pd.read_parquet("modules/03_postprocessing/outputs/level4b_bsc_batch.parquet")
+    df_level4_bsc_batch = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level4b_bsc_batch.parquet")
     df_level4_bsc_batch = df_level4_bsc_batch.groupby("Metadata_plate").filter(
         lambda g: ~(g["Metadata_compound_name"] == "DMSO").all()
     )
-    df_level5_bsc_batch = pd.read_parquet("modules/03_postprocessing/outputs/level5_bsc_selected_features_batch.parquet")
-    df_level6_bsc_batch = pd.read_parquet("modules/03_postprocessing/outputs/level6_bsc_selected_features_batch.parquet")
+    df_level5_bsc_batch = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level5_bsc_selected_features_batch.parquet")
+    df_level6_bsc_batch = pd.read_parquet("modules/05_batch_correction_bsc_axiom/outputs/level6_bsc_selected_features_batch.parquet")
     return df_level4_bsc_batch, df_level5_bsc_batch, df_level6_bsc_batch
 
 
