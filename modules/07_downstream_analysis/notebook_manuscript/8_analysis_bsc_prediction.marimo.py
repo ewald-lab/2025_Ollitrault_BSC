@@ -977,8 +977,13 @@ def _(pd):
                 ),
             )
 
-        _botanical_ids = pd.Index(list_botanicals).dropna().astype(str)
-        _botanical_ids = pd.Index(_botanical_ids.drop_duplicates())
+        _botanical_ids = pd.Index(
+            pd.Series(list_botanicals)
+            .dropna()
+            .astype(str)
+            .drop_duplicates(),
+            name="Metadata_compound",
+        )
         _botanical_id_set = set(_botanical_ids)
 
         _pred_unique = (
@@ -1001,6 +1006,7 @@ def _(pd):
             ]
             .set_index("Metadata_compound")
             .reindex(_botanical_ids)
+            .rename_axis("Metadata_compound")
             .reset_index()
         )
         _pred_long = (
