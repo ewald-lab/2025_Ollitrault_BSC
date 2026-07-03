@@ -83,7 +83,7 @@ def _():
     import matplotlib.pyplot as plt
     from rdkit.Chem import AllChem
     import sys
-    sys.path.append("/Users/ollitrault/Documents/projects/utils")
+    sys.path.append("modules/common/utils")
     from util_standardizer import StandardizeMolecule
     return AllChem, plt, umap
 
