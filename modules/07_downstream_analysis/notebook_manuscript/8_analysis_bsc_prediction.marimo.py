@@ -86,6 +86,21 @@ def _(bsc_annotation_path, level6_bsc_path, pd):
     # Load the BSC level-6 feature matrix and botanical annotations.
     df_level6_bsc_all = pd.read_parquet(level6_bsc_path)
     df_bsc_annotations = pd.read_csv(bsc_annotation_path, sep="\t")
+    df_bsc_constituent_botanical_pairs = (
+        df_bsc_annotations[["Metadata_compound", "Plant scode"]]
+        .dropna()
+        .drop_duplicates()
+    )
+    df_bsc_unique_constituents = (
+        df_bsc_annotations
+        .dropna(subset=["Metadata_compound"])
+        .drop_duplicates("Metadata_compound")
+    )
+    _shared_constituent_counts = (
+        df_bsc_constituent_botanical_pairs
+        .groupby("Metadata_compound")["Plant scode"]
+        .nunique()
+    )
 
     list_botanicals = (
         df_bsc_annotations["Plant scode"]
@@ -104,9 +119,20 @@ def _(bsc_annotation_path, level6_bsc_path, pd):
 
     print(f"BSC feature matrix: {df_level6_bsc_all.shape}")
     print(f"BSC annotation table: {df_bsc_annotations.shape}")
+    print(f"Unique BSC constituents: {len(df_bsc_unique_constituents)}")
     print(f"Botanicals in annotation table: {len(list_botanicals)}")
+    print(
+        "Constituent-botanical assignments:",
+        len(df_bsc_constituent_botanical_pairs),
+    )
+    print(
+        "Constituents assigned to multiple botanicals:",
+        int(_shared_constituent_counts.gt(1).sum()),
+    )
     return (
         df_bsc_annotations,
+        df_bsc_constituent_botanical_pairs,
+        df_bsc_unique_constituents,
         df_level6_bsc_all,
         dic_botanicals_scode_name,
         list_botanicals,
@@ -526,14 +552,52 @@ def _(assign_assay_groups, np, pd):
 
         _group_table = assign_assay_groups(heatmap_columns)
 
-        _cat_lookup = (
-            df_toxcast_cellbased_assay_info_significant
-            .drop_duplicates("assay_component_endpoint_name")
-            .set_index("assay_component_endpoint_name")[
-                ["claudeai_color", "claudeai_label"]
-            ]
-            .to_dict(orient="index")
+        _category_color_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_color",
+                    "chatgpt_color",
+                    "claudeai_color",
+                ]
+                if (
+                    _column
+                    in df_toxcast_cellbased_assay_info_significant.columns
+                )
+            ),
+            None,
         )
+        _category_label_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_label",
+                    "chatgpt_label",
+                    "claudeai_label",
+                ]
+                if (
+                    _column
+                    in df_toxcast_cellbased_assay_info_significant.columns
+                )
+            ),
+            None,
+        )
+        if (
+            "assay_component_endpoint_name"
+            in df_toxcast_cellbased_assay_info_significant.columns
+            and _category_color_col is not None
+            and _category_label_col is not None
+        ):
+            _cat_lookup = (
+                df_toxcast_cellbased_assay_info_significant
+                .drop_duplicates("assay_component_endpoint_name")
+                .set_index("assay_component_endpoint_name")[
+                    [_category_color_col, _category_label_col]
+                ]
+                .to_dict(orient="index")
+            )
+        else:
+            _cat_lookup = {}
         _auroc_lookup = df_ttest_results_filtered.set_index(
             "Metadata_Label"
         )["AUROC_mean_Actual"]
@@ -543,11 +607,11 @@ def _(assign_assay_groups, np, pd):
             _group_display
         )
         _group_table["category_color"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_color", "#dddddd")
+            _cat_lookup.get(_assay, {}).get(_category_color_col, "#dddddd")
             for _assay in _group_table["assay"]
         ]
         _group_table["category_label"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_label", None)
+            _cat_lookup.get(_assay, {}).get(_category_label_col, None)
             for _assay in _group_table["assay"]
         ]
         _group_table["AUROC_mean_Actual"] = [
@@ -586,12 +650,26 @@ def _(
 
     _group_order = ["Cell-free", "Cell-based", "Cytotoxic", "Hit calls"]
     _group_table = assign_assay_groups(_heatmap_data.columns)
-
-    _category_order = (
-        df_toxcast_cellbased_assay_info_significant
-        .drop_duplicates("assay_component_endpoint_name")
-        .set_index("assay_component_endpoint_name")["claudeai_label"]
+    _category_label_col = next(
+        (
+            _column
+            for _column in [
+                "chagpt_label",
+                "chatgpt_label",
+                "claudeai_label",
+            ]
+            if _column in df_toxcast_cellbased_assay_info_significant.columns
+        ),
+        None,
     )
+    if _category_label_col is None:
+        _category_order = {}
+    else:
+        _category_order = (
+            df_toxcast_cellbased_assay_info_significant
+            .drop_duplicates("assay_component_endpoint_name")
+            .set_index("assay_component_endpoint_name")[_category_label_col]
+        )
 
     _ordered_columns = []
     for _group in _group_order:
@@ -674,7 +752,7 @@ def _(
     _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap.png"
     _download_path = (
         downloads_dir
-        / "prediction_heatmap_botanical_constituents_batch_groups_claudeai.png"
+        / "prediction_heatmap_botanical_constituents_batch_groups_chatgpt.png"
     )
 
     figure_output_dir.mkdir(parents=True, exist_ok=True)
@@ -884,8 +962,11 @@ def _(pd):
         df_heatmap_columns: pd.DataFrame,
     ):
         """Summarize active predictions by botanical, assay group, and category."""
+        _pred_unique = pred_matrix_filtered.drop_duplicates(
+            "Metadata_compound"
+        )
         _pred_long = (
-            pred_matrix_filtered
+            _pred_unique
             .set_index("Metadata_compound")
             .reset_index()
             .melt(
@@ -895,21 +976,37 @@ def _(pd):
             )
         )
 
-        _const_to_botanical = (
+        _constituent_botanical_pairs = (
             df_bsc_annotations[["Metadata_compound", "Plant scode"]]
+            .dropna()
             .drop_duplicates()
-            .set_index("Metadata_compound")["Plant scode"]
-            .to_dict()
+            .rename(columns={"Plant scode": "botanical_scode"})
         )
-        _pred_long["botanical_scode"] = _pred_long["Metadata_compound"].map(
-            _const_to_botanical
+        _constituent_ids = _constituent_botanical_pairs[
+            "Metadata_compound"
+        ].drop_duplicates()
+        df_pred_long_constituent_unique = (
+            _pred_long[
+                _pred_long["Metadata_compound"].isin(_constituent_ids)
+            ]
+            .drop_duplicates(["Metadata_compound", "assay"])
+            .copy()
         )
-        _pred_long["botanical"] = _pred_long["botanical_scode"].map(
+        df_pred_long_botanical = df_pred_long_constituent_unique.merge(
+            _constituent_botanical_pairs,
+            on="Metadata_compound",
+            how="inner",
+        )
+        df_pred_long_botanical["botanical"] = df_pred_long_botanical[
+            "botanical_scode"
+        ].map(
             dic_botanicals_scode_name
         )
 
         df_pred_long_all = _pred_long.copy()
-        df_pred_long_botanical = _pred_long.dropna(subset=["botanical"]).copy()
+        df_pred_long_botanical = (
+            df_pred_long_botanical.dropna(subset=["botanical"]).copy()
+        )
 
         df_pct_active_by_botanical = (
             df_pred_long_botanical
@@ -959,13 +1056,13 @@ def _(pd):
         _category_series = df_heatmap_columns.set_index("assay")[
             "category_label"
         ]
-        df_pred_long_botanical["claudeai_label"] = (
+        df_pred_long_botanical["category_label"] = (
             df_pred_long_botanical["assay"].map(_category_series)
         )
 
         df_pct_active_by_botanical_category = (
-            df_pred_long_botanical.dropna(subset=["claudeai_label"])
-            .groupby(["botanical", "claudeai_label"])["active"]
+            df_pred_long_botanical.dropna(subset=["category_label"])
+            .groupby(["botanical", "category_label"])["active"]
             .agg(
                 n_active=lambda _x: _x.eq(1).sum(),
                 n_tested=lambda _x: _x.notna().sum(),
@@ -978,7 +1075,7 @@ def _(pd):
             .reset_index()
             .pivot(
                 index="botanical",
-                columns="claudeai_label",
+                columns="category_label",
                 values="pct_active",
             )
             .reset_index()
@@ -1003,6 +1100,7 @@ def _(pd):
             df_pct_active_by_botanical_category,
             df_pred_long_all,
             df_pred_long_botanical,
+            df_pred_long_constituent_unique,
         )
     return (build_prediction_summary_tables,)
 
@@ -1021,11 +1119,27 @@ def _(
         df_pct_active_by_botanical_category,
         df_pred_long_all,
         df_pred_long_botanical,
+        df_pred_long_constituent_unique,
     ) = build_prediction_summary_tables(
         pred_matrix_filtered,
         df_bsc_annotations,
         dic_botanicals_scode_name,
         df_heatmap_columns,
+    )
+
+    print(
+        "Unique constituents in stats:",
+        df_pred_long_constituent_unique["Metadata_compound"].nunique(),
+    )
+    print(
+        "Botanicals in stats:",
+        df_pred_long_botanical["botanical_scode"].nunique(),
+    )
+    print(
+        "Constituent-botanical assignments in botanical summaries:",
+        df_pred_long_botanical[
+            ["Metadata_compound", "botanical_scode"]
+        ].drop_duplicates().shape[0],
     )
 
     print("Active predictions by botanical:")
@@ -1036,7 +1150,7 @@ def _(
 
     print("\nActive predictions by botanical and cell-based category:")
     print(df_pct_active_by_botanical_category.to_string(index=False))
-    return (df_pred_long_all,)
+    return (df_pred_long_all, df_pred_long_constituent_unique)
 
 
 @app.cell

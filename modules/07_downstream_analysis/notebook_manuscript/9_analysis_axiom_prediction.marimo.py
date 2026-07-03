@@ -471,16 +471,41 @@ def _(assign_assay_groups, np, pd):
 
         _annotation_table = assign_assay_groups(assays)
 
-        if {
-            "assay_component_endpoint_name",
-            "claudeai_color",
-            "claudeai_label",
-        }.issubset(category_df.columns):
+        _category_color_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_color",
+                    "chatgpt_color",
+                    "claudeai_color",
+                ]
+                if _column in category_df.columns
+            ),
+            None,
+        )
+        _category_label_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_label",
+                    "chatgpt_label",
+                    "claudeai_label",
+                ]
+                if _column in category_df.columns
+            ),
+            None,
+        )
+
+        if (
+            "assay_component_endpoint_name" in category_df.columns
+            and _category_color_col is not None
+            and _category_label_col is not None
+        ):
             _cat_lookup = (
                 category_df
                 .drop_duplicates("assay_component_endpoint_name")
                 .set_index("assay_component_endpoint_name")[
-                    ["claudeai_color", "claudeai_label"]
+                    [_category_color_col, _category_label_col]
                 ]
                 .to_dict(orient="index")
             )
@@ -500,11 +525,11 @@ def _(assign_assay_groups, np, pd):
             _annotation_table["group"].map(_group_display)
         )
         _annotation_table["category_color"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_color", "#dddddd")
+            _cat_lookup.get(_assay, {}).get(_category_color_col, "#dddddd")
             for _assay in _annotation_table["assay"]
         ]
         _annotation_table["category_label"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_label", None)
+            _cat_lookup.get(_assay, {}).get(_category_label_col, None)
             for _assay in _annotation_table["assay"]
         ]
         _annotation_table["AUROC_mean_Actual"] = [
