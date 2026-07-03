@@ -37,6 +37,12 @@ def _(mo):
 
 
 @app.cell
+def _(Path):
+    figure_dir = Path("modules/07_downstream_analysis/figures")
+    return (figure_dir,)
+
+
+@app.cell
 def _(pd):
     # BSC annotations are used only to label botanicals and constituents in the
     # Axiom vs BSC comparison plots.
@@ -756,10 +762,10 @@ def _(mo):
 
 @app.cell
 def _(
-    Path,
     df_umap_level5,
     df_umap_level6,
     dic_botanicals_scode_name,
+    figure_dir,
     go,
     pio,
 ):
@@ -922,10 +928,9 @@ def _(
     # ── Layout ────────────────────────────────────────────────────────────────────
     _fig.update_layout(
         template="plotly_white",
-        title=dict(
-            text=(
-                "UMAP of Cell Painting Profiles<br>"
-                "<sup>Morphological similarity of botanical extracts and pure constituents</sup>"
+        title=dict(text=(
+                ""#"UMAP of Cell Painting Profiles<br>"
+                ""#"<sup>Morphological similarity of botanical extracts and pure constituents</sup>"
             ),
             font=dict(size=15, family="Arial", color="#111111"),
             x=0.5, xanchor="center",
@@ -953,7 +958,7 @@ def _(
     # ── Export ────────────────────────────────────────────────────────────────────
     pio.write_image(
         _fig,
-        Path.home() / "Downloads" / "umap_level5_6_bsc.png",
+        str(figure_dir / "Figure_5.png"),
         width=1400, height=650, scale=4
     )
     _fig.show()
