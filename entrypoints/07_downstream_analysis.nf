@@ -4,7 +4,7 @@ nextflow.enable.dsl=2
 
 params.base_dir = params.base_dir ?: "${projectDir}/.."
 params.downstream_notebook_dir = params.downstream_notebook_dir ?: "${params.base_dir}/modules/07_downstream_analysis/notebook_manuscript"
-params.downstream_html_dir = params.downstream_html_dir ?: "${params.downstream_notebook_dir}/__marimo__"
+params.downstream_html_dir = params.downstream_html_dir ?: "${params.downstream_notebook_dir}/"
 
 def manuscript_notebooks = [
     "0_analysis_raw_data.marimo.py",
