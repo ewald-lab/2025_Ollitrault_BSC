@@ -962,9 +962,30 @@ def _(pd):
         df_heatmap_columns: pd.DataFrame,
     ):
         """Summarize active predictions by botanical, assay group, and category."""
+        _annotated_compound_ids = pd.Index(
+            pd.concat(
+                [
+                    df_bsc_annotations["Metadata_compound"].dropna(),
+                    df_bsc_annotations["Plant scode"].dropna(),
+                ],
+                ignore_index=True,
+            )
+            .astype(str)
+            .drop_duplicates()
+        )
         _pred_unique = pred_matrix_filtered.drop_duplicates(
             "Metadata_compound"
+        ).copy()
+        _pred_unique["Metadata_compound"] = _pred_unique[
+            "Metadata_compound"
+        ].astype(str)
+        _excluded_compounds = sorted(
+            set(_pred_unique["Metadata_compound"])
+            - set(_annotated_compound_ids)
         )
+        _pred_unique = _pred_unique[
+            _pred_unique["Metadata_compound"].isin(_annotated_compound_ids)
+        ].copy()
         _pred_long = (
             _pred_unique
             .set_index("Metadata_compound")
@@ -981,6 +1002,12 @@ def _(pd):
             .dropna()
             .drop_duplicates()
             .rename(columns={"Plant scode": "botanical_scode"})
+        )
+        _constituent_botanical_pairs["Metadata_compound"] = (
+            _constituent_botanical_pairs["Metadata_compound"].astype(str)
+        )
+        _constituent_botanical_pairs["botanical_scode"] = (
+            _constituent_botanical_pairs["botanical_scode"].astype(str)
         )
         _constituent_ids = _constituent_botanical_pairs[
             "Metadata_compound"
@@ -1101,6 +1128,7 @@ def _(pd):
             df_pred_long_all,
             df_pred_long_botanical,
             df_pred_long_constituent_unique,
+            _excluded_compounds,
         )
     return (build_prediction_summary_tables,)
 
@@ -1120,6 +1148,7 @@ def _(
         df_pred_long_all,
         df_pred_long_botanical,
         df_pred_long_constituent_unique,
+        excluded_compounds_from_stats,
     ) = build_prediction_summary_tables(
         pred_matrix_filtered,
         df_bsc_annotations,
@@ -1127,6 +1156,10 @@ def _(
         df_heatmap_columns,
     )
 
+    print(
+        "Compounds in assay-level stats:",
+        df_pred_long_all["Metadata_compound"].nunique(),
+    )
     print(
         "Unique constituents in stats:",
         df_pred_long_constituent_unique["Metadata_compound"].nunique(),
@@ -1140,6 +1173,12 @@ def _(
         df_pred_long_botanical[
             ["Metadata_compound", "botanical_scode"]
         ].drop_duplicates().shape[0],
+    )
+    print(
+        "Rows excluded from stats:",
+        ", ".join(excluded_compounds_from_stats)
+        if excluded_compounds_from_stats
+        else "none",
     )
 
     print("Active predictions by botanical:")
