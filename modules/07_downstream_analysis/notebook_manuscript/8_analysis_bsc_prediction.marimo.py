@@ -955,11 +955,11 @@ def _(mo):
 def _(pd):
     def build_prediction_summary_tables(
         pred_matrix_filtered: pd.DataFrame,
-        df_bsc_annotations: pd.DataFrame,
+        list_botanicals,
         dic_botanicals_scode_name: dict,
         df_heatmap_columns: pd.DataFrame,
     ):
-        """Summarize active predictions by botanical, assay group, and category."""
+        """Summarize active predictions for botanical rows only."""
         def _add_active_summary(active_df: pd.DataFrame) -> pd.DataFrame:
             return active_df.assign(
                 active_predictions=lambda _df: (
@@ -977,78 +977,49 @@ def _(pd):
                 ),
             )
 
-        _annotated_compound_ids = pd.Index(
-            pd.concat(
-                [
-                    df_bsc_annotations["Metadata_compound"].dropna(),
-                    df_bsc_annotations["Plant scode"].dropna(),
-                ],
-                ignore_index=True,
-            )
-            .astype(str)
-            .drop_duplicates()
+        _botanical_ids = pd.Index(list_botanicals).dropna().astype(str)
+        _botanical_ids = pd.Index(_botanical_ids.drop_duplicates())
+        _botanical_id_set = set(_botanical_ids)
+
+        _pred_unique = (
+            pred_matrix_filtered
+            .drop_duplicates("Metadata_compound")
+            .copy()
         )
-        _pred_unique = pred_matrix_filtered.drop_duplicates(
-            "Metadata_compound"
-        ).copy()
-        _pred_unique["Metadata_compound"] = _pred_unique[
-            "Metadata_compound"
-        ].astype(str)
-        _excluded_compounds = sorted(
-            set(_pred_unique["Metadata_compound"])
-            - set(_annotated_compound_ids)
+        _pred_unique["Metadata_compound"] = (
+            _pred_unique["Metadata_compound"].astype(str)
         )
-        _pred_unique = _pred_unique[
-            _pred_unique["Metadata_compound"].isin(_annotated_compound_ids)
-        ].copy()
-        _pred_long = (
-            _pred_unique
+        _non_botanical_count = (
+            ~_pred_unique["Metadata_compound"].isin(_botanical_ids)
+        ).sum()
+        _missing_botanicals = sorted(
+            _botanical_id_set - set(_pred_unique["Metadata_compound"])
+        )
+        _pred_botanical = (
+            _pred_unique[
+                _pred_unique["Metadata_compound"].isin(_botanical_ids)
+            ]
             .set_index("Metadata_compound")
+            .reindex(_botanical_ids)
             .reset_index()
+        )
+        _pred_long = (
+            _pred_botanical
             .melt(
                 id_vars="Metadata_compound",
                 var_name="assay",
                 value_name="active",
             )
+            .rename(columns={"Metadata_compound": "botanical_scode"})
         )
-
-        _constituent_botanical_pairs = (
-            df_bsc_annotations[["Metadata_compound", "Plant scode"]]
-            .dropna()
-            .drop_duplicates()
-            .rename(columns={"Plant scode": "botanical_scode"})
+        _pred_long["botanical"] = (
+            _pred_long["botanical_scode"]
+            .astype(str)
+            .map(dic_botanicals_scode_name)
         )
-        _constituent_botanical_pairs["Metadata_compound"] = (
-            _constituent_botanical_pairs["Metadata_compound"].astype(str)
-        )
-        _constituent_botanical_pairs["botanical_scode"] = (
-            _constituent_botanical_pairs["botanical_scode"].astype(str)
-        )
-        _constituent_ids = _constituent_botanical_pairs[
-            "Metadata_compound"
-        ].drop_duplicates()
-        df_pred_long_constituent_unique = (
-            _pred_long[
-                _pred_long["Metadata_compound"].isin(_constituent_ids)
-            ]
-            .drop_duplicates(["Metadata_compound", "assay"])
-            .copy()
-        )
-        df_pred_long_botanical = df_pred_long_constituent_unique.merge(
-            _constituent_botanical_pairs,
-            on="Metadata_compound",
-            how="inner",
-        )
-        df_pred_long_botanical["botanical"] = df_pred_long_botanical[
-            "botanical_scode"
-        ].map(
-            dic_botanicals_scode_name
-        )
-
-        df_pred_long_all = _pred_long.copy()
-        df_pred_long_botanical = (
-            df_pred_long_botanical.dropna(subset=["botanical"]).copy()
-        )
+        df_pred_long_botanical = _pred_long.dropna(
+            subset=["botanical"]
+        ).copy()
 
         df_pct_active_by_botanical = (
             df_pred_long_botanical
@@ -1182,10 +1153,9 @@ def _(pd):
             df_pct_active_by_botanical,
             df_pct_active_by_botanical_group,
             df_pct_active_by_botanical_category,
-            df_pred_long_all,
             df_pred_long_botanical,
-            df_pred_long_constituent_unique,
-            _excluded_compounds,
+            int(_non_botanical_count),
+            _missing_botanicals,
         )
     return (build_prediction_summary_tables,)
 
@@ -1193,48 +1163,37 @@ def _(pd):
 @app.cell
 def _(
     build_prediction_summary_tables,
-    df_bsc_annotations,
     df_heatmap_columns,
     dic_botanicals_scode_name,
+    list_botanicals,
     pred_matrix_filtered,
 ):
     (
         df_pct_active_by_botanical,
         df_pct_active_by_botanical_group,
         df_pct_active_by_botanical_category,
-        df_pred_long_all,
         df_pred_long_botanical,
-        df_pred_long_constituent_unique,
-        excluded_compounds_from_stats,
+        non_botanical_rows_excluded,
+        missing_botanicals_from_stats,
     ) = build_prediction_summary_tables(
         pred_matrix_filtered,
-        df_bsc_annotations,
+        list_botanicals,
         dic_botanicals_scode_name,
         df_heatmap_columns,
     )
 
     print(
-        "Compounds in assay-level stats:",
-        df_pred_long_all["Metadata_compound"].nunique(),
-    )
-    print(
-        "Unique constituents in stats:",
-        df_pred_long_constituent_unique["Metadata_compound"].nunique(),
-    )
-    print(
         "Botanicals in stats:",
         df_pred_long_botanical["botanical_scode"].nunique(),
     )
     print(
-        "Constituent-botanical assignments in botanical summaries:",
-        df_pred_long_botanical[
-            ["Metadata_compound", "botanical_scode"]
-        ].drop_duplicates().shape[0],
+        "Non-botanical rows excluded from stats:",
+        non_botanical_rows_excluded,
     )
     print(
-        "Rows excluded from stats:",
-        ", ".join(excluded_compounds_from_stats)
-        if excluded_compounds_from_stats
+        "Missing botanicals from stats:",
+        ", ".join(missing_botanicals_from_stats)
+        if missing_botanicals_from_stats
         else "none",
     )
 
@@ -1246,13 +1205,13 @@ def _(
 
     print("\nActive predictions by botanical and cell-based category:")
     print(df_pct_active_by_botanical_category.to_string(index=False))
-    return (df_pred_long_all,)
+    return (df_pred_long_botanical,)
 
 
 @app.cell
-def _(df_pred_long_all):
+def _(df_pred_long_botanical):
     df_active_by_assay = (
-        df_pred_long_all
+        df_pred_long_botanical
         .groupby("assay")["active"]
         .agg(
             active_count="sum",
