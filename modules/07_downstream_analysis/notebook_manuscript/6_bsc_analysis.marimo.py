@@ -25,23 +25,29 @@ def _():
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
     from sklearn.metrics.pairwise import cosine_similarity
+    from copairs import map
+    from copairs.matching import assign_reference_index
+    from copairs.map.average_precision import p_values
     return (
         Line2D,
         LogNorm,
         Patch,
         Path,
+        assign_reference_index,
         combinations,
         cosine_similarity,
         dfi,
         glob,
         kruskal,
         mannwhitneyu,
+        map,
         mo,
         mpatches,
         mticker,
         np,
         os,
         pd,
+        p_values,
         plt,
         px,
         sns,
@@ -1192,6 +1198,48 @@ def _(
             return DASH
         return f"{int(n)}/{int(total)} ({100 * n / total:.0f}%)"
 
+    def _summarize_quartiles(group, endpoint, values):
+        _vals = pd.Series(values, dtype="float64").dropna()
+        _summary = {
+            "Group": group,
+            "Endpoint": endpoint,
+            "n": len(_vals),
+            "min": np.nan,
+            "Q1": np.nan,
+            "median": np.nan,
+            "Q3": np.nan,
+            "max": np.nan,
+        }
+        if len(_vals) == 0:
+            return _summary
+
+        _quartiles = _vals.quantile([0.25, 0.50, 0.75])
+        _summary.update({
+            "min": _vals.min(),
+            "Q1": _quartiles.loc[0.25],
+            "median": _quartiles.loc[0.50],
+            "Q3": _quartiles.loc[0.75],
+            "max": _vals.max(),
+        })
+        return _summary
+
+    def _summarize_activity(group, endpoint, active_compounds, total_compounds):
+        _active = set(active_compounds)
+        _total = set(total_compounds)
+        _active = _active & _total
+        _n_active = len(_active)
+        _n_total = len(_total)
+        _n_inactive = _n_total - _n_active
+        return {
+            "Group": group,
+            "Endpoint": endpoint,
+            "active": _n_active,
+            "inactive": _n_inactive,
+            "total": _n_total,
+            "active_fraction": _n_active / _n_total if _n_total else np.nan,
+            "active_n_total": _fmt_count(_n_active, _n_total),
+        }
+
     def _active_cp_pac_from_featurewise(df, compounds, pod_col="cp_POD_um"):
         """
         For CP feature-wise PODs:
@@ -1530,6 +1578,81 @@ def _(
         .values
     )
 
+    _df_pod_quartiles = pd.DataFrame([
+        _summarize_quartiles(
+            "Botanical extracts",
+            "CP",
+            _botanical_cp_pac_dict.values(),
+        ),
+        _summarize_quartiles(
+            "Botanical extracts",
+            "MT",
+            _botanical_mtt_pac_dict.values(),
+        ),
+        _summarize_quartiles(
+            "Botanical extracts",
+            "LDH",
+            _botanical_ldh_pac_dict.values(),
+        ),
+        _summarize_quartiles("Constituents", "CP", _all_cp_vals),
+        _summarize_quartiles("Constituents", "MT", _all_mtt_vals),
+        _summarize_quartiles("Constituents", "LDH", _all_ldh_vals),
+    ])
+
+    _df_pod_quartiles[["min", "Q1", "median", "Q3", "max"]] = (
+        _df_pod_quartiles[["min", "Q1", "median", "Q3", "max"]].round(2)
+    )
+
+    _botanical_compounds = set(list_botanicals)
+    _botanical_mtt_active = set(_botanical_mtt_pac_dict)
+    _botanical_ldh_active = set(_botanical_ldh_pac_dict)
+    _constituent_mtt_total = set(_annot_mtt["Metadata_compound"].dropna())
+    _constituent_ldh_total = set(_annot_ldh["Metadata_compound"].dropna())
+    _constituent_mtt_active = set(_df_mtt_long["Metadata_compound"].dropna())
+    _constituent_ldh_active = set(_df_ldh_long["Metadata_compound"].dropna())
+
+    _df_mt_ldh_activity_counts = pd.DataFrame([
+        _summarize_activity(
+            "Botanical extracts",
+            "MT",
+            _botanical_mtt_active,
+            _botanical_compounds,
+        ),
+        _summarize_activity(
+            "Botanical extracts",
+            "LDH",
+            _botanical_ldh_active,
+            _botanical_compounds,
+        ),
+        _summarize_activity(
+            "Botanical extracts",
+            "MT or LDH",
+            _botanical_mtt_active | _botanical_ldh_active,
+            _botanical_compounds,
+        ),
+        _summarize_activity(
+            "Constituents",
+            "MT",
+            _constituent_mtt_active,
+            _constituent_mtt_total,
+        ),
+        _summarize_activity(
+            "Constituents",
+            "LDH",
+            _constituent_ldh_active,
+            _constituent_ldh_total,
+        ),
+        _summarize_activity(
+            "Constituents",
+            "MT or LDH",
+            _constituent_mtt_active | _constituent_ldh_active,
+            _constituent_mtt_total | _constituent_ldh_total,
+        ),
+    ])
+    _df_mt_ldh_activity_counts["active_fraction"] = (
+        _df_mt_ldh_activity_counts["active_fraction"].round(3)
+    )
+
     _rows_table.append({
         ("Botanical", ""): "Median POD / Overall activity rate",
 
@@ -1591,6 +1714,10 @@ def _(
     print(f"Active CP constituents in Table 1: {_active_cp_all}/{_total_cp_all}")
     print(f"Active MT constituents in Table 1: {_active_mtt_all}/{_total_mtt_all}")
     print(f"Active LDH constituents in Table 1: {_active_ldh_all}/{_total_ldh_all}")
+    print("\nPOD quartiles grouped by botanical extracts and constituents:")
+    print(_df_pod_quartiles.to_string(index=False))
+    print("\nMT and LDH active/inactive counts grouped by botanical extracts and constituents:")
+    print(_df_mt_ldh_activity_counts.to_string(index=False))
 
     df_summary_table_more
     return
@@ -4301,6 +4428,268 @@ def _(
     plt.tight_layout()
     _cg.fig.savefig(figure_dir / "Figure_4_A.png", format="png", bbox_inches="tight", dpi=300)
     _cg.fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r""" """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Analysis BSC mAP""")
+    return
+
+
+@app.cell
+def _(
+    df_bsc_annotations,
+    df_bsc_cp_pod,
+    df_level4_bsc,
+    dic_botanicals_scode_name,
+    pd,
+):
+    _compound_to_plant = (
+        df_bsc_annotations[["Metadata_compound", "Plant name"]]
+        .drop_duplicates()
+        .dropna()
+        .set_index("Metadata_compound")["Plant name"]
+        .to_dict()
+    )
+    _botanical_scodes = set(dic_botanicals_scode_name)
+    _dmso_ids = {"s0617825", "DMSO"}
+
+    def _map_compound_type(_compound):
+        if _compound in _dmso_ids:
+            return "DMSO"
+        if _compound in _botanical_scodes:
+            return "Botanical"
+        return "Constituent"
+
+    def _map_source_botanical(_compound):
+        if _compound in _botanical_scodes:
+            return dic_botanicals_scode_name.get(_compound)
+        if _compound in _compound_to_plant:
+            return _compound_to_plant[_compound]
+        if _compound in _dmso_ids:
+            return "DMSO"
+        return "Unknown botanical"
+
+    _cp_pods = (
+        df_bsc_cp_pod[["Metadata_compound", "cp_POD_um"]]
+        .drop_duplicates(subset="Metadata_compound")
+        .rename(columns={"cp_POD_um": "Metadata_cp_pod_um"})
+    )
+
+    df_level4_bsc_map_input = df_level4_bsc.copy()
+    df_level4_bsc_map_input["Metadata_compound"] = (
+        df_level4_bsc_map_input["Metadata_compound"].astype(str)
+    )
+    df_level4_bsc_map_input["Metadata_type"] = (
+        df_level4_bsc_map_input["Metadata_compound"].apply(_map_compound_type)
+    )
+    df_level4_bsc_map_input["Metadata_source_botanical"] = (
+        df_level4_bsc_map_input["Metadata_compound"].apply(_map_source_botanical)
+    )
+    df_level4_bsc_map_input = df_level4_bsc_map_input.merge(
+        _cp_pods,
+        on="Metadata_compound",
+        how="left",
+    )
+    df_level4_bsc_map_input["Metadata_concentration"] = pd.to_numeric(
+        df_level4_bsc_map_input["Metadata_concentration"], errors="coerce"
+    )
+    df_level4_bsc_map_input["Metadata_cp_pod_um"] = pd.to_numeric(
+        df_level4_bsc_map_input["Metadata_cp_pod_um"], errors="coerce"
+    )
+
+    _is_dmso = df_level4_bsc_map_input["Metadata_type"].eq("DMSO")
+    _above_cp_pod = (
+        df_level4_bsc_map_input["Metadata_concentration"]
+        >= df_level4_bsc_map_input["Metadata_cp_pod_um"]
+    )
+    df_level4_bsc_map_pod = df_level4_bsc_map_input[
+        _is_dmso | (_above_cp_pod & df_level4_bsc_map_input["Metadata_cp_pod_um"].notna())
+    ].copy()
+
+    print(f"mAP Level 4 profiles before POD filter: {len(df_level4_bsc_map_input)}")
+    print(f"mAP Level 4 profiles after POD filter: {len(df_level4_bsc_map_pod)}")
+    print(
+        "mAP Level 4 compounds after POD filter: "
+        f"{df_level4_bsc_map_pod['Metadata_compound'].nunique()}"
+    )
+    return df_level4_bsc_map_input, df_level4_bsc_map_pod
+
+
+@app.cell
+def _(assign_reference_index, df_level4_bsc_map_pod):
+    _reference_col = "Metadata_reference_index"
+    df_bsc_map_activity = assign_reference_index(
+        df_level4_bsc_map_pod[
+            df_level4_bsc_map_pod["Metadata_type"] != "DMSO"
+        ].copy(),
+        "Metadata_type == 'Constituent'",
+        reference_col=_reference_col,
+        default_value=-1,
+    )
+    print(f"mAP activity profiles: {len(df_bsc_map_activity)}")
+    print(
+        "mAP source botanicals: "
+        f"{df_bsc_map_activity['Metadata_source_botanical'].nunique()}"
+    )
+    return (df_bsc_map_activity,)
+
+
+@app.cell
+def _():
+    bsc_map_pos_sameby = ["Metadata_source_botanical"]
+    bsc_map_pos_diffby = ["Metadata_type"]
+    bsc_map_neg_sameby = []
+    bsc_map_neg_diffby = [
+        "Metadata_compound",
+        "Metadata_source_botanical",
+        "Metadata_type",
+    ]
+    return (
+        bsc_map_neg_diffby,
+        bsc_map_neg_sameby,
+        bsc_map_pos_diffby,
+        bsc_map_pos_sameby,
+    )
+
+
+@app.cell
+def _(
+    all_selected_features,
+    bsc_map_neg_diffby,
+    bsc_map_neg_sameby,
+    bsc_map_pos_diffby,
+    bsc_map_pos_sameby,
+    df_bsc_map_activity,
+    map,
+    np,
+    p_values,
+):
+    _feature_cols = [
+        _feature
+        for _feature in all_selected_features
+        if _feature in df_bsc_map_activity.columns
+    ]
+    if not _feature_cols:
+        raise ValueError("No selected Cell Painting feature columns were available for BSC mAP.")
+
+    _df_activity_complete = df_bsc_map_activity.dropna(subset=_feature_cols).copy()
+    if _df_activity_complete.empty:
+        raise ValueError("No complete Level 4 profiles were available for BSC mAP.")
+
+    bsc_map_metadata = _df_activity_complete.filter(regex="^Metadata").copy()
+    bsc_map_profiles = _df_activity_complete[_feature_cols].to_numpy(dtype=float)
+
+    activity_ap_bsc_map = map.average_precision(
+        bsc_map_metadata,
+        bsc_map_profiles,
+        bsc_map_pos_sameby,
+        bsc_map_pos_diffby,
+        bsc_map_neg_sameby,
+        bsc_map_neg_diffby,
+    )
+    activity_ap_bsc_map = activity_ap_bsc_map.query("Metadata_type != 'DMSO'").copy()
+    if activity_ap_bsc_map.empty:
+        raise ValueError("BSC mAP produced no AP rows after matching botanical/constituent pairs.")
+
+    activity_ap_bsc_map["p_value"] = p_values(
+        activity_ap_bsc_map,
+        null_size=1_000_000,
+        seed=0,
+    )
+    activity_ap_bsc_map["-log10(p-value)"] = -np.log10(
+        activity_ap_bsc_map["p_value"].clip(lower=np.finfo(float).tiny)
+    )
+    activity_ap_bsc_map["below_p"] = activity_ap_bsc_map["p_value"] < 0.05
+
+    print(f"mAP feature matrix shape: {bsc_map_profiles.shape}")
+    print(f"mAP AP rows: {len(activity_ap_bsc_map)}")
+    print(f"mAP AP below p<0.05: {activity_ap_bsc_map['below_p'].mean():.2%}")
+    return activity_ap_bsc_map, bsc_map_metadata, bsc_map_profiles
+
+
+@app.cell
+def _(activity_ap_bsc_map, np, plt):
+    _active_ratio_ap = activity_ap_bsc_map["below_p"].mean()
+    _fig, _axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    _axes[0].scatter(
+        x=activity_ap_bsc_map["average_precision"],
+        y=activity_ap_bsc_map["-log10(p-value)"],
+        c=activity_ap_bsc_map["below_p"],
+        cmap="tab10",
+        s=10,
+    )
+    _axes[0].axhline(-np.log10(0.05), color="black", linestyle="--", linewidth=0.8)
+    _axes[0].set_xlabel("AP")
+    _axes[0].set_ylabel("-log10(p-value)")
+    _axes[0].set_title("BSC replicate retrieval")
+    _axes[0].text(
+        0.65,
+        1.5,
+        f"Retrieved = {100 * _active_ratio_ap:.2f}%",
+        va="center",
+        ha="left",
+    )
+
+    if "normalized_average_precision" in activity_ap_bsc_map.columns:
+        _axes[1].scatter(
+            x=activity_ap_bsc_map["normalized_average_precision"],
+            y=activity_ap_bsc_map["-log10(p-value)"],
+            c=activity_ap_bsc_map["below_p"],
+            cmap="tab10",
+            s=10,
+        )
+        _axes[1].axhline(-np.log10(0.05), color="black", linestyle="--", linewidth=0.8)
+        _axes[1].axvline(0, color="black", linestyle="--", linewidth=0.5)
+        _axes[1].set_xlabel("normalized AP")
+        _axes[1].set_ylabel("-log10(p-value)")
+        _axes[1].set_title("BSC replicate retrieval, normalized")
+    else:
+        _axes[1].axis("off")
+
+    plt.tight_layout()
+    _fig
+    return
+
+
+@app.cell
+def _(activity_ap_bsc_map, bsc_map_pos_sameby, map, np):
+    activity_map_bsc = map.mean_average_precision(
+        activity_ap_bsc_map,
+        bsc_map_pos_sameby,
+        null_size=1_000_000,
+        threshold=0.05,
+        seed=0,
+    )
+    activity_map_bsc["-log10(corrected p-value)"] = -np.log10(
+        activity_map_bsc["corrected_p_value"].clip(lower=np.finfo(float).tiny)
+    )
+    print(f"mAP botanical groups: {len(activity_map_bsc)}")
+    print(f"mAP groups below corrected p<0.05: {activity_map_bsc['below_corrected_p'].sum()}")
+    return (activity_map_bsc,)
+
+
+@app.cell
+def _(activity_map_bsc):
+    activity_map_bsc[
+        [
+            "Metadata_source_botanical",
+            "mean_average_precision",
+            "p_value",
+            "corrected_p_value",
+            "below_p",
+            "below_corrected_p",
+            "-log10(corrected p-value)",
+        ]
+    ].sort_values("mean_average_precision", ascending=False)
     return
 
 

@@ -493,6 +493,31 @@ def _(df_ttest_results):
 
 
 @app.cell
+def _(df_ttest_results):
+    # Print All number signiifcative assays
+    df_ttest_results[
+        (df_ttest_results["AUPRG_significant"]) &
+        (df_ttest_results["AUROC_significant"]) &
+        (df_ttest_results["AUROC_mean_Actual"] > df_ttest_results["AUROC_mean_Random_baseline"]) &
+        (df_ttest_results["AUPRG_mean_Actual"] > df_ttest_results["AUPRG_mean_Random_baseline"]) &
+        (df_ttest_results["Metadata_Count_1"] > 20)].shape
+    return
+
+
+@app.cell
+def _(df_axiom_cytotox_binary_metrics_cv, df_ttest_results):
+    # Print cytotox number signiifcative assays
+    df_ttest_results[
+        (df_ttest_results["AUPRG_significant"]) &
+        (df_ttest_results["AUROC_significant"]) &
+        (df_ttest_results["AUROC_mean_Actual"] > df_ttest_results["AUROC_mean_Random_baseline"]) &
+        (df_ttest_results["AUPRG_mean_Actual"] > df_ttest_results["AUPRG_mean_Random_baseline"]) &
+        (df_ttest_results["Metadata_Count_1"] > 20)&
+        (df_ttest_results["Metadata_Label"].isin(df_axiom_cytotox_binary_metrics_cv["Metadata_Label"].unique()))]
+    return
+
+
+@app.cell
 def _(df_axiom_cellbased_binary_metrics_cv, df_ttest_results, pd):
     excluded_labels = [
         "NVS_TR_hDAT",

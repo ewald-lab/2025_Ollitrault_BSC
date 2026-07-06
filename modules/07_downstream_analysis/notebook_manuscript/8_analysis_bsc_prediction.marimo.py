@@ -339,6 +339,12 @@ def _(pd, performance_path, toxcast_category_path):
 
 
 @app.cell
+def _(df_toxcast_cellbased_assay_info_significant):
+    df_toxcast_cellbased_assay_info_significant["chagpt_label"].value_counts()
+    return
+
+
+@app.cell
 def _(df_ttest_results_filtered, n_active_filter, pred_matrix_all):
     # Keep only assays retained by performance filtering and active enough.
     _valid_labels = set(df_ttest_results_filtered["Metadata_Label"].values)
@@ -1211,7 +1217,49 @@ def _(
 
     print("\nActive predictions by botanical and cell-based category:")
     print(df_pct_active_by_botanical_category.to_string(index=False))
-    return (df_pred_long_botanical,)
+    return df_pct_active_by_botanical_category, df_pred_long_botanical
+
+
+@app.cell
+def _(df_pct_active_by_botanical_category):
+    df_pct_active_by_botanical_category
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Endocrine Disruption — Sex Hormones"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Genotoxicity / DNA Damage"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Endocrine Disruption — Sex Hormones"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["assay"] == "cell_type__HepG2"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_heatmap_data.index == '  Aristolochic acid I'][df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Genotoxicity / DNA Damage"]["assay"].unique()]
+    return
 
 
 @app.cell
@@ -1244,6 +1292,28 @@ def _(df_pred_long_botanical):
 
     print(f"Assay activity summary rows: {len(df_active_by_assay)}")
     df_active_by_assay
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[
+        df_pred_long_botanical["category_label"].str.startswith("Hepa", na=False)
+    ][["assay", "category_label"]].drop_duplicates()
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[
+        df_pred_long_botanical["category_label"].str.startswith("Mi", na=False)
+    ][["assay", "category_label"]].drop_duplicates()
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[["assay", "category_label"]].drop_duplicates()["category_label"].value_counts()
     return
 
 
