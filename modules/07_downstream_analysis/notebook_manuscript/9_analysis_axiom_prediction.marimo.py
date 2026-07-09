@@ -395,6 +395,86 @@ def _(
     return pred_matrix_class_filtered, pred_matrix_probability_filtered
 
 
+@app.cell
+def _(df_ttest_results_significant):
+    df_ttest_results_significant
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Load prediction tables""")
+    return
+
+
+@app.cell
+def _(pd):
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions.parquet")
+    print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
+    print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
+    print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
+    print(f"ToxCast cytotox predictions: {df_axiom_cytotox_binary_prediction.shape}")
+
+    return (
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction,
+        df_axiom_hits_prediction,
+    )
+
+
+@app.cell
+def _(df_axiom_hits_prediction):
+    df_axiom_hits_prediction
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    df_ttest_results_significant,
+):
+    significant_labels = set(df_ttest_results_significant["Metadata_Label"].dropna())
+
+    # Filter predictions to significant compounds
+    _df_axiom_hits_prediction_filtered = df_axiom_hits_prediction[
+        df_axiom_hits_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cellbased_binary_prediction_filtered = df_axiom_cellbased_binary_prediction[
+        df_axiom_cellbased_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cellfree_binary_prediction_filtered = df_axiom_cellfree_binary_prediction[
+        df_axiom_cellfree_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cytotox_binary_prediction = df_axiom_cytotox_binary_prediction[
+        df_axiom_cytotox_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    # Get unique compounds present in at least one filtered prediction dataframe
+    all_compounds_train = (
+        set(df_axiom_cellbased_binary_prediction["Metadata_compound"].dropna())
+        | set(df_axiom_cellfree_binary_prediction["Metadata_compound"].dropna())
+        | set(df_axiom_cytotox_binary_prediction["Metadata_compound"].dropna())
+    )
+
+    print(f"Number of compounds present in at least one dataset: {len(all_compounds_train)}")
+    return (all_compounds_train,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Prepare Assay Annotations""")
@@ -557,20 +637,44 @@ def _(mo):
 
 @app.cell
 def _(
+    all_compounds_train,
+    pred_matrix_class_filtered,
+    pred_matrix_probability_filtered,
+):
+    # Filter compounds not in training set
+
+    pred_matrix_probability_test_compounds = pred_matrix_probability_filtered[
+        ~pred_matrix_probability_filtered["Metadata_compound"].isin(all_compounds_train)
+    ].copy()
+
+    pred_matrix_class_test_compounds = pred_matrix_class_filtered[
+        ~pred_matrix_class_filtered["Metadata_compound"].isin(all_compounds_train)
+    ].copy()
+
+    print(f"Probability matrix - other compounds: {pred_matrix_probability_test_compounds.shape}")
+    print(f"Class matrix - other compounds: {pred_matrix_class_test_compounds.shape}")
+    return (
+        pred_matrix_class_test_compounds,
+        pred_matrix_probability_test_compounds,
+    )
+
+
+@app.cell
+def _(
     build_assay_annotations,
     correlation_method,
     df_toxcast_cellbased_assay_info_significant,
     df_ttest_results_significant,
-    pred_matrix_class_filtered,
-    pred_matrix_probability_filtered,
+    pred_matrix_class_test_compounds,
+    pred_matrix_probability_test_compounds,
 ):
     df_probability_for_correlation = (
-        pred_matrix_probability_filtered
+        pred_matrix_probability_test_compounds
         .set_index("Metadata_compound")
         .astype(float)
     )
     df_binary_for_correlation = (
-        pred_matrix_class_filtered
+        pred_matrix_class_test_compounds
         .set_index("Metadata_compound")
         .astype(float)
     )
