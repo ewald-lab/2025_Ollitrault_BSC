@@ -31,6 +31,7 @@ def _():
         pd,
         pickle,
         plt,
+        sns,
         tqdm,
     )
 
@@ -252,9 +253,16 @@ def _(pd, tqdm):
         return _X_pred
 
 
-    def predict_with_models(feature_df: pd.DataFrame, models: dict) -> pd.DataFrame:
-        """Predict every row in feature_df with each trained model."""
-        _pred_matrix = pd.DataFrame(
+    def predict_with_models(
+        feature_df: pd.DataFrame,
+        models: dict,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Predict class labels and activity probabilities for every model."""
+        _class_matrix = pd.DataFrame(
+            {"Metadata_compound": feature_df["Metadata_compound"].values},
+            index=feature_df.index,
+        )
+        _probability_matrix = pd.DataFrame(
             {"Metadata_compound": feature_df["Metadata_compound"].values},
             index=feature_df.index,
         )
@@ -269,9 +277,23 @@ def _(pd, tqdm):
                 _model,
                 _model_name,
             )
-            _pred_matrix[_model_name] = _model.predict(_X_pred)
+            _class_predictions = _model.predict(_X_pred)
+            _class_matrix[_model_name] = _class_predictions
 
-        return _pred_matrix.reset_index(drop=True)
+            if hasattr(_model, "predict_proba"):
+                _probabilities = _model.predict_proba(_X_pred)[:, 1]
+            else:
+                _probabilities = (
+                    pd.Series(_class_predictions)
+                    .astype(float)
+                    .to_numpy()
+                )
+            _probability_matrix[_model_name] = _probabilities
+
+        return (
+            _class_matrix.reset_index(drop=True),
+            _probability_matrix.reset_index(drop=True),
+        )
     return (predict_with_models,)
 
 
@@ -288,10 +310,17 @@ def _(df_level6_bsc_all, list_botanicals, loaded_models, predict_with_models):
         df_level6_bsc_all["Metadata_compound"].isin(list_botanicals)
     ].copy()
 
-    pred_matrix = predict_with_models(df_level6_bsc_botanicals, loaded_models)
+    pred_matrix, pred_matrix_probability = predict_with_models(
+        df_level6_bsc_botanicals,
+        loaded_models,
+    )
 
     print(f"Botanical rows predicted: {len(pred_matrix)}")
     print(f"Prediction assays: {pred_matrix.shape[1] - 1}")
+    print(
+        "Probability prediction assays:",
+        pred_matrix_probability.shape[1] - 1,
+    )
     return
 
 
@@ -304,11 +333,18 @@ def _(mo):
 @app.cell
 def _(df_level6_bsc_all, loaded_models, predict_with_models):
     # Full matrix includes botanical mixtures and their annotated constituents.
-    pred_matrix_all = predict_with_models(df_level6_bsc_all.copy(), loaded_models)
+    pred_matrix_all, pred_matrix_probability_all = predict_with_models(
+        df_level6_bsc_all.copy(),
+        loaded_models,
+    )
 
     print(f"All BSC rows predicted: {len(pred_matrix_all)}")
-    print(f"All prediction assays: {pred_matrix_all.shape[1] - 1}")
-    return (pred_matrix_all,)
+    print(f"All class prediction assays: {pred_matrix_all.shape[1] - 1}")
+    print(
+        "All probability prediction assays:",
+        pred_matrix_probability_all.shape[1] - 1,
+    )
+    return pred_matrix_all, pred_matrix_probability_all
 
 
 @app.cell(hide_code=True)
@@ -345,10 +381,18 @@ def _(df_toxcast_cellbased_assay_info_significant):
 
 
 @app.cell
-def _(df_ttest_results_filtered, n_active_filter, pred_matrix_all):
+def _(
+    df_ttest_results_filtered,
+    n_active_filter,
+    pred_matrix_all,
+    pred_matrix_probability_all,
+):
     # Keep only assays retained by performance filtering and active enough.
     _valid_labels = set(df_ttest_results_filtered["Metadata_Label"].values)
     _pred_matrix_all = pred_matrix_all.rename(columns={"MTT": "MT"})
+    _pred_matrix_probability_all = pred_matrix_probability_all.rename(
+        columns={"MTT": "MT"}
+    )
 
     _prediction_cols = [
         _column
@@ -368,12 +412,19 @@ def _(df_ttest_results_filtered, n_active_filter, pred_matrix_all):
     pred_matrix_filtered = _pred_matrix_all[
         ["Metadata_compound"] + _prediction_cols
     ].copy()
+    pred_matrix_probability_filtered = _pred_matrix_probability_all[
+        ["Metadata_compound"] + _prediction_cols
+    ].copy()
 
     print(f"Filtered prediction assays: {len(_prediction_cols)}")
-    print(f"Filtered prediction matrix: {pred_matrix_filtered.shape}")
+    print(f"Filtered class prediction matrix: {pred_matrix_filtered.shape}")
+    print(
+        "Filtered probability prediction matrix:",
+        pred_matrix_probability_filtered.shape,
+    )
     if _prediction_cols:
         print("Assays retained:", ", ".join(_prediction_cols))
-    return (pred_matrix_filtered,)
+    return pred_matrix_filtered, pred_matrix_probability_filtered
 
 
 @app.cell(hide_code=True)
@@ -1314,6 +1365,482 @@ def _(df_pred_long_botanical):
 @app.cell
 def _(df_pred_long_botanical):
     df_pred_long_botanical[["assay", "category_label"]].drop_duplicates()["category_label"].value_counts()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Correlation Significant Assays""")
+    return
+
+
+@app.cell
+def _(pred_matrix_probability_filtered):
+    pred_matrix_probability_filtered
+    return
+
+
+@app.cell
+def _(
+    build_column_annotations,
+    df_toxcast_cellbased_assay_info_significant,
+    df_ttest_results_filtered,
+    pred_matrix_probability_filtered,
+):
+    df_probability_for_correlation = (
+        pred_matrix_probability_filtered
+        .set_index("Metadata_compound")
+        .astype(float)
+    )
+
+    _non_constant_cols = [
+        _column
+        for _column in df_probability_for_correlation.columns
+        if df_probability_for_correlation[_column].nunique(dropna=True) > 1
+    ]
+    df_probability_for_correlation = (
+        df_probability_for_correlation[_non_constant_cols]
+        .dropna(axis=1, how="any")
+    )
+
+    correlation_matrix = df_probability_for_correlation.corr(method="pearson")
+    df_correlation_assay_annotations = build_column_annotations(
+        correlation_matrix.columns,
+        df_ttest_results_filtered,
+        df_toxcast_cellbased_assay_info_significant,
+    )
+
+    print(
+        "Compounds used for assay correlation:",
+        df_probability_for_correlation.shape[0],
+    )
+    print(
+        "Non-constant significant assays correlated:",
+        df_probability_for_correlation.shape[1],
+    )
+    print(
+        "Assay groups:",
+        df_correlation_assay_annotations["group"].value_counts().to_dict(),
+    )
+    return correlation_matrix, df_correlation_assay_annotations
+
+
+@app.cell
+def _(correlation_matrix, np):
+    _upper_triangle = np.triu(
+        np.ones(correlation_matrix.shape, dtype=bool),
+        k=1,
+    )
+    df_top_correlated_assay_pairs = (
+        correlation_matrix
+        .where(_upper_triangle)
+        .stack()
+        .rename("correlation")
+        .reset_index()
+        .rename(columns={"level_0": "assay_1", "level_1": "assay_2"})
+        .assign(abs_correlation=lambda _df: _df["correlation"].abs())
+        .sort_values("abs_correlation", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print("Top positively or negatively correlated assay pairs:")
+    print(df_top_correlated_assay_pairs.head(20).to_string(index=False))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Correlation Heatmap""")
+    return
+
+
+@app.cell
+def _(
+    correlation_matrix,
+    df_correlation_assay_annotations,
+    downloads_dir,
+    figure_output_dir,
+    mpatches,
+    plt,
+    sns,
+):
+    _figure_path = (
+        figure_output_dir
+        / "Figure_9_bsc_prediction_assay_correlation_heatmap.png"
+    )
+    _download_path = (
+        downloads_dir
+        / "correlation_heatmap_bsc_prediction_significant_assays.png"
+    )
+
+    figure_output_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    _plot_matrix = correlation_matrix.fillna(0)
+    _annotation_lookup = df_correlation_assay_annotations.set_index("assay")
+    _color_table = _annotation_lookup.reindex(_plot_matrix.index)[
+        ["group_color", "category_color"]
+    ]
+
+    if _plot_matrix.empty:
+        _fig, _ax = plt.subplots(figsize=(6, 5))
+        _ax.text(
+            0.5,
+            0.5,
+            "No non-constant assays to correlate",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+        _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+    elif len(_plot_matrix) > 1:
+        _fig_size = min(max(10, len(_plot_matrix) * 0.24), 34)
+        _label_fontsize = max(10, min(9, 180 / len(_plot_matrix)))
+        _clustermap = sns.clustermap(
+            _plot_matrix,
+            method="average",
+            metric="euclidean",
+            cmap="vlag",
+            center=0,
+            vmin=-1,
+            vmax=1,
+            row_colors=_color_table,
+            col_colors=_color_table,
+            figsize=(_fig_size, _fig_size),
+            linewidths=0.05,
+            dendrogram_ratio=(0.08, 0.08),
+            cbar_pos=(0.02, 0.82, 0.02, 0.12),
+            xticklabels=True,
+            yticklabels=True,
+        )
+
+        plt.setp(
+            _clustermap.ax_heatmap.get_xticklabels(),
+            rotation=90,
+            fontsize=_label_fontsize,
+            ha="center",
+        )
+        plt.setp(
+            _clustermap.ax_heatmap.get_yticklabels(),
+            rotation=0,
+            fontsize=_label_fontsize,
+            va="center",
+        )
+
+        _legend_group_order = [
+            "Cell-free",
+            "Cell-based",
+            "Cytotoxic",
+            "Hit calls",
+            "Other",
+        ]
+
+        _group_legend_patches = []
+        for _group in _legend_group_order:
+            _group_rows = df_correlation_assay_annotations[
+                df_correlation_assay_annotations["group"] == _group
+            ]
+            if _group_rows.empty:
+                continue
+
+            _group_legend_patches.append(
+                mpatches.Patch(
+                    facecolor=_group_rows["group_color"].iloc[0],
+                    label=_group_rows["group_display"].iloc[0],
+                )
+            )
+
+        _group_legend = _clustermap.ax_heatmap.legend(
+            handles=_group_legend_patches,
+            loc="upper left",
+            bbox_to_anchor=(0.88, 1.21),
+            frameon=True,
+            facecolor="white",
+            edgecolor="lightgrey",
+            framealpha=0.95,
+            fontsize=9,
+            borderpad=0.6,
+            title="Assay groups",
+            title_fontsize=10,
+        )
+        _group_legend.get_title().set_fontweight("bold")
+        _clustermap.ax_heatmap.add_artist(_group_legend)
+
+        _category_legend_patches = []
+        for _category, _category_rows in (
+            df_correlation_assay_annotations
+            .dropna(subset=["category_color"])
+            .groupby("category_label", sort=True)
+        ):
+            _category_legend_patches.append(
+                mpatches.Patch(
+                    facecolor=_category_rows["category_color"].iloc[0],
+                    label=(
+                        _category_rows["category_display"].iloc[0]
+                        if "category_display" in _category_rows.columns
+                        else _category
+                    ),
+                )
+            )
+
+        _category_legend = _clustermap.ax_heatmap.legend(
+            handles=_category_legend_patches,
+            loc="upper left",
+            bbox_to_anchor=(1.0, 1.21),
+            frameon=True,
+            facecolor="white",
+            edgecolor="lightgrey",
+            framealpha=0.95,
+            fontsize=9,
+            borderpad=0.6,
+            title="Assay categories",
+            title_fontsize=10,
+        )
+        _category_legend.get_title().set_fontweight("bold")
+
+        _clustermap.fig.suptitle(
+            "Predicted Activity Probability Correlation Across Significant Assays",
+            fontsize=14,
+            fontweight="bold",
+            y=1.01,
+        )
+        _clustermap.fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _clustermap.fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+        _fig = _clustermap.fig
+    else:
+        _fig, _ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(
+            _plot_matrix,
+            cmap="vlag",
+            center=0,
+            vmin=-1,
+            vmax=1,
+            square=True,
+            annot=True,
+            ax=_ax,
+        )
+        _ax.set_title(
+            "Predicted Activity Probability Correlation Across Significant Assays"
+        )
+        _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+
+    print(f"Saved manuscript heatmap: {_figure_path}")
+    print(f"Saved Downloads heatmap: {_download_path}")
+
+    _fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Active Predictions Compared With Training Set""")
+    return
+
+
+@app.cell
+def _(df_ttest_results_filtered, pd, pred_matrix_probability_filtered):
+    _training_counts = (
+        df_ttest_results_filtered[
+            [
+                "Metadata_Label",
+                "Metadata_Count_0",
+                "Metadata_Count_1",
+            ]
+        ]
+        .drop_duplicates()
+        .groupby("Metadata_Label", as_index=False)
+        .sum()
+    )
+    _training_counts["training_total_count"] = (
+        _training_counts["Metadata_Count_0"]
+        + _training_counts["Metadata_Count_1"]
+    )
+    _training_counts["training_pct_active"] = (
+        _training_counts["Metadata_Count_1"]
+        / _training_counts["training_total_count"]
+        * 100
+    )
+
+    _prediction_cols = [
+        _column
+        for _column in pred_matrix_probability_filtered.columns
+        if _column != "Metadata_compound"
+    ]
+    _prediction_values = pred_matrix_probability_filtered[_prediction_cols].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    _predicted_active_rate = pd.DataFrame(
+        {
+            "Metadata_Label": _prediction_cols,
+            "predicted_expected_active_count": (
+                _prediction_values.sum(axis=0).to_numpy()
+            ),
+            "predicted_total_count": (
+                _prediction_values.notna().sum(axis=0).to_numpy()
+            ),
+            "predicted_pct_active": (
+                _prediction_values.mean(axis=0).mul(100).to_numpy()
+            ),
+        }
+    )
+
+    df_bsc_active_rate_comparison = (
+        _predicted_active_rate
+        .merge(
+            _training_counts[
+                [
+                    "Metadata_Label",
+                    "Metadata_Count_0",
+                    "Metadata_Count_1",
+                    "training_total_count",
+                    "training_pct_active",
+                ]
+            ],
+            on="Metadata_Label",
+            how="inner",
+        )
+        .assign(
+            difference_pct_points=lambda _df: (
+                _df["predicted_pct_active"] - _df["training_pct_active"]
+            )
+        )
+        .sort_values("difference_pct_points", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print(
+        "BSC probability assays compared to training active rate:",
+        len(df_bsc_active_rate_comparison),
+    )
+    df_bsc_active_rate_comparison
+    return (df_bsc_active_rate_comparison,)
+
+
+@app.cell
+def _(
+    df_bsc_active_rate_comparison,
+    downloads_dir,
+    figure_output_dir,
+    np,
+    plt,
+):
+    _figure_path = (
+        figure_output_dir / "bsc_prediction_active_rate_vs_training.png"
+    )
+    _download_path = (
+        downloads_dir / "bsc_prediction_active_rate_vs_training.png"
+    )
+
+    figure_output_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    _plot_df = df_bsc_active_rate_comparison.dropna(
+        subset=["training_pct_active", "predicted_pct_active"]
+    ).copy()
+
+    _fig, _ax = plt.subplots(figsize=(7, 6))
+    if _plot_df.empty:
+        _ax.text(
+            0.5,
+            0.5,
+            "No overlapping assays to compare",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+    else:
+        _max_value = np.nanmax(
+            _plot_df[["training_pct_active", "predicted_pct_active"]].to_numpy()
+        )
+        _axis_limit = min(100, max(5, _max_value * 1.08))
+
+        _ax.scatter(
+            _plot_df["training_pct_active"],
+            _plot_df["predicted_pct_active"],
+            s=48,
+            alpha=0.78,
+            color="#4C72B0",
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        _ax.plot(
+            [0, _axis_limit],
+            [0, _axis_limit],
+            color="#555555",
+            linestyle="--",
+            linewidth=1,
+            label="Equal active rate",
+        )
+        _label_df = _plot_df.reindex(
+            _plot_df["difference_pct_points"].abs()
+            .sort_values(ascending=False)
+            .head(8)
+            .index
+        )
+        for _, _row in _label_df.iterrows():
+            _ax.annotate(
+                _row["Metadata_Label"],
+                (
+                    _row["training_pct_active"],
+                    _row["predicted_pct_active"],
+                ),
+                xytext=(4, 3),
+                textcoords="offset points",
+                fontsize=7,
+                alpha=0.85,
+            )
+
+        if len(_plot_df) > 1:
+            _pearson_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="pearson",
+            )
+            _spearman_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="spearman",
+            )
+            _ax.text(
+                0.03,
+                0.97,
+                (
+                    f"Pearson r = {_pearson_r:.2f}\n"
+                    f"Spearman rho = {_spearman_r:.2f}\n"
+                    f"n assays = {len(_plot_df)}"
+                ),
+                transform=_ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9,
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "white",
+                    "edgecolor": "#cccccc",
+                    "alpha": 0.9,
+                },
+            )
+
+        _ax.set_xlim(0, _axis_limit)
+        _ax.set_ylim(0, _axis_limit)
+        _ax.set_xlabel("Training set active compounds (%)")
+        _ax.set_ylabel("Predicted active probability (%)")
+        _ax.set_title("BSC Predicted Activity Probability vs Training Set")
+        _ax.grid(True, color="#e6e6e6", linewidth=0.7)
+        _ax.legend(loc="lower right", frameon=False)
+
+    _fig.tight_layout()
+    _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+    _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+
+    print(f"Saved BSC active-rate plot: {_figure_path}")
+    print(f"Saved Downloads active-rate plot: {_download_path}")
+
+    _fig
     return
 
 

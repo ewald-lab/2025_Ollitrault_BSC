@@ -3205,7 +3205,7 @@ def _(
 
 @app.cell
 def _(
-    downloads_dir,
+    figure_dir,
     mticker,
     np,
     plt,
@@ -3308,7 +3308,7 @@ def _(
     _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
 
     plt.tight_layout()
-    plt.savefig(downloads_dir / "pac_per_category.png", dpi=300, bbox_inches="tight")
+    _fig.savefig(figure_dir / "Figure_S5_B.png", dpi=300, bbox_inches="tight")
 
     _fig
     return
@@ -3437,7 +3437,7 @@ def _(
 @app.cell
 def _(
     category_active_feature_stats,
-    downloads_dir,
+    figure_dir,
     mticker,
     np,
     plt,
@@ -3523,7 +3523,7 @@ def _(
     _ax.grid(True, axis="y", linestyle="--", alpha=0.3, zorder=0)
 
     plt.tight_layout()
-    plt.savefig(downloads_dir / "boxplot_features.png", dpi=200, bbox_inches="tight")
+    _fig.savefig(figure_dir / "Figure_S5_A.png", dpi=300, bbox_inches="tight")
     plt.show()
     return
 
