@@ -46,8 +46,8 @@ def _():
         mticker,
         np,
         os,
-        pd,
         p_values,
+        pd,
         plt,
         px,
         sns,
@@ -716,7 +716,7 @@ def _(botanical_colors, df_umap_bsc_4_plot, figure_dir, px):
         x="UMAP_1",
         y="UMAP_2",
         color="plot_group",
-        title="",
+        title="UMAP of Botanical and Constituent Cell Painting Normalised Profiles (replicate level)",
         opacity=0.8,
         width=850,
         height=650,
@@ -4520,7 +4520,7 @@ def _(
         "mAP Level 4 compounds after POD filter: "
         f"{df_level4_bsc_map_pod['Metadata_compound'].nunique()}"
     )
-    return df_level4_bsc_map_input, df_level4_bsc_map_pod
+    return (df_level4_bsc_map_pod,)
 
 
 @app.cell
@@ -4612,7 +4612,7 @@ def _(
     print(f"mAP feature matrix shape: {bsc_map_profiles.shape}")
     print(f"mAP AP rows: {len(activity_ap_bsc_map)}")
     print(f"mAP AP below p<0.05: {activity_ap_bsc_map['below_p'].mean():.2%}")
-    return activity_ap_bsc_map, bsc_map_metadata, bsc_map_profiles
+    return (activity_ap_bsc_map,)
 
 
 @app.cell

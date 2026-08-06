@@ -832,7 +832,7 @@ def _(
     # ── Build two-panel figure ────────────────────────────────────────────────────
     _fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=["<b>A</b>  Level 5 profiles", "<b>B</b>  Level 6 profiles"],
+        subplot_titles=["<b>A</b>  Profiles aggregated at the concentration level", "<b>B</b>  Profiles aggregated at the compound level"],
         horizontal_spacing=0.08,
     )
 
