@@ -39,6 +39,9 @@ python3.11 -m venv envs/python-base
 source envs/python-base/bin/activate
 pip install -r requirements-dev.txt
 ```
+## Set up the R environment
+
+The workflow use R. you should install these packages : ...
 
 ## Run the analysis
 

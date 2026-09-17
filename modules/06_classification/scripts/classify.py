@@ -1,30 +1,130 @@
-import traceback  # noqa: D100
+from __future__ import annotations
+
+import argparse
 import os
+import sys
+from contextlib import nullcontext
+
+import joblib
+import numpy as np
+import pandas as pd
+import polars as pl
+from tqdm import tqdm
+
 try:
     import cupy as cp
 except ImportError:
-    import numpy as cp  # fallback for macOS
+    cp = None
 
-import argparse
-import joblib
-import pandas as pd
-import polars as pl
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold
+from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.preprocessing import LabelEncoder
-from tqdm.contrib.concurrent import thread_map
 from xgboost import XGBClassifier
+
+
+def log_status(message: str) -> None:
+    """Print progress immediately in local and Slurm logs."""
+    tqdm.write(message, file=sys.stdout)
+    sys.stdout.flush()
+
+
+def empty_prediction_frame() -> pl.DataFrame:
+    """Return an empty prediction table with the expected output schema."""
+    return pl.DataFrame(
+        schema={
+            "Metadata_compound": pl.Utf8,
+            "y_prob": pl.Float64,
+            "y_pred": pl.Int64,
+            "y_actual": pl.Int64,
+            "k_fold": pl.Int64,
+            "repeat": pl.Int64,
+            "Metadata_Label": pl.Utf8,
+            "Metadata_Count_0": pl.Int64,
+            "Metadata_Count_1": pl.Int64,
+            "Model_type": pl.Utf8,
+        },
+    )
+
+
+def normalize_device(device: str) -> str:
+    """Normalize user-facing device names."""
+    device = device.lower()
+    if device == "cuda":
+        return "gpu"
+    if device not in {"cpu", "gpu"}:
+        raise ValueError(f"Unsupported device '{device}'. Use 'cpu' or 'gpu'.")
+    return device
+
+
+def count_available_gpus() -> int:
+    """Count visible CUDA devices."""
+    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if cuda_visible:
+        visible_devices = [device.strip() for device in cuda_visible.split(",") if device.strip()]
+        if visible_devices == ["NoDevFiles"]:
+            return 0
+        return len(visible_devices)
+
+    if cp is None:
+        return 0
+
+    try:
+        return cp.cuda.runtime.getDeviceCount()
+    except Exception:
+        return 0
+
+
+def to_model_array(values: np.ndarray, device: str):
+    """Move arrays to the requested compute backend."""
+    if device == "gpu" and cp is not None:
+        return cp.asarray(values)
+    return np.asarray(values)
+
+
+def to_numpy(values, device: str) -> np.ndarray:
+    """Return model outputs as NumPy arrays for stable serialization."""
+    if device == "gpu" and cp is not None and isinstance(values, cp.ndarray):
+        return cp.asnumpy(values)
+    return np.asarray(values)
+
+
+def scale_pos_weight(y_values: np.ndarray) -> float:
+    """Compute the XGBoost class-imbalance weight."""
+    n_negative = np.sum(y_values == 0)
+    n_positive = np.sum(y_values == 1)
+    if n_positive == 0:
+        return 1.0
+    return float(n_negative / n_positive)
+
+
+def make_xgb_classifier(device: str, gpu_id: int, n_jobs: int, y_values: np.ndarray) -> XGBClassifier:
+    """Build an XGBoost binary classifier for the requested backend."""
+    xgb_device = f"cuda:{gpu_id}" if device == "gpu" else "cpu"
+    return XGBClassifier(
+        objective="binary:logistic",
+        n_estimators=150,
+        tree_method="hist",
+        device=xgb_device,
+        learning_rate=0.05,
+        scale_pos_weight=scale_pos_weight(y_values),
+        n_jobs=n_jobs,
+    )
 
 
 def binary_classifier(
     dat: pd.DataFrame,
     meta: pd.DataFrame,
     n_splits: int,
-    gpu_id: int,
     *,
+    device: str = "cpu",
+    gpu_id: int = 0,
     shuffle: bool = False,
     cc: bool = False,
     n_repeats: int = 1,
-) -> pl.DataFrame:
+    fit_final_model: bool = True,
+    n_jobs: int = 1,
+    label_name: str = "label",
+    model_type: str = "Actual",
+) -> tuple[XGBClassifier | None, pl.DataFrame]:
     """Perform a binary XGBoost classification.
 
     Parameters
@@ -41,6 +141,8 @@ def binary_classifier(
         Whether to use only cell count as a feature (default is False).
     n_repeats : int, optional
         Number of times to repeat the cross-validation (default is 1).
+    fit_final_model : bool, optional
+        Whether to train and return a final model fitted on all samples.
 
     Returns
     -------
@@ -50,12 +152,17 @@ def binary_classifier(
         - A Polars DataFrame with predictions from all folds and iterations
 
     """
-    # Remove samples without labels
-    dat = dat.dropna(subset=["Label"])
+    device = normalize_device(device)
+    if n_repeats < 1:
+        raise ValueError("n_repeats must be >= 1")
+
+    labeled_rows = dat["Label"].notna()
+    dat = dat.loc[labeled_rows].copy()
+    meta = meta.loc[labeled_rows].reset_index(drop=True)
 
     dat["Label"] = dat["Label"].astype(int)
-    x = dat.drop(columns=["Label"])
-    y = dat["Label"]
+    x = dat.drop(columns=["Label"]).reset_index(drop=True)
+    y = dat["Label"].reset_index(drop=True)
 
     if cc:
         x = x[["Cell_Count"]]
@@ -65,43 +172,62 @@ def binary_classifier(
     if shuffle:
         y = y.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    # Use RepeatedStratifiedKFold
     rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=42)
+    total_folds = n_splits * n_repeats
 
+    log_status(
+        f"[CV] {label_name} | {model_type}: starting {n_repeats} repeat(s) x {n_splits} fold(s) "
+        f"({total_folds} folds); samples={len(y)}, features={x.shape[1]}, "
+        f"inactive={int((y == 0).sum())}, active={int((y == 1).sum())}, device={device.upper()}",
+    )
 
     pred_df = []
-    fold = 1
-    with cp.cuda.Device(gpu_id):
-        for train_index, val_index in rskf.split(x, y):
-            x_fold_train, x_fold_val = cp.array(x.iloc[train_index].to_numpy()), cp.array(x.iloc[val_index].to_numpy())
+    device_context = cp.cuda.Device(gpu_id) if device == "gpu" and cp is not None else nullcontext()
+    with device_context:
+        cv_splits = tqdm(
+            rskf.split(x, y),
+            total=total_folds,
+            desc=f"{label_name} | {model_type}",
+            unit="fold",
+            dynamic_ncols=True,
+            file=sys.stdout,
+        )
+        for split_number, (train_index, val_index) in enumerate(cv_splits, start=1):
+            repeat_num = (split_number - 1) // n_splits + 1
+            fold_num = (split_number - 1) % n_splits + 1
+            global_fold = (repeat_num - 1) * n_splits + fold_num
+            if fold_num == 1:
+                log_status(f"[CV] {label_name} | {model_type}: starting repeat {repeat_num}/{n_repeats}")
+
+            x_fold_train = to_model_array(x.iloc[train_index].to_numpy(), device)
+            x_fold_val = to_model_array(x.iloc[val_index].to_numpy(), device)
             y_fold_train, y_fold_val = y.iloc[train_index], y.iloc[val_index]
+            train_active = int((y_fold_train == 1).sum())
+            val_active = int((y_fold_val == 1).sum())
+
+            log_status(
+                f"[CV] {label_name} | {model_type}: fold {global_fold}/{total_folds} "
+                f"(repeat {repeat_num}/{n_repeats}, fold {fold_num}/{n_splits}); "
+                f"train={len(train_index)} inactive={len(train_index) - train_active} active={train_active}; "
+                f"validation={len(val_index)} inactive={len(val_index) - val_active} active={val_active}",
+            )
 
             le = LabelEncoder()
-            y_fold_train = cp.array(le.fit_transform(y_fold_train))
-            y_fold_val = cp.array(le.fit_transform(y_fold_val))
+            y_fold_train = le.fit_transform(y_fold_train)
+            y_fold_val = le.transform(y_fold_val)
+            y_fold_train_model = to_model_array(y_fold_train, device)
 
             meta_fold_val = meta.iloc[val_index]
 
-            # Initialize the model
-            model = XGBClassifier(
-                objective="binary:logistic",
-                n_estimators=150,
-                tree_method="hist",
-                device=f"cuda:{gpu_id}",
-                learning_rate=0.05,
-                scale_pos_weight=(y_fold_train == 0).sum() / (y_fold_train == 1).sum(),
-            )
+            model = make_xgb_classifier(device, gpu_id, n_jobs, y_fold_train)
 
             # Train the model on the fold training set
-            model.fit(x_fold_train, y_fold_train)
+            model.fit(x_fold_train, y_fold_train_model)
 
             # Validate the model on the fold validation set
-            y_fold_prob = model.predict_proba(x_fold_val)[:, 1]
-            y_fold_pred = model.predict(x_fold_val)
-            
-            # Calculate which repeat and fold we're in
-            repeat_num = (fold - 1) // n_splits + 1
-            fold_num = (fold - 1) % n_splits + 1
+            y_fold_prob = to_numpy(model.predict_proba(x_fold_val)[:, 1], device)
+            y_fold_pred = to_numpy(model.predict(x_fold_val), device)
+            log_status(f"[CV] {label_name} | {model_type}: finished fold {global_fold}/{total_folds}")
 
             pred_df.append(
                 pl.DataFrame({
@@ -109,77 +235,94 @@ def binary_classifier(
                     "y_prob": list(y_fold_prob),
                     "y_pred": list(y_fold_pred),
                     "y_actual": list(y_fold_val),
-                    "k_fold": fold,
+                    "k_fold": global_fold,
                     "repeat": repeat_num,
                 }),
             )
-            fold += 1
-        # Rerun on all data
-        model = XGBClassifier(
-            objective="binary:logistic",
-            n_estimators=150,
-            tree_method="hist",
-            device=f"cuda:{gpu_id}",
-            learning_rate=0.05,
-            scale_pos_weight=(y == 0).sum() / (y == 1).sum(),
+
+        final_model = None
+        if fit_final_model:
+            log_status(f"[CV] {label_name} | {model_type}: fitting final full-data model")
+            le = LabelEncoder()
+            y_all = le.fit_transform(y)
+            final_model = make_xgb_classifier(device, gpu_id, n_jobs, y_all)
+            final_model.fit(to_model_array(x.to_numpy(), device), to_model_array(y_all, device))
+
+    class_results = pl.concat(pred_df, how="vertical") if pred_df else empty_prediction_frame().drop("Model_type")
+    log_status(f"[CV] {label_name} | {model_type}: complete; prediction_rows={class_results.height}")
+    return final_model, class_results
+
+
+def process_label(
+    dat,
+    label_column,
+    n_splits,
+    labels,
+    *,
+    device: str = "cpu",
+    gpu_id: int = 0,
+    shuffle: bool = False,
+    cc: bool = False,
+    n_repeats: int = 1,
+    output_dir: str | None = None,
+    save_model: bool = False,
+    n_jobs: int = 1,
+):
+    """Process a single label_column."""
+    prof = dat.rename({label_column: "Label"})
+    model_type = "Random_baseline" if shuffle else ("Cellcount_baseline" if cc else "Actual")
+
+    num_0 = prof.filter(pl.col("Label") == 0).height
+    num_1 = prof.filter(pl.col("Label") == 1).height
+    if num_0 < n_splits or num_1 < n_splits:
+        raise ValueError(
+            f"Label '{label_column}' has inactive={num_0}, active={num_1}; "
+            f"cannot run {n_splits}-fold cross-validation. "
+            "Filter labels first with filter_classification_labels.py.",
         )
 
-        # Train the model on the fold training set
-        model.fit(x, y)
+    meta_cols = [i for i in prof.columns if "Metadata_" in i]
+    all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
 
-    return model, pl.concat(pred_df, how="vertical")
+    prof_meta = prof.select(meta_cols)
+    prof = prof.drop(all_meta_cols)
+    log_status(
+        f"[Label] {label_column} | {model_type}: inactive={num_0}, active={num_1}, "
+        f"n_splits={n_splits}, n_repeats={n_repeats}",
+    )
 
-def process_label(dat, label_column, n_splits, labels, gpu_id, *, shuffle: bool = False, cc: bool = False, n_repeats: int = 1, filter_label_size: int = 50, filter_label_size_active: int = 20, output_dir: str = None):
-    """Process a single label_column."""
-    try:
-        prof = dat.rename({label_column: "Label"})
+    model, class_res = binary_classifier(
+        prof.to_pandas(),
+        prof_meta.to_pandas(),
+        n_splits=n_splits,
+        device=device,
+        gpu_id=gpu_id,
+        shuffle=shuffle,
+        cc=cc,
+        n_repeats=n_repeats,
+        fit_final_model=save_model,
+        n_jobs=n_jobs,
+        label_name=label_column,
+        model_type=model_type,
+    )
 
-        num_0 = prof.filter(pl.col("Label") == 0).height
-        num_1 = prof.filter(pl.col("Label") == 1).height
+    if output_dir and save_model and model is not None:
+        model_file_type = "random" if shuffle else ("cellcount" if cc else "actual")
+        safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
 
+        model_filename = f"{safe_label}_{model_file_type}_model.pkl"
+        model_path = os.path.join(output_dir, model_filename)
 
-        if (num_0 >= n_splits) & (num_1 >= n_splits) & (num_0 + num_1 >= filter_label_size) & (num_1 >= filter_label_size_active):
-            meta_cols = [i for i in prof.columns if "Metadata_" in i]
-            all_meta_cols = [i for i in prof.columns if i in labels] + meta_cols
+        joblib.dump(model, model_path)
+        log_status(f"Saved model to {model_path}")
 
-            prof_meta = prof.select(meta_cols)
-            prof = prof.drop(all_meta_cols)
+    class_res = class_res.with_columns(
+        pl.lit(label_column).alias("Metadata_Label"),
+        pl.lit(num_0).alias("Metadata_Count_0"),
+        pl.lit(num_1).alias("Metadata_Count_1"),
+    )
 
-            # Call your classifier
-            model, class_res = binary_classifier(
-                prof.to_pandas(),
-                prof_meta.to_pandas(),
-                n_splits=n_splits,
-                gpu_id=gpu_id,
-                shuffle=shuffle,
-                cc=cc,
-                n_repeats=n_repeats,
-            )
-            # Save model if output_dir provided
-            if output_dir and model is not None:
-                model_type = "random" if shuffle else ("cellcount" if cc else "actual")
-                
-                # Sanitize label_column to create safe filenames
-                safe_label = label_column.replace("/", "_").replace("\\", "_").replace(" ", "_")
-                
-                model_filename = f"{safe_label}_{model_type}_model.pkl"
-                model_path = os.path.join(output_dir, model_filename)
-                
-                joblib.dump(model, model_path)
-                print(f"Saved model to {model_path}")
-            # Add the metadata columns
-            class_res = class_res.with_columns(
-                pl.lit(label_column).alias("Metadata_Label"),
-                pl.lit(num_0).alias("Metadata_Count_0"),
-                pl.lit(num_1).alias("Metadata_Count_1"),
-            )
-
-            return class_res
-
-    except Exception as e:
-        print(f"An error occurred for label '{label_column}':")
-        print(traceback.format_exc())
-        return None
+    return class_res
 
 
 def predict_binary(
@@ -188,9 +331,11 @@ def predict_binary(
     output_path: str | None = None,
     dat: pl.DataFrame | None = None,
     n_repeats: int = 1,
-    filter_label_size: int = 50,
-    filter_label_size_active: int = 20,
-    label_column: str = "OASIS_ID"
+    label_column: str = "OASIS_ID",
+    device: str = "cpu",
+    save_models: bool = True,
+    n_jobs: int = 1,
+    include_labels: list[str] | None = None,
 ) -> None:
     """Build classifier for binary outcomes.
 
@@ -208,150 +353,148 @@ def predict_binary(
         Filepath for model classification results.
 
     """
-    # Detect GPUs dynamically
-    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if cuda_visible:
-        num_gpus = len(cuda_visible.split(","))
-    else:
-        try:
-            num_gpus = cp.cuda.runtime.getDeviceCount()
-        except cp.cuda.runtime.CUDARuntimeError:
-            num_gpus = 0  # fallback if no GPUs
+    device = normalize_device(device)
+    if n_repeats < 1:
+        raise ValueError("n_repeats must be >= 1")
+    if output_path is None:
+        raise ValueError("output_path must be provided.")
 
-    print(f"Detected {num_gpus} GPU(s) available")
+    num_gpus = count_available_gpus()
+    if device == "gpu" and num_gpus == 0:
+        raise RuntimeError("GPU execution requested, but no CUDA devices are visible.")
+
+    model_n_jobs = max(1, n_jobs)
+
+    log_status(
+        f"Running classification on {device.upper()} for {n_repeats} repeat(s); "
+        f"visible GPUs={num_gpus}, xgboost_n_jobs={model_n_jobs}",
+    )
 
     n_splits = 5
 
-    # If dat is provided, use it
     if dat is None:
         if input_path is None:
             raise ValueError("Either 'dat' or 'input_path' must be provided.")
         dat = pl.read_parquet(input_path)
-    
-    if label_column == "OASIS_ID": 
+
+    if label_column == "OASIS_ID":
         meta = pl.read_parquet(label_path).rename({"OASIS_ID": "Metadata_OASIS_ID"})
+        log_status(f"Data shape before join: {dat.shape}")
+        log_status(f"Metadata shape before join: {meta.shape}")
         dat = dat.join(meta, on="Metadata_OASIS_ID", how="left")
-        print(f"Data shape before join: {dat.shape}")
-        print(f"Metadata shape before join: {meta.shape}")
     elif label_column == "ID":
         meta = pl.read_parquet(label_path).rename({"ID": "Metadata_compound"})
+        log_status(f"Data shape before join: {dat.shape}")
+        log_status(f"Metadata shape before join: {meta.shape}")
         dat = dat.join(meta, on="Metadata_compound", how="left")
-        print(f"Data shape before join: {dat.shape}")
-        print(f"Metadata shape before join: {meta.shape}")
+    else:
+        raise ValueError(f"Unsupported label_column '{label_column}'. Use 'OASIS_ID' or 'ID'.")
 
-    labels = [i for i in meta.columns if "Metadata_" not in i]
+    all_labels = [i for i in meta.columns if "Metadata_" not in i]
+    labels = all_labels
+    if include_labels:
+        requested_labels = set(include_labels)
+        missing_labels = sorted(requested_labels.difference(all_labels))
+        if missing_labels:
+            raise ValueError(f"Labels not found in {label_path}: {missing_labels}")
+        labels = [label for label in all_labels if label in requested_labels]
 
-    print(f"Data shape after join: {dat.shape}")
-    print(dat)
+    log_status(f"Data shape after join: {dat.shape}; processing {len(labels)}/{len(all_labels)} label(s)")
 
-    tasks = [
-        (dat, label_column, n_splits, labels, i % num_gpus)
-        for i, (label_column) in enumerate(
-            [(label_column) for label_column in labels]
-        )
-    ]
-    # In predict_binary function
-    model_output_dir = os.path.join(os.path.dirname(output_path), "models")
-    os.makedirs(model_output_dir, exist_ok=True)
-    # Train actual models
-    pred_results = thread_map(
-        lambda args: process_label(*args, shuffle=False, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active, output_dir=model_output_dir),
-        tasks,
-        max_workers=num_gpus,
-        desc="Processing labels",
-    )
+    model_output_dir = None
+    if save_models:
+        model_output_dir = os.path.join(os.path.dirname(output_path), "models")
+        os.makedirs(model_output_dir, exist_ok=True)
 
-    pred_results = [res for res in pred_results if res is not None]
-    if pred_results:
-        pred_df = pl.concat(pred_results, how="vertical")
-        pred_df = pred_df.with_columns(
-            pl.lit("Actual").alias("Model_type")
-        )
-
-    # Random baseline
-    null_results = thread_map(
-        lambda args: process_label(*args, shuffle=True, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active),
-        tasks,
-        max_workers=num_gpus,
-        desc="Processing labels for random baseline",
-    )
-
-    null_results = [res for res in null_results if res is not None]
-    if null_results:
-        null_df = pl.concat(null_results, how="vertical")
-        null_df = null_df.with_columns(
-            pl.lit("Random_baseline").alias("Model_type")
+    def _run_label(current_label_column: str, *, shuffle: bool = False, cc: bool = False, save_model: bool = False):
+        return process_label(
+            dat,
+            current_label_column,
+            n_splits,
+            all_labels,
+            device=device,
+            gpu_id=0,
+            shuffle=shuffle,
+            cc=cc,
+            n_repeats=n_repeats,
+            output_dir=model_output_dir,
+            save_model=save_model,
+            n_jobs=model_n_jobs,
         )
 
-    # Cell count baseline
-    cc_results = thread_map(
-        lambda args: process_label(*args, cc=True, n_repeats=n_repeats, filter_label_size=filter_label_size, filter_label_size_active=filter_label_size_active),
-        tasks,
-        max_workers=num_gpus,
-        desc="Processing labels for cell count baseline",
-    )
+    def _concat_results(results, model_type: str) -> pl.DataFrame | None:
+        results = [res for res in results if res is not None]
+        if not results:
+            return None
+        return pl.concat(results, how="vertical").with_columns(pl.lit(model_type).alias("Model_type"))
 
-    cc_results = [res for res in cc_results if res is not None]
-    if cc_results:
-        cc_df = pl.concat(cc_results, how="vertical")
-        cc_df = cc_df.with_columns(
-            pl.lit("Cellcount_baseline").alias("Model_type")
-        )
+    log_status(f"Starting Actual models for {len(labels)} label(s)")
+    pred_results = [_run_label(label, shuffle=False, save_model=save_models) for label in labels]
+    pred_df = _concat_results(pred_results, "Actual")
 
-    # write out results
-    if not pred_df.is_empty() and not null_df.is_empty() and not cc_df.is_empty():
-        pl.concat([pred_df, null_df, cc_df], how="vertical").write_parquet(output_path)
+    log_status(f"Starting Random_baseline models for {len(labels)} label(s)")
+    null_results = [_run_label(label, shuffle=True) for label in labels]
+    null_df = _concat_results(null_results, "Random_baseline")
+
+    log_status(f"Starting Cellcount_baseline models for {len(labels)} label(s)")
+    cc_results = [_run_label(label, cc=True) for label in labels]
+    cc_df = _concat_results(cc_results, "Cellcount_baseline")
+
+    prediction_frames = [frame for frame in [pred_df, null_df, cc_df] if frame is not None and not frame.is_empty()]
+    if prediction_frames:
+        predictions = pl.concat(prediction_frames, how="vertical")
+        log_status(f"Writing {predictions.height} prediction rows to {output_path}")
+        predictions.write_parquet(output_path)
+    else:
+        log_status(f"No predictions generated; writing empty prediction table to {output_path}")
+        empty_prediction_frame().write_parquet(output_path)
+
 
 def preprocess_axiom_data_features(
     input_path: str,
-) -> None:
-    """Preprocess Axiom data for classification."""
-    # This function can be used to perform any necessary preprocessing steps on the Axiom data before classification.
-    # For example, you might want to filter out certain samples, handle missing values, or perform feature engineering.
-    # 1. Read in data
+) -> pl.DataFrame:
+    """Read aggregated Axiom features and remove controls."""
     profiles = pl.read_parquet(input_path)
+    return profiles.filter(~pl.col("Metadata_compound").is_in(["DMSO"]))
 
-    # 2. Process metadata
-    # remove controls
-    controls = ["DMSO"]
-    profiles = profiles.filter(~pl.col("Metadata_compound").is_in(controls))
 
-    return profiles
 def preprocess_axiom_data_cell_count(
     input_path: str,
-) -> None:
-    """Preprocess Axiom data for cell count baseline. Add a column of the median cell count for each compound."""
-    # 1. Read in data
-    profiles = pl.read_parquet(input_path).rename({"Metadata_Count_Cells": "Cell_Count"})
+) -> pl.DataFrame:
+    """Read cell-count profiles and aggregate one median count per compound/OASIS ID."""
+    profiles = (
+        pl.read_parquet(input_path)
+        .rename({"Metadata_Count_Cells": "Cell_Count"})
+        .filter(~pl.col("Metadata_compound").is_in(["DMSO"]))
+    )
 
-    # 2. Process metadata
-    # remove controls
-    controls = ["DMSO"]
-    profiles = profiles.filter(~pl.col("Metadata_compound").is_in(controls))
+    return profiles.group_by(["Metadata_compound", "Metadata_OASIS_ID"]).agg(pl.col("Cell_Count").median())
 
-    agg_profiles = (
-                    profiles
-                    .group_by(["Metadata_compound", "Metadata_OASIS_ID"])
-                    .agg(
-                        pl.col("Cell_Count").median()
-                    )
-                    )
-    return agg_profiles
-# python modules/07_classification/scripts/classify.py --input_path_level6 modules/02_processing/outputs/level6_axiom.parquet --input_path_level4 modules/02_processing/outputs/level4b_axiom.parquet --label_path modules/07_classification/outputs/test.parquet --label_column ID --output modules/07_classification/outputs/results.parquet
-# I have replaced all Metadata_OASIS_ID to Metadata_compound
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute prediction.")
     parser.add_argument("--input_path_level6", required=True, help="Path to input aggregated profiles")
-    parser.add_argument("--input_path_level4", required=True, help="Path to input aggregated profiles")
-    parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict") 
+    parser.add_argument("--input_path_level4", required=True, help="Path to input level-4 profiles with cell counts")
+    parser.add_argument("--label_path", required=True, help="Path to input matrix of binary to predict")
     parser.add_argument("--label_column", required=False, default="OASIS_ID", help="Column in label_path to use as label (default: OASIS_ID). If using 'ID', will use Metadata_compound for join.")
-    parser.add_argument("--output", required=True, help="Directory for output Parquet file")
+    parser.add_argument("--output", required=True, help="Output Parquet file")
     parser.add_argument("--n_repeats", required=False, default=1, type=int, help="Number of times to repeat cross-validation (default: 1)")
-    parser.add_argument("--filter_label_size", required=False, default=50, type=int, help="Minimum number of samples (0 and 1 combined) required for a label to be included in the classification (default: 50)")
-    parser.add_argument("--filter_label_size_active", required=False, default=20, type=int, help="Minimum number of samples active (1 combined) required for a label to be included in the classification (default: 20)")
+    parser.add_argument("--device", required=False, default="cpu", choices=["cpu", "gpu", "cuda"], help="Run XGBoost on CPU or GPU/CUDA (default: cpu)")
+    parser.add_argument("--n_jobs", required=False, default=1, type=int, help="Number of CPU threads available to XGBoost")
+    parser.add_argument("--include_label", action="append", default=None, help="Label column to process; may be provided more than once")
+    parser.add_argument("--include_labels", required=False, default=None, help="Comma-separated label columns to process")
+    parser.add_argument("--save_models", dest="save_models", action="store_true", help="Save final full-data models")
+    parser.add_argument("--no_save_models", dest="save_models", action="store_false", help="Skip saving final full-data models")
+    parser.set_defaults(save_models=True)
     args = parser.parse_args()
-    dat = pd.read_parquet(args.input_path_level4)
-    # Preprocess
+
+    include_labels = []
+    if args.include_label:
+        include_labels.extend(args.include_label)
+    if args.include_labels:
+        include_labels.extend(label for label in args.include_labels.split(",") if label)
+    include_labels = list(dict.fromkeys(include_labels)) or None
+
     dat_aggregated_features = preprocess_axiom_data_features(
         input_path=args.input_path_level6,
     )
@@ -361,13 +504,14 @@ if __name__ == "__main__":
 
     dat_features_cell_count = dat_aggregated_features.join(dat_cell_count, on="Metadata_compound", how="left")
 
-    # Pass dat directly
     predict_binary(
         dat=dat_features_cell_count,
         label_path=args.label_path,
         output_path=args.output,
         label_column=args.label_column,
         n_repeats=args.n_repeats,
-        filter_label_size=args.filter_label_size,
-        filter_label_size_active=args.filter_label_size_active,
+        device=args.device,
+        save_models=args.save_models,
+        n_jobs=args.n_jobs,
+        include_labels=include_labels,
     )

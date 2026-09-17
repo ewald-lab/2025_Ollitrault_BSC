@@ -16,7 +16,7 @@ params.base_dir = "${projectDir}/.."
 workflow {
 
     // Inputs
-    path_data_level4_bsc   = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_filtered_converted.parquet")
+    path_data_level4_bsc   = Channel.fromPath("${projectDir}/../modules/03_postprocessing/outputs/level4b_bsc_filtered.parquet")
     path_data_level4_axiom = Channel.fromPath("${projectDir}/../modules/02_processing/outputs/level4a_axiom.parquet")
 
     // Run Harmony

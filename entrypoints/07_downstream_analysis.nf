@@ -4,19 +4,19 @@ nextflow.enable.dsl=2
 
 params.base_dir = params.base_dir ?: "${projectDir}/.."
 params.downstream_notebook_dir = params.downstream_notebook_dir ?: "${params.base_dir}/modules/07_downstream_analysis/notebook_manuscript"
-params.downstream_html_dir = params.downstream_html_dir ?: "${params.downstream_notebook_dir}/__marimo__"
+params.downstream_html_dir = params.downstream_html_dir ?: "${params.downstream_notebook_dir}/"
 
 def manuscript_notebooks = [
     "0_analysis_raw_data.marimo.py",
     "1_analysis_processed_data.marimo.py",
     "2_analysis_chemicals.marimo.py",
-    "3A_axiom_analysis_concresponse.marimo.py",
-    "3B_BSC_analysis_concresponse.marimo.py",
-    "4_bsc_analysis.marimo.py",
+    "3_axiom_analysis_concresponse.marimo.py",
+    "4_BSC_analysis_concresponse.marimo.py",
     "5_axiom_bsc_analysis.marimo.py",
-    "6_analysis_axiom_bsc.marimo.py",
+    "6_bsc_analysis.marimo.py",
     "7_analysis_classificstion.marimo.py",
     "8_analysis_bsc_prediction.marimo.py",
+    "9_analysis_axiom_prediction.marimo.py"
 ]
 
 workflow {

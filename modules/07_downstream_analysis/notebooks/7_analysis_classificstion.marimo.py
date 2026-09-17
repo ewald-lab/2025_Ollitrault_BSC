@@ -177,7 +177,7 @@ def _(auc, np, pd, precision_recall_curve, roc_auc_score):
 
         fold_metrics = (
             pred
-            .groupby(["Metadata_Label", "Model_type", "k_fold"], as_index=False)
+            .groupby(["Metadata_Label", "Model_type", "repeat", "k_fold"], as_index=False)
             .agg({
                 "y_pred": list,
                 "y_actual": list,
@@ -401,14 +401,14 @@ def _(df_metrics_cv, pd, stats):
 
     # Pivot to get paired structure
     df_pivot_auroc = df_comparison.pivot_table(
-        index=["Metadata_Label", "k_fold"],
+        index=["Metadata_Label", "repeat", "k_fold"],
         columns="Model_type",
         values="AUROC",
         aggfunc="first"
     ).reset_index()
 
     df_pivot_auprg = df_comparison.pivot_table(
-        index=["Metadata_Label", "k_fold"],
+        index=["Metadata_Label", "repeat", "k_fold"],
         columns="Model_type",
         values="AUPRG",
         aggfunc="first"

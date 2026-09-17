@@ -31,6 +31,7 @@ def _():
         pd,
         pickle,
         plt,
+        sns,
         tqdm,
     )
 
@@ -52,8 +53,8 @@ def _(mo):
 def _(Path):
     project_root = Path(".")
     classification_output_dir = project_root / "modules/06_classification/outputs"
-    model_dir = classification_output_dir / "models_batch"
-    figure_output_dir = project_root / "modules/09_downstream_analysis/figures"
+    model_dir = classification_output_dir / "models"
+    figure_output_dir = project_root / "modules/07_downstream_analysis/figures"
     downloads_dir = Path.home() / "Downloads"
 
     level6_bsc_path = (
@@ -65,9 +66,7 @@ def _(Path):
         / "modules/01_preprocessing/outputs/cellpainting_bsc_annotations_merged.tsv"
     )
     performance_path = classification_output_dir / "results_performance.csv"
-    toxcast_category_path = (
-        classification_output_dir
-        / "df_toxcast_cellbased_assay_info_significant_claudeai_categories.csv"
+    toxcast_category_path = ("modules/07_downstream_analysis/outputs/df_toxcast_cellbased_assay_info_significant_llm_categories.csv"
     )
 
     n_active_filter = 20
@@ -88,6 +87,21 @@ def _(bsc_annotation_path, level6_bsc_path, pd):
     # Load the BSC level-6 feature matrix and botanical annotations.
     df_level6_bsc_all = pd.read_parquet(level6_bsc_path)
     df_bsc_annotations = pd.read_csv(bsc_annotation_path, sep="\t")
+    df_bsc_constituent_botanical_pairs = (
+        df_bsc_annotations[["Metadata_compound", "Plant scode"]]
+        .dropna()
+        .drop_duplicates()
+    )
+    df_bsc_unique_constituents = (
+        df_bsc_annotations
+        .dropna(subset=["Metadata_compound"])
+        .drop_duplicates("Metadata_compound")
+    )
+    _shared_constituent_counts = (
+        df_bsc_constituent_botanical_pairs
+        .groupby("Metadata_compound")["Plant scode"]
+        .nunique()
+    )
 
     list_botanicals = (
         df_bsc_annotations["Plant scode"]
@@ -106,7 +120,16 @@ def _(bsc_annotation_path, level6_bsc_path, pd):
 
     print(f"BSC feature matrix: {df_level6_bsc_all.shape}")
     print(f"BSC annotation table: {df_bsc_annotations.shape}")
+    print(f"Unique BSC constituents: {len(df_bsc_unique_constituents)}")
     print(f"Botanicals in annotation table: {len(list_botanicals)}")
+    print(
+        "Constituent-botanical assignments:",
+        len(df_bsc_constituent_botanical_pairs),
+    )
+    print(
+        "Constituents assigned to multiple botanicals:",
+        int(_shared_constituent_counts.gt(1).sum()),
+    )
     return (
         df_bsc_annotations,
         df_level6_bsc_all,
@@ -148,9 +171,98 @@ def _(model_dir, pickle):
 
 @app.cell
 def _(pd, tqdm):
-    def predict_with_models(feature_df: pd.DataFrame, models: dict) -> pd.DataFrame:
-        """Predict every row in feature_df with each trained model."""
-        _pred_matrix = pd.DataFrame(
+    def get_model_feature_names(model):
+        """Return feature names saved with a model, if available."""
+        _feature_names = getattr(model, "feature_names_in_", None)
+        if _feature_names is not None and len(_feature_names) > 0:
+            return list(_feature_names)
+
+        _booster = model.get_booster()
+        _feature_names = _booster.feature_names
+        if _feature_names:
+            return list(_feature_names)
+
+        return None
+
+
+    def build_prediction_features(
+        feature_df: pd.DataFrame,
+        model,
+        model_name: str,
+    ) -> pd.DataFrame:
+        """Return a numeric feature matrix aligned to one trained model."""
+        _trained_features = get_model_feature_names(model)
+        if _trained_features:
+            _missing_features = [
+                _feature
+                for _feature in _trained_features
+                if _feature not in feature_df.columns
+            ]
+            if _missing_features:
+                raise ValueError(
+                    f"{model_name}: prediction data is missing "
+                    f"{len(_missing_features)} trained feature(s), including "
+                    f"{_missing_features[:5]}."
+                )
+
+            _candidate_features = _trained_features
+        else:
+            _candidate_features = [
+                _column
+                for _column in feature_df.columns
+                if _column.startswith("Feature_")
+            ]
+            if not _candidate_features:
+                _candidate_features = [
+                    _column
+                    for _column in feature_df.columns
+                    if (
+                        not _column.startswith("Metadata_")
+                        and _column != "Cell_Count"
+                        and pd.api.types.is_numeric_dtype(feature_df[_column])
+                    )
+                ]
+
+        _expected_features = getattr(model, "n_features_in_", None)
+        if (
+            _expected_features is not None
+            and len(_candidate_features) != _expected_features
+        ):
+            raise ValueError(
+                f"{model_name}: inferred {len(_candidate_features)} "
+                f"prediction feature(s), but the model expects "
+                f"{_expected_features}. Check that the BSC level-6 matrix "
+                "uses the same selected features as model training."
+            )
+
+        if not _candidate_features:
+            raise ValueError(
+                f"{model_name}: could not infer prediction feature columns."
+            )
+
+        _X_pred = feature_df.loc[:, _candidate_features]
+        _invalid_columns = _X_pred.select_dtypes(
+            exclude=["number", "bool"],
+        ).columns.tolist()
+        if _invalid_columns:
+            raise ValueError(
+                f"{model_name}: prediction features must be numeric or bool; "
+                f"invalid columns include {_invalid_columns[:5]}."
+            )
+
+        return _X_pred
+
+
+    def predict_with_models(
+        feature_df: pd.DataFrame,
+        models: dict,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Predict class labels and activity probabilities for every model."""
+        _class_matrix = pd.DataFrame(
+            {"Metadata_compound": feature_df["Metadata_compound"].values},
+            index=feature_df.index,
+        )
+        _probability_matrix = pd.DataFrame(
             {"Metadata_compound": feature_df["Metadata_compound"].values},
             index=feature_df.index,
         )
@@ -160,11 +272,28 @@ def _(pd, tqdm):
             total=len(models),
             desc="Predicting",
         ):
-            _trained_features = _model.get_booster().feature_names
-            _X_pred = feature_df.reindex(columns=_trained_features)
-            _pred_matrix[_model_name] = _model.predict(_X_pred)
+            _X_pred = build_prediction_features(
+                feature_df,
+                _model,
+                _model_name,
+            )
+            _class_predictions = _model.predict(_X_pred)
+            _class_matrix[_model_name] = _class_predictions
 
-        return _pred_matrix.reset_index(drop=True)
+            if hasattr(_model, "predict_proba"):
+                _probabilities = _model.predict_proba(_X_pred)[:, 1]
+            else:
+                _probabilities = (
+                    pd.Series(_class_predictions)
+                    .astype(float)
+                    .to_numpy()
+                )
+            _probability_matrix[_model_name] = _probabilities
+
+        return (
+            _class_matrix.reset_index(drop=True),
+            _probability_matrix.reset_index(drop=True),
+        )
     return (predict_with_models,)
 
 
@@ -181,10 +310,17 @@ def _(df_level6_bsc_all, list_botanicals, loaded_models, predict_with_models):
         df_level6_bsc_all["Metadata_compound"].isin(list_botanicals)
     ].copy()
 
-    pred_matrix = predict_with_models(df_level6_bsc_botanicals, loaded_models)
+    pred_matrix, pred_matrix_probability = predict_with_models(
+        df_level6_bsc_botanicals,
+        loaded_models,
+    )
 
     print(f"Botanical rows predicted: {len(pred_matrix)}")
     print(f"Prediction assays: {pred_matrix.shape[1] - 1}")
+    print(
+        "Probability prediction assays:",
+        pred_matrix_probability.shape[1] - 1,
+    )
     return
 
 
@@ -197,11 +333,18 @@ def _(mo):
 @app.cell
 def _(df_level6_bsc_all, loaded_models, predict_with_models):
     # Full matrix includes botanical mixtures and their annotated constituents.
-    pred_matrix_all = predict_with_models(df_level6_bsc_all.copy(), loaded_models)
+    pred_matrix_all, pred_matrix_probability_all = predict_with_models(
+        df_level6_bsc_all.copy(),
+        loaded_models,
+    )
 
     print(f"All BSC rows predicted: {len(pred_matrix_all)}")
-    print(f"All prediction assays: {pred_matrix_all.shape[1] - 1}")
-    return (pred_matrix_all,)
+    print(f"All class prediction assays: {pred_matrix_all.shape[1] - 1}")
+    print(
+        "All probability prediction assays:",
+        pred_matrix_probability_all.shape[1] - 1,
+    )
+    return pred_matrix_all, pred_matrix_probability_all
 
 
 @app.cell(hide_code=True)
@@ -232,10 +375,24 @@ def _(pd, performance_path, toxcast_category_path):
 
 
 @app.cell
-def _(df_ttest_results_filtered, n_active_filter, pred_matrix_all):
+def _(df_toxcast_cellbased_assay_info_significant):
+    df_toxcast_cellbased_assay_info_significant["chagpt_label"].value_counts()
+    return
+
+
+@app.cell
+def _(
+    df_ttest_results_filtered,
+    n_active_filter,
+    pred_matrix_all,
+    pred_matrix_probability_all,
+):
     # Keep only assays retained by performance filtering and active enough.
     _valid_labels = set(df_ttest_results_filtered["Metadata_Label"].values)
     _pred_matrix_all = pred_matrix_all.rename(columns={"MTT": "MT"})
+    _pred_matrix_probability_all = pred_matrix_probability_all.rename(
+        columns={"MTT": "MT"}
+    )
 
     _prediction_cols = [
         _column
@@ -255,12 +412,19 @@ def _(df_ttest_results_filtered, n_active_filter, pred_matrix_all):
     pred_matrix_filtered = _pred_matrix_all[
         ["Metadata_compound"] + _prediction_cols
     ].copy()
+    pred_matrix_probability_filtered = _pred_matrix_probability_all[
+        ["Metadata_compound"] + _prediction_cols
+    ].copy()
 
     print(f"Filtered prediction assays: {len(_prediction_cols)}")
-    print(f"Filtered prediction matrix: {pred_matrix_filtered.shape}")
+    print(f"Filtered class prediction matrix: {pred_matrix_filtered.shape}")
+    print(
+        "Filtered probability prediction matrix:",
+        pred_matrix_probability_filtered.shape,
+    )
     if _prediction_cols:
         print("Assays retained:", ", ".join(_prediction_cols))
-    return (pred_matrix_filtered,)
+    return pred_matrix_filtered, pred_matrix_probability_filtered
 
 
 @app.cell(hide_code=True)
@@ -443,14 +607,52 @@ def _(assign_assay_groups, np, pd):
 
         _group_table = assign_assay_groups(heatmap_columns)
 
-        _cat_lookup = (
-            df_toxcast_cellbased_assay_info_significant
-            .drop_duplicates("assay_component_endpoint_name")
-            .set_index("assay_component_endpoint_name")[
-                ["claudeai_color", "claudeai_label"]
-            ]
-            .to_dict(orient="index")
+        _category_color_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_color",
+                    "chatgpt_color",
+                    "claudeai_color",
+                ]
+                if (
+                    _column
+                    in df_toxcast_cellbased_assay_info_significant.columns
+                )
+            ),
+            None,
         )
+        _category_label_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_label",
+                    "chatgpt_label",
+                    "claudeai_label",
+                ]
+                if (
+                    _column
+                    in df_toxcast_cellbased_assay_info_significant.columns
+                )
+            ),
+            None,
+        )
+        if (
+            "assay_component_endpoint_name"
+            in df_toxcast_cellbased_assay_info_significant.columns
+            and _category_color_col is not None
+            and _category_label_col is not None
+        ):
+            _cat_lookup = (
+                df_toxcast_cellbased_assay_info_significant
+                .drop_duplicates("assay_component_endpoint_name")
+                .set_index("assay_component_endpoint_name")[
+                    [_category_color_col, _category_label_col]
+                ]
+                .to_dict(orient="index")
+            )
+        else:
+            _cat_lookup = {}
         _auroc_lookup = df_ttest_results_filtered.set_index(
             "Metadata_Label"
         )["AUROC_mean_Actual"]
@@ -460,11 +662,11 @@ def _(assign_assay_groups, np, pd):
             _group_display
         )
         _group_table["category_color"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_color", "#dddddd")
+            _cat_lookup.get(_assay, {}).get(_category_color_col, "#dddddd")
             for _assay in _group_table["assay"]
         ]
         _group_table["category_label"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_label", None)
+            _cat_lookup.get(_assay, {}).get(_category_label_col, None)
             for _assay in _group_table["assay"]
         ]
         _group_table["AUROC_mean_Actual"] = [
@@ -503,12 +705,26 @@ def _(
 
     _group_order = ["Cell-free", "Cell-based", "Cytotoxic", "Hit calls"]
     _group_table = assign_assay_groups(_heatmap_data.columns)
-
-    _category_order = (
-        df_toxcast_cellbased_assay_info_significant
-        .drop_duplicates("assay_component_endpoint_name")
-        .set_index("assay_component_endpoint_name")["claudeai_label"]
+    _category_label_col = next(
+        (
+            _column
+            for _column in [
+                "chagpt_label",
+                "chatgpt_label",
+                "claudeai_label",
+            ]
+            if _column in df_toxcast_cellbased_assay_info_significant.columns
+        ),
+        None,
     )
+    if _category_label_col is None:
+        _category_order = {}
+    else:
+        _category_order = (
+            df_toxcast_cellbased_assay_info_significant
+            .drop_duplicates("assay_component_endpoint_name")
+            .set_index("assay_component_endpoint_name")[_category_label_col]
+        )
 
     _ordered_columns = []
     for _group in _group_order:
@@ -588,10 +804,10 @@ def _(
     np,
     plt,
 ):
-    _figure_path = figure_output_dir / "Figure_8_bsc_prediction_heatmap.png"
+    _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap.png"
     _download_path = (
         downloads_dir
-        / "prediction_heatmap_botanical_constituents_batch_groups_claudeai.png"
+        / "prediction_heatmap_botanical_constituents_batch_groups_chatgpt.png"
     )
 
     figure_output_dir.mkdir(parents=True, exist_ok=True)
@@ -796,37 +1012,77 @@ def _(mo):
 def _(pd):
     def build_prediction_summary_tables(
         pred_matrix_filtered: pd.DataFrame,
-        df_bsc_annotations: pd.DataFrame,
+        list_botanicals,
         dic_botanicals_scode_name: dict,
         df_heatmap_columns: pd.DataFrame,
     ):
-        """Summarize active predictions by botanical, assay group, and category."""
-        _pred_long = (
+        """Summarize active predictions for botanical rows only."""
+        def _add_active_summary(active_df: pd.DataFrame) -> pd.DataFrame:
+            return active_df.assign(
+                active_predictions=lambda _df: (
+                    _df["n_active"].astype(int).astype(str)
+                    + "/"
+                    + _df["n_tested"].astype(int).astype(str)
+                ),
+                active_prediction_summary=lambda _df: _df.apply(
+                    lambda _row: (
+                        f"{int(_row['n_active'])}/"
+                        f"{int(_row['n_tested'])} "
+                        f"({_row['pct_active']:.1f}%)"
+                    ),
+                    axis=1,
+                ),
+            )
+
+        _botanical_ids = pd.Index(
+            pd.Series(list_botanicals)
+            .dropna()
+            .astype(str)
+            .drop_duplicates(),
+            name="Metadata_compound",
+        )
+        _botanical_id_set = set(_botanical_ids)
+
+        _pred_unique = (
             pred_matrix_filtered
+            .drop_duplicates("Metadata_compound")
+            .copy()
+        )
+        _pred_unique["Metadata_compound"] = (
+            _pred_unique["Metadata_compound"].astype(str)
+        )
+        _non_botanical_count = (
+            ~_pred_unique["Metadata_compound"].isin(_botanical_ids)
+        ).sum()
+        _missing_botanicals = sorted(
+            _botanical_id_set - set(_pred_unique["Metadata_compound"])
+        )
+        _pred_botanical = (
+            _pred_unique[
+                _pred_unique["Metadata_compound"].isin(_botanical_ids)
+            ]
             .set_index("Metadata_compound")
+            .reindex(_botanical_ids)
+            .rename_axis("Metadata_compound")
             .reset_index()
+        )
+        _pred_long = (
+            _pred_botanical
             .melt(
                 id_vars="Metadata_compound",
                 var_name="assay",
                 value_name="active",
             )
+            .rename(columns={"Metadata_compound": "botanical_scode"})
         )
-
-        _const_to_botanical = (
-            df_bsc_annotations[["Metadata_compound", "Plant scode"]]
-            .drop_duplicates()
-            .set_index("Metadata_compound")["Plant scode"]
-            .to_dict()
+        _pred_long["botanical"] = (
+            _pred_long["botanical_scode"]
+            .astype(str)
+            .map(dic_botanicals_scode_name)
         )
-        _pred_long["botanical_scode"] = _pred_long["Metadata_compound"].map(
-            _const_to_botanical
-        )
-        _pred_long["botanical"] = _pred_long["botanical_scode"].map(
-            dic_botanicals_scode_name
-        )
-
-        df_pred_long_all = _pred_long.copy()
-        df_pred_long_botanical = _pred_long.dropna(subset=["botanical"]).copy()
+        df_pred_long_botanical = _pred_long.dropna(
+            subset=["botanical"]
+        ).copy()
 
         df_pct_active_by_botanical = (
             df_pred_long_botanical
@@ -842,6 +1098,7 @@ def _(pd):
             )
             .sort_values("pct_active", ascending=False)
             .reset_index()
+            .pipe(_add_active_summary)
         )
 
         _group_series = df_heatmap_columns.set_index("assay")["group"]
@@ -849,7 +1106,7 @@ def _(pd):
             _group_series
         )
 
-        df_pct_active_by_botanical_group = (
+        df_active_by_botanical_group_long = (
             df_pred_long_botanical.dropna(subset=["group"])
             .groupby(["botanical", "group"])["active"]
             .agg(
@@ -862,27 +1119,48 @@ def _(pd):
                 ).round(1)
             )
             .reset_index()
-            .pivot(index="botanical", columns="group", values="pct_active")
+            .pipe(_add_active_summary)
+        )
+        df_pct_active_by_botanical_group = (
+            df_active_by_botanical_group_long
+            .pivot(
+                index="botanical",
+                columns="group",
+                values="active_prediction_summary",
+            )
+            .rename_axis(columns=None)
             .reset_index()
         )
         if "Cell-based" in df_pct_active_by_botanical_group.columns:
+            _group_sort_order = (
+                df_active_by_botanical_group_long[
+                    df_active_by_botanical_group_long["group"] == "Cell-based"
+                ]
+                .sort_values("pct_active", ascending=False)["botanical"]
+                .tolist()
+            )
+            _remaining_botanicals = [
+                _botanical
+                for _botanical in df_pct_active_by_botanical_group["botanical"]
+                if _botanical not in _group_sort_order
+            ]
             df_pct_active_by_botanical_group = (
-                df_pct_active_by_botanical_group.sort_values(
-                    "Cell-based",
-                    ascending=False,
-                )
+                df_pct_active_by_botanical_group
+                .set_index("botanical")
+                .reindex(_group_sort_order + _remaining_botanicals)
+                .reset_index()
             )
 
         _category_series = df_heatmap_columns.set_index("assay")[
             "category_label"
         ]
-        df_pred_long_botanical["claudeai_label"] = (
+        df_pred_long_botanical["category_label"] = (
             df_pred_long_botanical["assay"].map(_category_series)
         )
 
-        df_pct_active_by_botanical_category = (
-            df_pred_long_botanical.dropna(subset=["claudeai_label"])
-            .groupby(["botanical", "claudeai_label"])["active"]
+        df_active_by_botanical_category_long = (
+            df_pred_long_botanical.dropna(subset=["category_label"])
+            .groupby(["botanical", "category_label"])["active"]
             .agg(
                 n_active=lambda _x: _x.eq(1).sum(),
                 n_tested=lambda _x: _x.notna().sum(),
@@ -893,11 +1171,16 @@ def _(pd):
                 ).round(1)
             )
             .reset_index()
+            .pipe(_add_active_summary)
+        )
+        df_pct_active_by_botanical_category = (
+            df_active_by_botanical_category_long
             .pivot(
                 index="botanical",
-                columns="claudeai_label",
-                values="pct_active",
+                columns="category_label",
+                values="active_prediction_summary",
             )
+            .rename_axis(columns=None)
             .reset_index()
         )
 
@@ -907,19 +1190,35 @@ def _(pd):
             if _column != "botanical"
         ]
         if _category_sort_cols:
+            _category_sort_order = (
+                df_active_by_botanical_category_long[
+                    df_active_by_botanical_category_long["category_label"]
+                    == _category_sort_cols[0]
+                ]
+                .sort_values("pct_active", ascending=False)["botanical"]
+                .tolist()
+            )
+            _remaining_botanicals = [
+                _botanical
+                for _botanical in df_pct_active_by_botanical_category[
+                    "botanical"
+                ]
+                if _botanical not in _category_sort_order
+            ]
             df_pct_active_by_botanical_category = (
-                df_pct_active_by_botanical_category.sort_values(
-                    _category_sort_cols[0],
-                    ascending=False,
-                )
+                df_pct_active_by_botanical_category
+                .set_index("botanical")
+                .reindex(_category_sort_order + _remaining_botanicals)
+                .reset_index()
             )
 
         return (
             df_pct_active_by_botanical,
             df_pct_active_by_botanical_group,
             df_pct_active_by_botanical_category,
-            df_pred_long_all,
             df_pred_long_botanical,
+            int(_non_botanical_count),
+            _missing_botanicals,
         )
     return (build_prediction_summary_tables,)
 
@@ -927,22 +1226,38 @@ def _(pd):
 @app.cell
 def _(
     build_prediction_summary_tables,
-    df_bsc_annotations,
     df_heatmap_columns,
     dic_botanicals_scode_name,
+    list_botanicals,
     pred_matrix_filtered,
 ):
     (
         df_pct_active_by_botanical,
         df_pct_active_by_botanical_group,
         df_pct_active_by_botanical_category,
-        df_pred_long_all,
         df_pred_long_botanical,
+        non_botanical_rows_excluded,
+        missing_botanicals_from_stats,
     ) = build_prediction_summary_tables(
         pred_matrix_filtered,
-        df_bsc_annotations,
+        list_botanicals,
         dic_botanicals_scode_name,
         df_heatmap_columns,
+    )
+
+    print(
+        "Botanicals in stats:",
+        df_pred_long_botanical["botanical_scode"].nunique(),
+    )
+    print(
+        "Non-botanical rows excluded from stats:",
+        non_botanical_rows_excluded,
+    )
+    print(
+        "Missing botanicals from stats:",
+        ", ".join(missing_botanicals_from_stats)
+        if missing_botanicals_from_stats
+        else "none",
     )
 
     print("Active predictions by botanical:")
@@ -953,13 +1268,55 @@ def _(
 
     print("\nActive predictions by botanical and cell-based category:")
     print(df_pct_active_by_botanical_category.to_string(index=False))
-    return (df_pred_long_all,)
+    return df_pct_active_by_botanical_category, df_pred_long_botanical
 
 
 @app.cell
-def _(df_pred_long_all):
+def _(df_pct_active_by_botanical_category):
+    df_pct_active_by_botanical_category
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Endocrine Disruption — Sex Hormones"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Genotoxicity / DNA Damage"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Endocrine Disruption — Sex Hormones"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_pred_long_botanical[df_pred_long_botanical["assay"] == "cell_type__HepG2"]["assay"].unique()].sum(axis=1)
+    return
+
+
+@app.cell
+def _(df_heatmap_data, df_pred_long_botanical):
+    df_heatmap_data[df_heatmap_data.index == '  Aristolochic acid I'][df_pred_long_botanical[df_pred_long_botanical["category_label"] == "Genotoxicity / DNA Damage"]["assay"].unique()]
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
     df_active_by_assay = (
-        df_pred_long_all
+        df_pred_long_botanical
         .groupby("assay")["active"]
         .agg(
             active_count="sum",
@@ -970,12 +1327,520 @@ def _(df_pred_long_all):
                 _df["active_count"] / _df["total_count"] * 100
             ).round(1)
         )
+        .assign(
+            active_prediction_summary=lambda _df: _df.apply(
+                lambda _row: (
+                    f"{int(_row['active_count'])}/"
+                    f"{int(_row['total_count'])} "
+                    f"({_row['percent_active']:.1f}%)"
+                ),
+                axis=1,
+            )
+        )
         .sort_values("percent_active", ascending=False)
         .reset_index()
     )
 
     print(f"Assay activity summary rows: {len(df_active_by_assay)}")
     df_active_by_assay
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[
+        df_pred_long_botanical["category_label"].str.startswith("Hepa", na=False)
+    ][["assay", "category_label"]].drop_duplicates()
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[
+        df_pred_long_botanical["category_label"].str.startswith("Mi", na=False)
+    ][["assay", "category_label"]].drop_duplicates()
+    return
+
+
+@app.cell
+def _(df_pred_long_botanical):
+    df_pred_long_botanical[["assay", "category_label"]].drop_duplicates()["category_label"].value_counts()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Correlation Significant Assays""")
+    return
+
+
+@app.cell
+def _(pred_matrix_probability_filtered):
+    pred_matrix_probability_filtered
+    return
+
+
+@app.cell
+def _(
+    build_column_annotations,
+    df_toxcast_cellbased_assay_info_significant,
+    df_ttest_results_filtered,
+    pred_matrix_probability_filtered,
+):
+    df_probability_for_correlation = (
+        pred_matrix_probability_filtered
+        .set_index("Metadata_compound")
+        .astype(float)
+    )
+
+    _non_constant_cols = [
+        _column
+        for _column in df_probability_for_correlation.columns
+        if df_probability_for_correlation[_column].nunique(dropna=True) > 1
+    ]
+    df_probability_for_correlation = (
+        df_probability_for_correlation[_non_constant_cols]
+        .dropna(axis=1, how="any")
+    )
+
+    correlation_matrix = df_probability_for_correlation.corr(method="pearson")
+    df_correlation_assay_annotations = build_column_annotations(
+        correlation_matrix.columns,
+        df_ttest_results_filtered,
+        df_toxcast_cellbased_assay_info_significant,
+    )
+
+    print(
+        "Compounds used for assay correlation:",
+        df_probability_for_correlation.shape[0],
+    )
+    print(
+        "Non-constant significant assays correlated:",
+        df_probability_for_correlation.shape[1],
+    )
+    print(
+        "Assay groups:",
+        df_correlation_assay_annotations["group"].value_counts().to_dict(),
+    )
+    return correlation_matrix, df_correlation_assay_annotations
+
+
+@app.cell
+def _(correlation_matrix, np):
+    _upper_triangle = np.triu(
+        np.ones(correlation_matrix.shape, dtype=bool),
+        k=1,
+    )
+    df_top_correlated_assay_pairs = (
+        correlation_matrix
+        .where(_upper_triangle)
+        .stack()
+        .rename("correlation")
+        .reset_index()
+        .rename(columns={"level_0": "assay_1", "level_1": "assay_2"})
+        .assign(abs_correlation=lambda _df: _df["correlation"].abs())
+        .sort_values("abs_correlation", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print("Top positively or negatively correlated assay pairs:")
+    print(df_top_correlated_assay_pairs.head(20).to_string(index=False))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Correlation Heatmap""")
+    return
+
+
+@app.cell
+def _(
+    correlation_matrix,
+    df_correlation_assay_annotations,
+    downloads_dir,
+    figure_output_dir,
+    mpatches,
+    plt,
+    sns,
+):
+    _figure_path = (
+        figure_output_dir
+        / "Figure_9_bsc_prediction_assay_correlation_heatmap.png"
+    )
+    _download_path = (
+        downloads_dir
+        / "correlation_heatmap_bsc_prediction_significant_assays.png"
+    )
+
+    figure_output_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    _plot_matrix = correlation_matrix.fillna(0)
+    _annotation_lookup = df_correlation_assay_annotations.set_index("assay")
+    _color_table = _annotation_lookup.reindex(_plot_matrix.index)[
+        ["group_color", "category_color"]
+    ]
+
+    if _plot_matrix.empty:
+        _fig, _ax = plt.subplots(figsize=(6, 5))
+        _ax.text(
+            0.5,
+            0.5,
+            "No non-constant assays to correlate",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+        _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+    elif len(_plot_matrix) > 1:
+        _fig_size = min(max(10, len(_plot_matrix) * 0.24), 34)
+        _label_fontsize = max(10, min(9, 180 / len(_plot_matrix)))
+        _clustermap = sns.clustermap(
+            _plot_matrix,
+            method="average",
+            metric="euclidean",
+            cmap="vlag",
+            center=0,
+            vmin=-1,
+            vmax=1,
+            row_colors=_color_table,
+            col_colors=_color_table,
+            figsize=(_fig_size, _fig_size),
+            linewidths=0.05,
+            dendrogram_ratio=(0.08, 0.08),
+            cbar_pos=(0.02, 0.82, 0.02, 0.12),
+            xticklabels=True,
+            yticklabels=True,
+        )
+
+        plt.setp(
+            _clustermap.ax_heatmap.get_xticklabels(),
+            rotation=90,
+            fontsize=_label_fontsize,
+            ha="center",
+        )
+        plt.setp(
+            _clustermap.ax_heatmap.get_yticklabels(),
+            rotation=0,
+            fontsize=_label_fontsize,
+            va="center",
+        )
+
+        _legend_group_order = [
+            "Cell-free",
+            "Cell-based",
+            "Cytotoxic",
+            "Hit calls",
+            "Other",
+        ]
+
+        _group_legend_patches = []
+        for _group in _legend_group_order:
+            _group_rows = df_correlation_assay_annotations[
+                df_correlation_assay_annotations["group"] == _group
+            ]
+            if _group_rows.empty:
+                continue
+
+            _group_legend_patches.append(
+                mpatches.Patch(
+                    facecolor=_group_rows["group_color"].iloc[0],
+                    label=_group_rows["group_display"].iloc[0],
+                )
+            )
+
+        _group_legend = _clustermap.ax_heatmap.legend(
+            handles=_group_legend_patches,
+            loc="upper left",
+            bbox_to_anchor=(0.88, 1.21),
+            frameon=True,
+            facecolor="white",
+            edgecolor="lightgrey",
+            framealpha=0.95,
+            fontsize=9,
+            borderpad=0.6,
+            title="Assay groups",
+            title_fontsize=10,
+        )
+        _group_legend.get_title().set_fontweight("bold")
+        _clustermap.ax_heatmap.add_artist(_group_legend)
+
+        _category_legend_patches = []
+        for _category, _category_rows in (
+            df_correlation_assay_annotations
+            .dropna(subset=["category_color"])
+            .groupby("category_label", sort=True)
+        ):
+            _category_legend_patches.append(
+                mpatches.Patch(
+                    facecolor=_category_rows["category_color"].iloc[0],
+                    label=(
+                        _category_rows["category_display"].iloc[0]
+                        if "category_display" in _category_rows.columns
+                        else _category
+                    ),
+                )
+            )
+
+        _category_legend = _clustermap.ax_heatmap.legend(
+            handles=_category_legend_patches,
+            loc="upper left",
+            bbox_to_anchor=(1.0, 1.21),
+            frameon=True,
+            facecolor="white",
+            edgecolor="lightgrey",
+            framealpha=0.95,
+            fontsize=9,
+            borderpad=0.6,
+            title="Assay categories",
+            title_fontsize=10,
+        )
+        _category_legend.get_title().set_fontweight("bold")
+
+        _clustermap.fig.suptitle(
+            "Predicted Activity Probability Correlation Across Significant Assays",
+            fontsize=14,
+            fontweight="bold",
+            y=1.01,
+        )
+        _clustermap.fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _clustermap.fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+        _fig = _clustermap.fig
+    else:
+        _fig, _ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(
+            _plot_matrix,
+            cmap="vlag",
+            center=0,
+            vmin=-1,
+            vmax=1,
+            square=True,
+            annot=True,
+            ax=_ax,
+        )
+        _ax.set_title(
+            "Predicted Activity Probability Correlation Across Significant Assays"
+        )
+        _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+
+    print(f"Saved manuscript heatmap: {_figure_path}")
+    print(f"Saved Downloads heatmap: {_download_path}")
+
+    _fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Active Predictions Compared With Training Set""")
+    return
+
+
+@app.cell
+def _(df_ttest_results_filtered, pd, pred_matrix_probability_filtered):
+    _training_counts = (
+        df_ttest_results_filtered[
+            [
+                "Metadata_Label",
+                "Metadata_Count_0",
+                "Metadata_Count_1",
+            ]
+        ]
+        .drop_duplicates()
+        .groupby("Metadata_Label", as_index=False)
+        .sum()
+    )
+    _training_counts["training_total_count"] = (
+        _training_counts["Metadata_Count_0"]
+        + _training_counts["Metadata_Count_1"]
+    )
+    _training_counts["training_pct_active"] = (
+        _training_counts["Metadata_Count_1"]
+        / _training_counts["training_total_count"]
+        * 100
+    )
+
+    _prediction_cols = [
+        _column
+        for _column in pred_matrix_probability_filtered.columns
+        if _column != "Metadata_compound"
+    ]
+    _prediction_values = pred_matrix_probability_filtered[_prediction_cols].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    _predicted_active_rate = pd.DataFrame(
+        {
+            "Metadata_Label": _prediction_cols,
+            "predicted_expected_active_count": (
+                _prediction_values.sum(axis=0).to_numpy()
+            ),
+            "predicted_total_count": (
+                _prediction_values.notna().sum(axis=0).to_numpy()
+            ),
+            "predicted_pct_active": (
+                _prediction_values.mean(axis=0).mul(100).to_numpy()
+            ),
+        }
+    )
+
+    df_bsc_active_rate_comparison = (
+        _predicted_active_rate
+        .merge(
+            _training_counts[
+                [
+                    "Metadata_Label",
+                    "Metadata_Count_0",
+                    "Metadata_Count_1",
+                    "training_total_count",
+                    "training_pct_active",
+                ]
+            ],
+            on="Metadata_Label",
+            how="inner",
+        )
+        .assign(
+            difference_pct_points=lambda _df: (
+                _df["predicted_pct_active"] - _df["training_pct_active"]
+            )
+        )
+        .sort_values("difference_pct_points", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print(
+        "BSC probability assays compared to training active rate:",
+        len(df_bsc_active_rate_comparison),
+    )
+    df_bsc_active_rate_comparison
+    return (df_bsc_active_rate_comparison,)
+
+
+@app.cell
+def _(
+    df_bsc_active_rate_comparison,
+    downloads_dir,
+    figure_output_dir,
+    np,
+    plt,
+):
+    _figure_path = (
+        figure_output_dir / "bsc_prediction_active_rate_vs_training.png"
+    )
+    _download_path = (
+        downloads_dir / "bsc_prediction_active_rate_vs_training.png"
+    )
+
+    figure_output_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    _plot_df = df_bsc_active_rate_comparison.dropna(
+        subset=["training_pct_active", "predicted_pct_active"]
+    ).copy()
+
+    _fig, _ax = plt.subplots(figsize=(7, 6))
+    if _plot_df.empty:
+        _ax.text(
+            0.5,
+            0.5,
+            "No overlapping assays to compare",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+    else:
+        _max_value = np.nanmax(
+            _plot_df[["training_pct_active", "predicted_pct_active"]].to_numpy()
+        )
+        _axis_limit = min(100, max(5, _max_value * 1.08))
+
+        _ax.scatter(
+            _plot_df["training_pct_active"],
+            _plot_df["predicted_pct_active"],
+            s=48,
+            alpha=0.78,
+            color="#4C72B0",
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        _ax.plot(
+            [0, _axis_limit],
+            [0, _axis_limit],
+            color="#555555",
+            linestyle="--",
+            linewidth=1,
+            label="Equal active rate",
+        )
+        _label_df = _plot_df.reindex(
+            _plot_df["difference_pct_points"].abs()
+            .sort_values(ascending=False)
+            .head(8)
+            .index
+        )
+        for _, _row in _label_df.iterrows():
+            _ax.annotate(
+                _row["Metadata_Label"],
+                (
+                    _row["training_pct_active"],
+                    _row["predicted_pct_active"],
+                ),
+                xytext=(4, 3),
+                textcoords="offset points",
+                fontsize=7,
+                alpha=0.85,
+            )
+
+        if len(_plot_df) > 1:
+            _pearson_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="pearson",
+            )
+            _spearman_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="spearman",
+            )
+            _ax.text(
+                0.03,
+                0.97,
+                (
+                    f"Pearson r = {_pearson_r:.2f}\n"
+                    f"Spearman rho = {_spearman_r:.2f}\n"
+                    f"n assays = {len(_plot_df)}"
+                ),
+                transform=_ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9,
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "white",
+                    "edgecolor": "#cccccc",
+                    "alpha": 0.9,
+                },
+            )
+
+        _ax.set_xlim(0, _axis_limit)
+        _ax.set_ylim(0, _axis_limit)
+        _ax.set_xlabel("Training set active compounds (%)")
+        _ax.set_ylabel("Predicted active probability (%)")
+        _ax.set_title("BSC Predicted Activity Probability vs Training Set")
+        _ax.grid(True, color="#e6e6e6", linewidth=0.7)
+        _ax.legend(loc="lower right", frameon=False)
+
+    _fig.tight_layout()
+    _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+    _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+
+    print(f"Saved BSC active-rate plot: {_figure_path}")
+    print(f"Saved Downloads active-rate plot: {_download_path}")
+
+    _fig
     return
 
 

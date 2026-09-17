@@ -55,11 +55,189 @@ get_closest_dmso <- function(comp_fit_coords, dat_ctrl) {
 }
 # 0. Parrallelization
 library(parallel)
+
+configure_parallel_port <- function(extra_seed = "") {
+  seed_parts <- c(
+    Sys.getenv(c(
+      "NXF_TASK_WORKDIR",
+      "SLURM_JOB_ID",
+      "SLURM_STEP_ID",
+      "SLURM_ARRAY_TASK_ID",
+      "SLURM_PROCID"
+    ), unset = ""),
+    normalizePath(getwd(), mustWork = FALSE),
+    Sys.getpid(),
+    extra_seed
+  )
+  seed_text <- paste(seed_parts, collapse = "|")
+  seed_bytes <- as.integer(charToRaw(seed_text))
+  if (length(seed_bytes) == 0) {
+    seed_bytes <- as.integer(Sys.getpid())
+  }
+
+  port_min <- 11000L
+  port_max <- 11999L
+  port_span <- port_max - port_min + 1L
+  port_offset <- sum(seed_bytes * seq_along(seed_bytes)) %% port_span
+  port <- as.integer(port_min + port_offset)
+
+  parallel_options <- get("defaultClusterOptions", envir = asNamespace("parallel"))
+  assign("port", port, envir = parallel_options)
+  Sys.setenv(R_PARALLEL_PORT = as.character(port))
+  port
+}
+
+with_parallel_port_retry <- function(expr, max_tries = 20) {
+  expr_sub <- substitute(expr)
+  expr_env <- parent.frame()
+
+  for (attempt in seq_len(max_tries)) {
+    result <- tryCatch(
+      eval(expr_sub, envir = expr_env),
+      error = function(err) err
+    )
+
+    if (!inherits(result, "error")) {
+      return(result)
+    }
+
+    is_socket_error <- grepl(
+      "server socket|cannot be opened|Cluster setup failed",
+      conditionMessage(result),
+      ignore.case = TRUE
+    )
+    if (!is_socket_error || attempt == max_tries) {
+      stop(result)
+    }
+
+    port <- configure_parallel_port(extra_seed = paste0("retry-", attempt))
+    message(sprintf(
+      "R parallel socket setup failed (%s); retrying with port %d.",
+      conditionMessage(result),
+      port
+    ))
+    Sys.sleep(stats::runif(1, min = 0.2, max = 1.0))
+  }
+}
+
+parallel_port <- configure_parallel_port()
 # ── Auto-configure ncpus ─────────────────────────────────────────────────
 ncpus <- parallelly::availableCores()
-message(sprintf("Using %d cores for curve fitting.", ncpus))
+message(sprintf("Using %d cores for curve fitting on R parallel port %d.", ncpus, parallel_port))
 # 1. Arguments
 args <- commandArgs(trailingOnly = TRUE)
+
+optional_arg <- function(x) {
+  if (length(x) == 0 || is.na(x) || x == "" || x == "NA") {
+    return(NA_character_)
+  }
+  x
+}
+
+read_compound_from_list <- function(compound_list_path, compound_line) {
+  if (is.na(compound_line) || compound_line < 1) {
+    stop("compound_line must be a 1-based integer when compound_list_path is provided.")
+  }
+  if (!file.exists(compound_list_path)) {
+    stop(sprintf("Compound list file does not exist: %s", compound_list_path))
+  }
+
+  compound_dt <- read.csv(
+    compound_list_path,
+    header = FALSE,
+    stringsAsFactors = FALSE,
+    check.names = FALSE,
+    colClasses = "character",
+    comment.char = "",
+    na.strings = character(),
+    blank.lines.skip = FALSE,
+    fill = TRUE
+  )
+
+  if (compound_line > nrow(compound_dt)) {
+    stop(sprintf(
+      "Compound line %d is outside compound list with %d rows.",
+      compound_line,
+      nrow(compound_dt)
+    ))
+  }
+
+  compound <- compound_dt[[1]][compound_line]
+  if (is.na(compound) || compound == "") {
+    stop(sprintf("Compound line %d is empty in %s.", compound_line, compound_list_path))
+  }
+
+  compound
+}
+
+empty_feature_bmd_result <- function(compound) {
+  data.frame(
+    gene.id           = NA_character_,
+    mod.name          = NA_character_,
+    b                 = NA_real_,
+    c                 = NA_real_,
+    d                 = NA_real_,
+    e                 = NA_real_,
+    f                 = NA_real_,
+    SDres             = NA_real_,
+    AIC.model         = NA_real_,
+    lof.p             = NA_real_,
+    ctrl.mod          = NA_real_,
+    ctrl.mean         = NA_real_,
+    adv.incr          = NA,
+    bmd               = NA_real_,
+    bmdl              = NA_real_,
+    bmdu              = NA_real_,
+    bmr               = NA_real_,
+    SDctrl            = NA_real_,
+    conv.pass         = NA,
+    hd.pass           = NA,
+    CI.pass           = NA,
+    ld.pass           = NA,
+    all.pass          = FALSE,
+    Metadata_compound = compound
+  )
+}
+
+ensure_adv_incr_col <- function(df) {
+  if (!"adv.incr" %in% colnames(df)) {
+    df[["adv.incr"]] <- NA
+  }
+  df
+}
+
+as_adv_incr_logical <- function(x) {
+  if (is.logical(x)) {
+    return(x)
+  }
+  if (is.numeric(x)) {
+    return(ifelse(is.na(x), NA, x != 0))
+  }
+
+  x_chr <- tolower(as.character(x))
+  ifelse(
+    is.na(x_chr),
+    NA,
+    x_chr %in% c("true", "t", "1", "yes", "y")
+  )
+}
+
+summarise_adv_incr <- function(df) {
+  if (!"adv.incr" %in% colnames(df)) {
+    return(list(
+      adv_incr = NA,
+      n_adv_true = NA_integer_,
+      n_adv_false = NA_integer_
+    ))
+  }
+
+  adv <- as_adv_incr_logical(df[["adv.incr"]])
+  list(
+    adv_incr = if (all(is.na(adv))) NA else any(adv, na.rm = TRUE),
+    n_adv_true = sum(adv == TRUE, na.rm = TRUE),
+    n_adv_false = sum(adv == FALSE, na.rm = TRUE)
+  )
+}
 
 input_path <- args[1] #"../../03_postprocessing/outputs/level4b_bsc_filtered.parquet" #distances_bsc.parquet
 output_path <- args[2] #"../outputs/pods/test.parquet"
@@ -69,11 +247,24 @@ ctrl <- args[4] #"s0617825"
 dmso_mode <- args[5] #"closest"  # "closest" or "plate" # Improve ? : "rowcol" → same row or column only | "k_closest" → k nearest DMSOs | "radius" → within N wells
 category <- unlist(strsplit(args[6], ",")) #c("DNA", "ER", "AGP", "RNA", "Mito", "Brightfield")
 log10.dose <- as.logical(args[7]) #TRUE
-compounds <- args[8] #"all"
+compound_selector <- args[8] #"all" or a 1-based compound-list line number
 permutation <- as.logical(args[9]) #FALSE
-thresholds_n_active <- args[10]
+thresholds_n_active <- suppressWarnings(as.numeric(args[10]))
 output_path_all <- args[11] # "../outputs/pods/feature_wise/test_cmpd.parquet"
 feature_selection_score_file <- args[12]
+compound_list_path <- if (length(args) >= 13) optional_arg(args[13]) else NA_character_
+
+if (!is.na(compound_list_path)) {
+  compound_line <- suppressWarnings(as.integer(compound_selector))
+  compounds <- read_compound_from_list(compound_list_path, compound_line)
+  message(sprintf(
+    "Resolved compound list line %d to '%s'.",
+    compound_line,
+    compounds
+  ))
+} else {
+  compounds <- compound_selector
+}
 
 # 2. Calculate BMDs for each features
 dat <- read_parquet(input_path) %>% as.data.frame()
@@ -82,25 +273,34 @@ if (feature_selection_score_file != "NA") {
   feature_selection_score_dt = read.table(feature_selection_score_file, sep = ",", header = T)
   feat_cols <- feature_selection_score_dt$feature
   if (length(feat_cols) == 0) {
-    message("feat_cols is empty — writing empty parquet and exiting.")
-    
-    empty_df <- data.frame(
-      Metadata_compound = compounds[1],
-      bmd       = NA_real_,
-      bmdl      = NA_real_,
-      bmdu      = NA_real_,
-      bmd_sd    = NA_real_,
-      bmdl_sd   = NA_real_,
-      bmdu_sd   = NA_real_,
-      n.active  = 0L,
-      conv.pass = NA,
-      hd.pass   = NA,
-      CI.pass   = NA,
-      ld.pass   = NA,
-      all.pass  = FALSE
-    )
-    arrow::write_parquet(empty_df, output_path)
-    if (!is.null(output_path_all)) arrow::write_parquet(empty_df, output_path_all)
+    message("feat_cols is empty — writing empty output and exiting.")
+
+    if (permutation) {
+      writeLines("0", output_path)
+    } else {
+      empty_df <- data.frame(
+        Metadata_compound = compounds[1],
+        bmd       = NA_real_,
+        bmdl      = NA_real_,
+        bmdu      = NA_real_,
+        bmd_sd    = NA_real_,
+        bmdl_sd   = NA_real_,
+        bmdu_sd   = NA_real_,
+        n.active  = 0L,
+        adv.incr  = NA,
+        n.active_adv_true = 0L,
+        n.active_adv_false = 0L,
+        conv.pass = NA,
+        hd.pass   = NA,
+        CI.pass   = NA,
+        ld.pass   = NA,
+        all.pass  = FALSE
+      )
+      arrow::write_parquet(empty_df, output_path)
+      if (!is.null(output_path_all)) {
+        arrow::write_parquet(empty_feature_bmd_result(compounds[1]), output_path_all)
+      }
+    }
     
     quit(save = "no", status = 0)
   }
@@ -111,7 +311,7 @@ if (feature_selection_score_file != "NA") {
 dat <- dat %>%
   bind_cols(map_dfr(.$Metadata_well, well_to_coord))
 
-if (compounds == "all") {
+if (identical(compounds, "all")) {
   compounds <- unique(dat$Metadata_compound)
   compounds <- compounds[!grepl(ctrl, compounds)]
 }
@@ -130,7 +330,6 @@ if (dmso_mode == "plate") {
 
 # ── Loop over compounds ───────────────────────────────────────────────
 res_list <- vector("list", length(compounds))
-names(res_list) <- compounds
 
 for (i in seq_along(compounds)) {
   compound <- compounds[i]
@@ -169,17 +368,18 @@ for (i in seq_along(compounds)) {
   dat_mat <- dat_mat + shift_vals
   
   # Compute FastBMD
-  fit_obj <- PerformCurveFitting(
+  fit_obj <- with_parallel_port_retry(PerformCurveFitting(
     data   = dat_mat[, , drop = FALSE],
     dose   = doses,
     ncpus  = ncpus,
     models = c("Exp2", "Exp3", "Exp4", "Exp5", "Poly2", "Lin", "Power", "Hill")
-  )
+  ))
   fit_obj <- FilterDRFit(fit_obj, lof.pval = 0, filt.var = "AIC.model")
-  fit_obj <- PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile")
+  fit_obj <- with_parallel_port_retry(PerformBMDCalc(fit_obj, ncpus = ncpus, num.sds = num.sds, bmr.method = "ctrl.quantile"))
   
   # Filter active and Count valid BMDs
   fit_obj$bmd_res$Metadata_compound = compound
+  fit_obj$bmd_res <- ensure_adv_incr_col(fit_obj$bmd_res)
   fit_obj_passed_bmd_res  <- fit_obj$bmd_res[fit_obj$bmd_res[, "all.pass"] == TRUE, ]
   
   if (permutation) {
@@ -190,32 +390,7 @@ for (i in seq_along(compounds)) {
   
   # write all features results
   if (nrow(fit_obj_passed_bmd_res) == 0) {
-    fit_obj_passed_bmd_res <- data.frame(
-      gene.id           = NA_character_,
-      mod.name          = NA_character_,
-      b                 = NA_real_,
-      c                 = NA_real_,
-      d                 = NA_real_,
-      e                 = NA_real_,
-      f                 = NA_real_,
-      SDres             = NA_real_,
-      AIC.model         = NA_real_,
-      lof.p             = NA_real_,
-      ctrl.mod          = NA_real_,
-      ctrl.mean         = NA_real_,
-      adv.incr          = NA,
-      bmd               = NA_real_,
-      bmdl              = NA_real_,
-      bmdu              = NA_real_,
-      bmr               = NA_real_,
-      SDctrl            = NA_real_,
-      conv.pass         = NA,
-      hd.pass           = NA,
-      CI.pass           = NA,
-      ld.pass           = NA,
-      all.pass          = FALSE,
-      Metadata_compound = compound
-    )
+    fit_obj_passed_bmd_res <- empty_feature_bmd_result(compound)
   }
   if (!permutation) {
     arrow::write_parquet(fit_obj_passed_bmd_res, file.path(output_path_all))
@@ -230,6 +405,7 @@ for (i in seq_along(compounds)) {
                 any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE) & 
                 any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE) &
                 n_active_features)
+  adv_incr_summary <- summarise_adv_incr(fit_obj_passed_bmd_res)
 
   res_list[[i]] <- data.frame(
     Metadata_compound  = compound,
@@ -240,6 +416,9 @@ for (i in seq_along(compounds)) {
     bmdl_sd   = bmd_sd(fit_obj_passed_bmd_res$bmdl),
     bmdu_sd   = bmd_sd(fit_obj_passed_bmd_res$bmdu),
     n.active  = n_active_features,
+    adv.incr  = adv_incr_summary$adv_incr,
+    n.active_adv_true = adv_incr_summary$n_adv_true,
+    n.active_adv_false = adv_incr_summary$n_adv_false,
     conv.pass = any(fit_obj_passed_bmd_res$conv.pass, na.rm = TRUE),
     hd.pass   = any(fit_obj_passed_bmd_res$hd.pass,   na.rm = TRUE),
     CI.pass   = any(fit_obj_passed_bmd_res$CI.pass,    na.rm = TRUE),

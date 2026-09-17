@@ -200,7 +200,7 @@ def _(glob, pd):
 
 @app.cell
 def _():
-    with open("modules/04_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold.txt") as _f:
+    with open("modules/04_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold_bsc.txt") as _f:
         feature_wise_permutation_threshold = float(_f.read().strip())
     return (feature_wise_permutation_threshold,)
 

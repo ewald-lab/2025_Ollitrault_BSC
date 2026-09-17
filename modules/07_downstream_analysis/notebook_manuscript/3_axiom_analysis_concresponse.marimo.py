@@ -8,8 +8,10 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     import argparse
+    import glob
+    import os
     import sys
-    return argparse, mo, sys
+    return argparse, glob, mo, os, sys
 
 
 @app.cell
@@ -23,7 +25,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""# 3. B. Analysis of Cell Painting dose response analysis: BSC""")
+    mo.md(r"""# 3. A. Analysis of Cell Painting dose response analysis: Axiom""")
     return
 
 
@@ -32,14 +34,16 @@ def _(argparse, mo, sys):
     # Define the parser
     parser = argparse.ArgumentParser(description="My Marimo Report")
     parser.add_argument("--name", type=str, default="Default")
-    parser.add_argument("--input", type=str, default="modules/03_postprocessing/outputs/level5_bsc_all_features_filtered_converted.parquet") # TODO : adapt for level6
+    parser.add_argument("--input", type=str, default="modules/02_processing/outputs/level5_axiom_selected_features.parquet") # TODO : adapt for level6
     parser.add_argument("--input_pods_cp_all", type=str, default=
-        "modules/04_concresponse/outputs/pods/pods_bsc_cp_all_original_conc.parquet")
+        "modules/04_concresponse/outputs/pods/pods_axiom_cp_feature_wise_all.parquet")
     parser.add_argument("--input_pods_cp", type=str, default=
-        "modules/04_concresponse/outputs/pods/pods_bsc_cp_original_conc.parquet")
+        "modules/04_concresponse/outputs/pods/pods_axiom_cp.parquet")
+    parser.add_argument("--feature_wise_permutation_threshold", type=str, default=
+        "modules/04_concresponse/outputs/pods/feature_wise/feature_wise_median_permutation_threshold_axiom.txt")
     parser.add_argument("--input_pods_metadata", nargs="+", default=[
-        "modules/04_concresponse/outputs/pods/pods_bsc_Metadata_ldh_normalized_original_conc.parquet",
-        "modules/04_concresponse/outputs/pods/pods_bsc_Metadata_mtt_normalized_original_conc.parquet"
+        "modules/04_concresponse/outputs/pods/pods_axiom_Metadata_ldh_normalized_original_conc.parquet",
+        "modules/04_concresponse/outputs/pods/pods_axiom_Metadata_mtt_normalized_original_conc.parquet"
                                                            ])
     parser.add_argument("--control", type=str, default="s0617825")
     parser.add_argument("--metadata_cell_viability", nargs="+", default=[
@@ -51,7 +55,7 @@ def _(argparse, mo, sys):
 
     # Use the parsed values in your notebook
     mo.md(f"# Report for {args.name}")
-    mo.md(f"Input path for {args.name} of data cp pods : {args.input_pods_cp}; metadata pods : {args.input_pods_metadata}")
+    mo.md(f"Input path for {args.name} of feature-wise CP pods : {args.input_pods_cp_all}; metadata pods : {args.input_pods_metadata}")
     return (args,)
 
 
@@ -71,15 +75,92 @@ def _(args, pd):
 
 
 @app.cell
-def _(args, pd):
-    df_cp_pods_all = pd.read_parquet(args.input_pods_cp_all)
+def _(args, glob, os, pd):
+    _cp_all_paths = [
+        _path for _path in glob.glob(args.input_pods_cp_all)
+        if os.path.exists(_path)
+    ]
+
+    if not _cp_all_paths:
+        _cp_all_paths = [
+            _path
+            for _path in glob.glob(
+                "modules/04_concresponse/outputs/pods/feature_wise/"
+                "pods_axiom_cp_feature_wise_all.parquet"
+            )
+            if os.path.exists(_path)
+        ]
+
+    if not _cp_all_paths:
+        _cp_all_paths = [
+            _path
+            for _path in glob.glob(
+                "modules/04_concresponse/outputs/pods/feature_wise/"
+                "pod_axiom_line*_feature_wise_original_conc.parquet"
+            )
+            if os.path.exists(_path)
+        ]
+
+    if not _cp_all_paths:
+        raise FileNotFoundError(
+            "No Axiom feature-wise CP POD parquet found. Expected "
+            f"{args.input_pods_cp_all} or pod_axiom_line*_feature_wise_original_conc.parquet."
+        )
+
+    if len(_cp_all_paths) == 1:
+        df_cp_pods_all = pd.read_parquet(_cp_all_paths[0])
+    else:
+        df_cp_pods_all = pd.concat(
+            [pd.read_parquet(_path) for _path in _cp_all_paths],
+            ignore_index=True
+        )
     df_cp_pods_all.head()
     return (df_cp_pods_all,)
 
 
 @app.cell
-def _(args, pd):
-    df_cp_pods = pd.read_parquet(args.input_pods_cp)
+def _(args):
+    try:
+        with open(args.feature_wise_permutation_threshold) as _f:
+            feature_wise_permutation_threshold = float(_f.read().strip())
+    except FileNotFoundError:
+        try:
+            feature_wise_permutation_threshold = float(args.feature_wise_permutation_threshold)
+        except ValueError as _exc:
+            raise FileNotFoundError(
+                "Axiom feature-wise permutation threshold was not found. Expected "
+                f"{args.feature_wise_permutation_threshold} or pass a numeric threshold."
+            ) from _exc
+    feature_wise_permutation_threshold
+    return (feature_wise_permutation_threshold,)
+
+
+@app.cell
+def _(df_cp_pods_all, feature_wise_permutation_threshold, pd):
+    _df_cp_passed = df_cp_pods_all[df_cp_pods_all["all.pass"] == True].copy()
+    _n_active = _df_cp_passed.groupby("Metadata_compound").size()
+    _valid = _n_active[_n_active >= feature_wise_permutation_threshold].index
+
+    _all_compounds_fw = _df_cp_passed["Metadata_compound"].unique()
+    _df_cp_valid = _df_cp_passed[_df_cp_passed["Metadata_compound"].isin(_valid)].copy()
+
+    _cp_pac_series = (
+        _df_cp_valid
+        .groupby("Metadata_compound")["cp_POD_um"]
+        .quantile(0.05, interpolation="linear")
+        .rename("cp_POD_um")
+    )
+
+    df_cp_pods = (
+        pd.DataFrame({"Metadata_compound": _all_compounds_fw})
+        .merge(
+            _n_active.rename("n_active_features").reset_index(),
+            on="Metadata_compound",
+            how="left",
+        )
+        .merge(_cp_pac_series.reset_index(), on="Metadata_compound", how="left")
+    )
+    df_cp_pods["all.pass"] = df_cp_pods["Metadata_compound"].isin(_valid)
     df_cp_pods.head()
     return (df_cp_pods,)
 
@@ -113,6 +194,8 @@ def _(df_cp_pods, dict_df_meta_pods, pd):
     for _name, _df in dict_all_dfs_pods.items():
         _n_rows = len(_df)
         _n_all_pass = _df['all.pass'].sum()
+        _n_allpass_adv_true = None
+        _n_allpass_adv_false = None
 
         # check if 'adv.incr' exists in the df
         if 'adv.incr' in _df.columns:
@@ -267,34 +350,40 @@ def _(mo):
 
 @app.cell
 def _(df_cp_pods_all, pd):
+    _channels = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+
+    def _get_channel(_feature_name):
+        for _channel in _channels:
+            if _channel in str(_feature_name):
+                return _channel
+        return None
+
+    _df = df_cp_pods_all.copy()
+    _df["channel"] = _df["gene.id"].apply(_get_channel)
+    _df = _df[_df["channel"].notna()].copy()
     _summary_rows = []
 
-    for gene, _df in df_cp_pods_all.groupby("gene.id"):
+    for _channel, _df_channel in _df.groupby("channel"):
 
-        _n_rows = len(_df)
-        _n_all_pass = _df["all.pass"].sum()
-
-        if "adv.incr" in _df.columns:
-            _n_allpass_adv_true = _df[
-                (_df["all.pass"]) & (_df["adv.incr"] == True)
-            ].shape[0]
-
-            _n_allpass_adv_false = _df[
-                (_df["all.pass"]) & (_df["adv.incr"] == False)
-            ].shape[0]
-        else:
-            _n_allpass_adv_true = None
-            _n_allpass_adv_false = None
+        _n_rows = len(_df_channel)
+        _n_all_pass = _df_channel["all.pass"].sum()
 
         _summary_rows.append({
-            "dataset": gene,
+            "channel": _channel,
             "n_rows": _n_rows,
             "n_all_pass": _n_all_pass,
-            "n_allpass_adv_true": _n_allpass_adv_true,
-            "n_allpass_adv_false": _n_allpass_adv_false
+            "n_compounds": _df_channel["Metadata_compound"].nunique(),
+            "n_active_compounds": _df_channel.loc[
+                _df_channel["all.pass"] == True, "Metadata_compound"
+            ].nunique(),
         })
 
     summary_table_pods_channels = pd.DataFrame(_summary_rows)
+    _order = {channel: idx for idx, channel in enumerate(_channels)}
+    summary_table_pods_channels = summary_table_pods_channels.sort_values(
+        "channel",
+        key=lambda _s: _s.map(_order).fillna(len(_order))
+    )
     summary_table_pods_channels
     return
 
@@ -307,21 +396,42 @@ def _(mo):
 
 @app.cell
 def _(df_cp_pods_all, np, plt):
+    _channels = ["DNA", "ER", "AGP", "RNA", "Mito", "Brightfield"]
+
+    def _get_channel(_feature_name):
+        for _channel in _channels:
+            if _channel in str(_feature_name):
+                return _channel
+        return None
+
     # Filter your data: keep all.pass True and finite POD values > 0
     df_plot_cp_pods_all = df_cp_pods_all[
         (df_cp_pods_all["all.pass"] == True) &
-        (np.isfinite(df_cp_pods_all["cp_all_POD_um"])) &
-        (df_cp_pods_all["cp_all_POD_um"] < 100000000) &
-        (df_cp_pods_all["cp_all_POD_um"] > 0)  # log scale requires > 0
+        (np.isfinite(df_cp_pods_all["cp_POD_um"])) &
+        (df_cp_pods_all["cp_POD_um"] < 100000000) &
+        (df_cp_pods_all["cp_POD_um"] > 0)  # log scale requires > 0
+    ].copy()
+    df_plot_cp_pods_all["channel"] = df_plot_cp_pods_all["gene.id"].apply(_get_channel)
+
+    _present_channels = set(df_plot_cp_pods_all["channel"].dropna())
+    _plot_channels = [
+        _channel for _channel in _channels
+        if _channel in _present_channels
     ]
 
-    # Group by gene.id
-    _groups = df_plot_cp_pods_all.groupby("gene.id")
+    data_plot = [
+        df_plot_cp_pods_all.loc[
+            df_plot_cp_pods_all["channel"] == _channel,
+            "cp_POD_um"
+        ].values
+        for _channel in _plot_channels
+    ]
+    _labels = [
+        f"{_channel}\n(n={len(_values)})"
+        for _channel, _values in zip(_plot_channels, data_plot)
+    ]
 
-    data_plot = [g["cp_all_POD_um"].values for _, g in _groups]
-    _labels = [name for name, _ in _groups]
-
-    plt.figure(figsize=(max(6, len(_labels) * 0.8), 6))
+    plt.figure(figsize=(max(6, len(_labels) * 1.1), 6))
 
     # Boxplot
     plt.boxplot(data_plot, labels=_labels, showfliers=False)
@@ -334,7 +444,7 @@ def _(df_cp_pods_all, np, plt):
         plt.scatter(_x_jitter, _values, alpha=0.5)
 
     plt.ylabel("POD (µM)")
-    plt.title("CP POD distributions by gene (all.pass = True)")
+    plt.title("CP POD distributions by channel (all.pass = True)")
     plt.yscale("log")
     plt.xticks(rotation=45, ha="right")
 

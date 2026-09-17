@@ -4,6 +4,7 @@ workflow concresponse_workflow {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
 
     main:
         // 1. compute distance
@@ -15,17 +16,37 @@ workflow concresponse_workflow {
         path_data_5b = compile_distances(path_data_5a.collect())
         // 3a. fit curves (bmds)
         path_data_5c = fit_curves(path_data_5b)
-        // 4. fit curves meta (CC, MTT, LDH)
+        // 4. fit curves meta (CC, MTT, LDH) by compound-list line
+        ch_compound_lines_5d = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
+
         channel_5d_meta_channel = Channel
             .fromList(params.concentration_response.compute_meta_pods)
 
-        path_data_5d = fit_curves_meta(
-                                        channel_5d_meta_channel
-                                            .combine(input_data_level4)
-                                            .map { meta_nm, input ->
-                                                tuple(meta_nm, input)
-                                            }
-                                    ) // Now path_data_5d emits: (meta_nm, meta_pods_path)
+        path_data_5d_by_line = fit_curves_meta(
+            channel_5d_meta_channel
+                .combine(input_data_level4)
+                .combine(ch_compound_lines_5d)
+                .map { meta_nm, input, compound_line, compound_list_file ->
+                    tuple(meta_nm, input, compound_line, compound_list_file)
+                }
+        ) // emits: (meta_nm, compound_line, meta_pods_path)
+
+        path_data_5d = path_data_5d_by_line
+            .map { meta_nm, compound_line, meta_pods_path ->
+                tuple(meta_nm, meta_pods_path)
+            }
+            .groupTuple()
+            | concatenate_metadata_pod_files
+
         // 5. select PODs
         path_data_5e = select_pod(path_data_5c)
         
@@ -132,19 +153,39 @@ workflow concresponse_workflow_metadata {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
 
     main:
-        // 1. Fit curves for metadata assays (CC, MTT, LDH, …)
+        ch_compound_lines_meta = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
+
+        // 1. Fit curves for metadata assays (CC, MTT, LDH, ...) by compound-list line
         channel_meta = Channel
             .fromList(params.concentration_response.compute_meta_pods)
 
-        path_data_meta = fit_curves_meta(
+        path_data_meta_by_line = fit_curves_meta(
             channel_meta
                 .combine(input_data_level4)
-                .map { meta_nm, input ->
-                    tuple(meta_nm, input)
+                .combine(ch_compound_lines_meta)
+                .map { meta_nm, input, compound_line, compound_list_file ->
+                    tuple(meta_nm, input, compound_line, compound_list_file)
                 }
-        ) // emits: (meta_nm, meta_pods_path)
+        ) // emits: (meta_nm, compound_line, meta_pods_path)
+
+        path_data_meta = path_data_meta_by_line
+            .map { meta_nm, compound_line, meta_pods_path ->
+                tuple(meta_nm, meta_pods_path)
+            }
+            .groupTuple()
+            | concatenate_metadata_pod_files
 
         // 2. Transform back log10 concentration — metadata branch only
         transform_input_meta = path_data_meta
@@ -166,38 +207,61 @@ workflow concresponse_workflow_feature_wise {
     take:
         input_data_level4
         input_data_level5
+        input_list_compounds
     main:
-        ch_compounds = Channel.fromPath("${params.base_dir}/modules/01_preprocessing/outputs/compounds_bsc.txt")
-                              .splitText()
-                              .map { it.trim() }
+        ch_compound_lines = input_list_compounds
+            .flatMap { compound_file ->
+                def records = []
+                compound_file.toFile().eachLine { line, line_number ->
+                    if (line.trim()) {
+                        records << tuple(line_number, compound_file)
+                    }
+                }
+                records
+            }
         
-        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(input_data_level4.first(),ch_compounds)
+        ch_feature_selection_interdependence_score = select_feature_selection_interdependence_score(
+            input_data_level4.first(),
+            ch_compound_lines
+        )
+
+        ch_feature_selection_score_by_line = ch_feature_selection_interdependence_score.score_by_compound
+            .join(ch_compound_lines)
 
         ch_permutation_n_active = fit_curves_feature_wise_permutation(
             input_data_level4.first(),
-            ch_compounds.randomSample(100),
+            ch_compound_lines.randomSample(100),
             "TRUE"
         )
 
-        // Collect all n_actives_permutation values and compute mean
-        ch_permutation_n_active_threshold = ch_permutation_n_active
-            .collectFile(name: "all_n_actives_permutation.txt", newLine: true)
+        // Collect permutation active-feature counts across all feature columns.
+        ch_permutation_n_active_threshold = ch_permutation_n_active.n_active_by_compound_permutation
+            .map { compound_line, permutation, n_active_file -> n_active_file }
+            .collectFile(name: "all_n_actives_permutation_${params.input_name}.txt", newLine: true)
             | compute_percentile_permutation_active_features
 
-        // Run feature-wise curve fitting with threshold
+        // Run feature-wise curve fitting after interdependence-score filtering, with threshold.
         ch_fit_curves_feature_wise = fit_curves_feature_wise(
             input_data_level4.first(),
-            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> compound },
-            ch_permutation_n_active_threshold.median_val.first(),
-            ch_feature_selection_interdependence_score.score_by_compound.map { compound, score -> score }
+            ch_feature_selection_score_by_line,
+            ch_permutation_n_active_threshold.median_val.first()
         )
 
         ch_fit_curves_feature_wise_log10 = transform_log10concentration(input_data_level4.first(), ch_fit_curves_feature_wise.pod_feature_wise, "cp", "modules/04_concresponse/outputs/pods/feature_wise")
 
-        // Collect all parquet outputs and concatenate
+        // Collect summary POD outputs and concatenate.
         ch_concatenated = ch_fit_curves_feature_wise.pod
             .collect()
             | concatenate_parquet_files
+
+        // Collect transformed feature-wise BMD outputs into one file with all features for all compounds.
+        ch_concatenated_feature_wise = ch_fit_curves_feature_wise_log10
+            .collect()
+            | concatenate_feature_wise_parquet_files
+
+    emit:
+        summary_pods = ch_concatenated
+        feature_wise_pods = ch_concatenated_feature_wise
 }
 
 workflow concresponse_workflow_bayesian_inference {
@@ -343,7 +407,7 @@ process fit_curves {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
         path input_file
@@ -365,29 +429,69 @@ process fit_curves {
 // ---------------------------------------------------------------------------
 // fit_curves_meta: CC, MTT, LDH
 // ---------------------------------------------------------------------------
-// Rscript modules/04_concresponse/scripts/fit_curves_meta.R 02_processed_data/level4b_bsc.parquet pods_Metadata_mtt_normalized.parquet 2 Metadata_ldh_normalized s0617825
+// Rscript modules/04_concresponse/scripts/fit_curves_meta.R 02_processed_data/level4b_bsc.parquet pods_Metadata_mtt_normalized_line1.parquet 2 Metadata_ldh_normalized s0617825 closest 1 compounds_bsc.txt
 // Rscript /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/compute_distances.R 02_processed_data/level4b_axiom.parquet 03_tables/distance_axiom_cmd.parquet 0.95 Metadata_Perturbation "DNA,ER,AGP,RNA,Mito,Brightfield" cmd DMSO /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/gmd_functions.R /Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/00.first_analysis_module/modules/04_concresponse/scripts/cmd_functions.R
 process fit_curves_meta {
-    tag { "${input_file.baseName} ${meta_nm}" }
+    tag { "${input_file.baseName} ${meta_nm} line=${compound_line}" }
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
-
     input:
-        tuple val(meta_nm), path(input_file)
+        tuple val(meta_nm), path(input_file), val(compound_line), path(compound_list_file)
 
     output:
-        tuple val(meta_nm), path("pods_${params.input_name}_${meta_nm}.parquet")
+        tuple val(meta_nm), val(compound_line), path("pods_${params.input_name}_${meta_nm}_line${compound_line}.parquet")
 
     """
     Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_meta.R \
         ${input_file} \
-        pods_${params.input_name}_${meta_nm}.parquet \
+        pods_${params.input_name}_${meta_nm}_line${compound_line}.parquet \
         ${params.concentration_response.num_sds} \
         ${meta_nm} \
         ${params.control} \
-        ${params.concentration_response.dmso_mode}
+        ${params.concentration_response.dmso_mode} \
+        ${compound_line} \
+        ${compound_list_file}
+    """
+}
+
+
+// ---------------------------------------------------------------------------
+// concatenate_metadata_pod_files
+// ---------------------------------------------------------------------------
+process concatenate_metadata_pod_files {
+    tag { "${meta_nm}" }
+
+    label 'r'
+
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
+
+    input:
+        tuple val(meta_nm), path(input_files)
+
+    output:
+        tuple val(meta_nm), path("pods_${params.input_name}_${meta_nm}.parquet")
+
+    script:
+    def r_quote = { x -> '"' + x.toString().replace('\\', '\\\\').replace('"', '\\"') + '"' }
+    def r_files = input_files.collect { r_quote(it) }.join(', ')
+
+    """
+    Rscript - <<'EOF'
+    library(arrow)
+    library(dplyr)
+
+    files <- c(${r_files})
+    if (length(files) == 0) {
+      stop("No metadata POD files were provided for ${meta_nm}.")
+    }
+
+    line_number <- suppressWarnings(as.integer(gsub("[^0-9]", "", sub(".*_line", "", basename(files)))))
+    files <- files[order(line_number, na.last = TRUE)]
+
+    combined <- dplyr::bind_rows(lapply(files, arrow::read_parquet))
+    arrow::write_parquet(combined, "pods_${params.input_name}_${meta_nm}.parquet")
+EOF
     """
 }
 
@@ -401,7 +505,7 @@ process select_pod {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
     // tuple val(meta_nm), path(input_file_meta_pods), path(input_file_bmds)
@@ -427,7 +531,7 @@ process select_pod {
 process transform_back_log10concentration {
     tag { "${input_file.baseName} ${meta_nm}" }
 
-    publishDir "modules/04_concresponse/outputs/pods", mode: 'symlink', pattern: '*.parquet'
+    publishDir "modules/04_concresponse/outputs/pods", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
     tuple val(meta_nm), path(input_file), path(input_file_metadata), val(is_metadata_pods)
@@ -457,7 +561,7 @@ process transform_back_log10concentration {
 process transform_log10concentration {
     tag { "${input_file.baseName} ${path_dt_pod}" }
 
-    publishDir "${publishdir}", mode: 'symlink', pattern: '*.parquet'
+    publishDir "${publishdir}", mode: 'copy', pattern: '*.parquet', overwrite: true
 
     input:
         path input_file
@@ -598,105 +702,129 @@ process analysis_concresponse_report {
 }
 
 process select_feature_selection_interdependence_score {
-    tag { "${input_file.baseName} ${compound}" }
-    publishDir { "modules/04_concresponse/outputs/interdependence_score" }, mode: 'symlink', pattern: '*.txt'
+    tag { "${input_file.baseName} compound_line=${compound_line}" }
+    publishDir "modules/04_concresponse/outputs/interdependence_score",
+        mode: 'copy',
+        pattern: '*.txt'
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(compound_list_file)
     output:
-        tuple val(compound), path("feature_selection_interdependence_score_${params.input_name}_${compound}.txt"), emit: score_by_compound
+        tuple val(compound_line), path("feature_selection_interdependence_score_${params.input_name}_line*.txt"), emit: score_by_compound
+    script:
+        def output_file = "feature_selection_interdependence_score_${params.input_name}_line${compound_line}.txt"
 
     """
-    echo test3
-    python ${params.base_dir}/modules/04_concresponse/scripts/select_features_interdependence_scores.py \\
-        --input_path ${input_file} \\
-        --output_path feature_selection_interdependence_score_${params.input_name}_${compound}.txt \\
-        --ctrl ${params.control} \\
-        --compounds ${compound} \\
-        --num_tests ${params.concentration_response.num_tests} \\
-        --p_value_correction ${params.concentration_response.p_value_correction}
+    python "${params.base_dir}/modules/04_concresponse/scripts/select_features_interdependence_scores.py" \\
+        --input_path "${input_file}" \\
+        --output_path "${output_file}" \\
+        --ctrl "${params.control}" \\
+        --dmso_mode "${params.concentration_response.dmso_mode}" \\
+        --compound_list_path "${compound_list_file}" \\
+        --compound_line "${compound_line}" \\
+        --num_tests "${params.concentration_response.num_tests}" \\
+        --p_value_correction "${params.concentration_response.p_value_correction}"
     """
 }
 
 process fit_curves_feature_wise_permutation {
-    tag { compound }
+
+    tag { "compound_line=${compound_line} permutation=${permutation}" }
+
     label 'r'
+
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(compound_list_file)
         val permutation
-    output:
-        path "n_active_permutation_${params.input_name}_${compound}.txt"
 
+    output:
+        tuple val(compound_line), val(permutation), path("n_active_permutation_${params.input_name}_line*.txt"), emit: n_active_by_compound_permutation
+
+    script:
+        def output_file = "n_active_permutation_${params.input_name}_line${compound_line}.txt"
 
     """
-    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R \\
-        ${input_file} \\
-        n_active_permutation_${params.input_name}_${compound}.txt \\
-        ${params.concentration_response.num_sds} \\
-        ${params.control} \\
-        ${params.concentration_response.dmso_mode} \\
-        ${params.categories.join(',')} \\
-        TRUE \\
-        ${compound} \\
-        ${permutation} \\
-        NA \\
-        NA \\
-        NA 
+    set -euo pipefail
+
+    Rscript "${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R" \\
+        "${input_file}" \\
+        "${output_file}" \\
+        "${params.concentration_response.num_sds}" \\
+        "${params.control}" \\
+        "${params.concentration_response.dmso_mode}" \\
+        "${params.categories.join(',')}" \\
+        "TRUE" \\
+        "${compound_line}" \\
+        "${permutation}" \\
+        "NA" \\
+        "NA" \\
+        "NA" \\
+        "${compound_list_file}"
     """
 }
 process compute_percentile_permutation_active_features {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: 'feature_wise_median_permutation_threshold.txt'
+    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'copy', pattern: 'feature_wise_median_permutation_threshold_*.txt', overwrite: true
     input:
         path threshold_active_features_file
     output:
         stdout emit: median_val
-        path "feature_wise_median_permutation_threshold.txt", emit: median_file
-"""
+        path "feature_wise_median_permutation_threshold_${params.input_name}.txt", emit: median_file
+    script:
+        def output_file = "feature_wise_median_permutation_threshold_${params.input_name}.txt"
+    """
     Rscript - <<'EOF'
     vals <- as.numeric(readLines("${threshold_active_features_file}"))
     med <- median(vals, na.rm = TRUE)
     cat(med)
-    writeLines(as.character(med), "feature_wise_median_permutation_threshold.txt")
+    writeLines(as.character(med), "${output_file}")
 EOF
 """
 }
 
 process fit_curves_feature_wise {
-    tag { compound }
-    publishDir { "modules/04_concresponse/outputs/pods/feature_wise" }, mode: 'symlink', pattern: '*_feature_wise.parquet'
+    tag { "compound_line=${compound_line}" }
+    publishDir "modules/04_concresponse/outputs/pods/feature_wise",
+        mode: 'copy',
+        pattern: '*_feature_wise.parquet',
+        overwrite: true
     label 'r'
     input:
         path input_file
-        val compound
+        tuple val(compound_line), path(feature_selection_score_file), path(compound_list_file)
         val thresholds_n_active
-        path feature_selection_score_file
     output:
-        path "pod_${params.input_name}_${compound}.parquet", emit: pod
-        path "pod_${params.input_name}_${compound}_feature_wise.parquet", emit: pod_feature_wise
-        
+        path "pod_${params.input_name}_*_summary.parquet", emit: pod
+        path "pod_${params.input_name}_*_feature_wise.parquet", emit: pod_feature_wise
+    script:
+        def pod_file = "pod_${params.input_name}_line${compound_line}_summary.parquet"
+        def pod_feature_wise_file = "pod_${params.input_name}_line${compound_line}_feature_wise.parquet"
+
+        // Bash-safe single quoting for all arguments
+        def q = { x -> "'${x.toString().replace("'", "'\"'\"'")}'" }
+
     """
-    echo yesss
-    Rscript ${params.base_dir}/modules/04_concresponse/scripts/fit_curves_features_wise.R \\
-        ${input_file} \\
-        pod_${params.input_name}_${compound}.parquet \\
-        ${params.concentration_response.num_sds} \\
-        ${params.control} \\
-        ${params.concentration_response.dmso_mode} \\
-        ${params.categories.join(',')} \\
+    Rscript ${q(params.base_dir + "/modules/04_concresponse/scripts/fit_curves_features_wise.R")} \\
+        ${q(input_file)} \\
+        ${q(pod_file)} \\
+        ${q(params.concentration_response.num_sds)} \\
+        ${q(params.control)} \\
+        ${q(params.concentration_response.dmso_mode)} \\
+        ${q(params.categories.join(','))} \\
         TRUE \\
-        ${compound} \\
+        ${q(compound_line)} \\
         FALSE \\
-        ${thresholds_n_active} \\
-        pod_${params.input_name}_${compound}_feature_wise.parquet \\
-        ${feature_selection_score_file}
+        ${q(thresholds_n_active)} \\
+        ${q(pod_feature_wise_file)} \\
+        ${q(feature_selection_score_file)} \\
+        ${q(compound_list_file)}
     """
 }
 
 process concatenate_parquet_files {
     label 'r'
-    publishDir { "modules/04_concresponse/outputs/pods/" }, mode: 'symlink', pattern: '*.parquet'
+    publishDir { "modules/04_concresponse/outputs/pods/" }, mode: 'copy', pattern: '*.parquet', overwrite: true
     input:
         path parquet_files
     output:
@@ -711,6 +839,26 @@ process concatenate_parquet_files {
     
     arrow::write_parquet(combined, "pods_${params.input_name}_cp.parquet")
 EOF
+	    """
+}
+
+process concatenate_feature_wise_parquet_files {
+    label 'r'
+    publishDir { "modules/04_concresponse/outputs/pods" }, mode: 'copy', pattern: '*.parquet', overwrite: true
+    input:
+        path parquet_files
+    output:
+        path "pods_${params.input_name}_cp_feature_wise_all.parquet"
+    """
+    Rscript - <<'EOF'
+    library(arrow)
+    
+    files <- strsplit("${parquet_files}", " ")[[1]]
+    
+    combined <- do.call(rbind, lapply(files, arrow::read_parquet))
+    
+    arrow::write_parquet(combined, "pods_${params.input_name}_cp_feature_wise_all.parquet")
+EOF
     """
 }
 
@@ -724,8 +872,8 @@ process fit_curves_bayesian_inferences {
 
     label 'r'
 
-    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.parquet'
-    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'symlink', pattern: '*.png'
+    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'copy', pattern: '*.parquet', overwrite: true
+    publishDir "modules/04_concresponse/outputs/pods/bayesian_inference", mode: 'copy', pattern: '*.png', overwrite: true
 
     input:
         path input_file
