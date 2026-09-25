@@ -165,6 +165,12 @@ def _(df_level4, df_level6):
 
 
 @app.cell
+def _(df_level4):
+    df_level4
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""## UMAP Chemical Space""")
     return
@@ -525,6 +531,12 @@ def _(all_features_bsc_axiom, df_level5, pd, umap):
 
 
 @app.cell
+def _(df_umap_level5):
+    df_umap_level5
+    return
+
+
+@app.cell
 def _(Path, df_umap_level5, dic_botanicals_scode_name, go, pio, px):
     # ── Label point type ──────────────────────────────────────────────────────────
     _botanical_scodes = set(dic_botanicals_scode_name.keys())
@@ -621,6 +633,120 @@ def _(Path, df_umap_level5, dic_botanicals_scode_name, go, pio, px):
     )
     # ── Save high-resolution image ────────────────────────────────────────────────
     pio.write_image(_fig, Path.home() / "Downloads" / "umap_level5_axiom_bsc.png", width=950, height=700, scale=6)
+    _fig.show()
+    return
+
+
+@app.cell
+def _(df_level4, df_umap_level5):
+    _ldh_means = (
+        df_level4
+        .groupby(["Dataset", "Metadata_compound"], as_index=False)
+        ["Metadata_ldh_ridge_norm"].mean()
+    )
+
+    _merged = df_umap_level5.merge(
+        _ldh_means,
+        on=["Dataset", "Metadata_compound"],
+        how="left",
+    )
+
+    df_umap_level5["Metadata_ldh_ridge_norm"] = _merged["Metadata_ldh_ridge_norm"].values
+    return
+
+
+@app.cell
+def _(Path, df_umap_level5, dic_botanicals_scode_name, go, pio):
+    # ── Label point type (recomputed here in case this is a fresh cell) ──────────
+    _botanical_scodes = set(dic_botanicals_scode_name.keys())
+
+    def _label_point_type(_compound):
+        if _compound in ("s0617825", "DMSO"):
+            return "DMSO"
+        elif _compound in _botanical_scodes:
+            return "Botanical"
+        else:
+            return "Compound"
+
+    df_umap_level5["PointType"] = df_umap_level5["Metadata_compound"].apply(_label_point_type)
+
+    df_umap_level5["DisplayName"] = df_umap_level5["Metadata_compound"].apply(
+        lambda _c: dic_botanicals_scode_name.get(_c, _c) if _c in _botanical_scodes else _c
+    )
+
+    # ── Marker config per point type (shape only — color now encodes LDH) ────────
+    _marker_config = {
+        "Compound":  dict(symbol="circle",  size=7,  opacity=0.85),
+        "Botanical": dict(symbol="diamond", size=11, opacity=0.95),
+        "DMSO":      dict(symbol="star",    size=15, opacity=1.0),
+    }
+
+    # ── Symmetric color range so 0 sits at the midpoint of a diverging scale ─────
+    _ldh_abs_max = df_umap_level5["Metadata_ldh_ridge_norm"].abs().max()
+
+    _fig = go.Figure()
+
+    for _ptype, _mconf in _marker_config.items():
+        _df_sub = df_umap_level5[df_umap_level5["PointType"] == _ptype]
+        if _df_sub.empty:
+            continue
+
+        _fig.add_trace(go.Scatter(
+            x=_df_sub["UMAP_1"],
+            y=_df_sub["UMAP_2"],
+            mode="markers",
+            name=_ptype,
+            marker=dict(
+                symbol=_mconf["symbol"],
+                size=_mconf["size"],
+                opacity=_mconf["opacity"],
+                color=_df_sub["Metadata_ldh_ridge_norm"],
+                colorscale="RdBu_r",
+                cmin=-_ldh_abs_max,
+                cmax=_ldh_abs_max,
+                cmid=0,
+                colorbar=dict(title="LDH ridge<br>norm") if _ptype == "Compound" else None,
+                showscale=(_ptype == "Compound"),  # only draw one shared colorbar
+                line=dict(width=0.8, color="black") if _ptype != "Compound" else dict(width=0),
+            ),
+            customdata=_df_sub[["Metadata_compound", "DisplayName", "Dataset", "Metadata_ldh_ridge_norm"]].values,
+            hovertemplate=(
+                "<b>%{customdata[1]}</b><br>"
+                "ID: %{customdata[0]}<br>"
+                "Dataset: %{customdata[2]}<br>"
+                "LDH ridge norm: %{customdata[3]:.3f}<br>"
+                "UMAP1: %{x:.2f} | UMAP2: %{y:.2f}"
+                "<extra></extra>"
+            ),
+        ))
+
+    # ── Botanical text labels ─────────────────────────────────────────────────────
+    _df_bot_labels = df_umap_level5[df_umap_level5["PointType"] == "Botanical"]
+    _fig.add_trace(go.Scatter(
+        x=_df_bot_labels["UMAP_1"],
+        y=_df_bot_labels["UMAP_2"],
+        mode="text",
+        text=_df_bot_labels["DisplayName"],
+        textposition="top center",
+        textfont=dict(size=8, color="black"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ── Layout ────────────────────────────────────────────────────────────────────
+    _fig.update_layout(
+        template="plotly_white",
+        title="UMAP of Level 5 Cell Painting Profiles — colored by LDH ridge norm<br><sup>◆ Botanicals · ★ DMSO · ● Compounds</sup>",
+        xaxis_title="UMAP 1",
+        yaxis_title="UMAP 2",
+        legend_title_text="Point type",
+        width=950,
+        height=700,
+        legend=dict(itemsizing="constant", font=dict(size=10)),
+    )
+
+    # ── Save high-resolution image ────────────────────────────────────────────────
+    pio.write_image(_fig, Path.home() / "Downloads" / "umap_level5_ldh_ridge_norm.png", width=950, height=700, scale=6)
     _fig.show()
     return
 
@@ -832,7 +958,7 @@ def _(
     # ── Build two-panel figure ────────────────────────────────────────────────────
     _fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=["<b>A</b>  Profiles aggregated at the concentration level", "<b>B</b>  Profiles aggregated at the compound level"],
+        #subplot_titles=["<b>A</b>  Profiles aggregated at the concentration level", "<b>B</b>  Profiles aggregated at the compound level"],
         horizontal_spacing=0.08,
     )
 

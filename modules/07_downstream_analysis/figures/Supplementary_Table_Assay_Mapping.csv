@@ -1,0 +1,86 @@
+Shortened Assay Name,Original Full Assay Name,Assay Group,Assay Category
+BSK_3C_Proliferation,BSK_3C_Proliferation,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_3C_SRB,BSK_3C_SRB,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_3C_uPAR,BSK_3C_uPAR,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_4H_MCP1,BSK_4H_MCP1,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_4H_SRB,BSK_4H_SRB,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_4H_VCAM1,BSK_4H_VCAM1,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_4H_uPAR,BSK_4H_uPAR,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_CASM3C_Proliferation,BSK_CASM3C_Proliferation,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_CASM3C_Thrombomodulin,BSK_CASM3C_Thrombomodulin,Cell-based,Cardiovascular / Vascular Inflammation
+CD40,BSK_LPS_CD40,Cell-based,Cardiovascular / Vascular Inflammation
+MCSF,BSK_LPS_MCSF,Cell-based,Cardiovascular / Vascular Inflammation
+PGE2,BSK_LPS_PGE2,Cell-based,Cardiovascular / Vascular Inflammation
+VCAM1,BSK_LPS_VCAM1,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_SAg_CD40,BSK_SAg_CD40,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_SAg_Eselectin,BSK_SAg_Eselectin,Cell-based,Cardiovascular / Vascular Inflammation
+BSK_SAg_Proliferation,BSK_SAg_Proliferation,Cell-based,Cardiovascular / Vascular Inflammation
+DR4_LXR_CIS,ATG_DR4_LXR_CIS,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+PPRE_CIS,ATG_PPRE_CIS,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+PXRE_CIS,ATG_PXRE_CIS,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+VDRE_CIS,ATG_VDRE_CIS,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_CAR_Agonist,TOX21_CAR_Agonist,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_ERR_Antagonist,TOX21_ERR_Antagonist,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_FXR_BLA_Antagonist_ratio,TOX21_FXR_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_GR_BLA_Antagonist_ratio,TOX21_GR_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_PGC_ERR_Antagonist,TOX21_PGC_ERR_Antagonist,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_PPARg_BLA_Antagonist_ratio,TOX21_PPARg_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+TOX21_PXR_agonist,TOX21_PXR_agonist,Cell-based,Endocrine Disruption — Metabolic / Orphan Nuclear Receptors
+ERE_CIS,ATG_ERE_CIS,Cell-based,Endocrine Disruption — Sex Hormones
+OT_ER_ERaERb_1440,OT_ER_ERaERb_1440,Cell-based,Endocrine Disruption — Sex Hormones
+OT_ER_ERbERb_1440,OT_ER_ERbERb_1440,Cell-based,Endocrine Disruption — Sex Hormones
+OT_ERa_GFPERaERE_0480,OT_ERa_GFPERaERE_0480,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_AR_BLA_Agonist_ratio,TOX21_AR_BLA_Agonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_AR_BLA_Antagonist_ratio,TOX21_AR_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_AR_LUC_MDAKB2_Agonist,TOX21_AR_LUC_MDAKB2_Agonist,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM,TOX21_AR_LUC_MDAKB2_Antagonist_0.5nM_R1881,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_AR_LUC_MDAKB2_Antagonist_10nM,TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_Aromatase_Inhibition,TOX21_Aromatase_Inhibition,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_ERa_BLA_Antagonist_ratio,TOX21_ERa_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_ERa_LUC_VM7_Agonist,TOX21_ERa_LUC_VM7_Agonist,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_ERa_LUC_VM7_Antagonist_0.1nM_E2,TOX21_ERa_LUC_VM7_Antagonist_0.1nM_E2,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_ERa_LUC_VM7_Antagonist_0.5nM_E2,TOX21_ERa_LUC_VM7_Antagonist_0.5nM_E2,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_ERb_BLA_Antagonist_ratio,TOX21_ERb_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_PR_BLA_Agonist_ratio,TOX21_PR_BLA_Agonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+TOX21_PR_BLA_Antagonist_ratio,TOX21_PR_BLA_Antagonist_ratio,Cell-based,Endocrine Disruption — Sex Hormones
+CEETOX_H295R_11DCORT,CEETOX_H295R_11DCORT,Cell-based,Endocrine Disruption — Steroidogenesis & Adrenal
+CEETOX_H295R_OHPREG,CEETOX_H295R_OHPREG,Cell-based,Endocrine Disruption — Steroidogenesis & Adrenal
+TOX21_HDAC_Inhibition,TOX21_HDAC_Inhibition,Cell-based,Genotoxicity / DNA Damage
+TOX21_p53_BLA_p1_ratio,TOX21_p53_BLA_p1_ratio,Cell-based,Genotoxicity / DNA Damage
+TOX21_p53_BLA_p2_ratio,TOX21_p53_BLA_p2_ratio,Cell-based,Genotoxicity / DNA Damage
+TOX21_p53_BLA_p3_ratio,TOX21_p53_BLA_p3_ratio,Cell-based,Genotoxicity / DNA Damage
+TOX21_p53_BLA_p4_ratio,TOX21_p53_BLA_p4_ratio,Cell-based,Genotoxicity / DNA Damage
+TOX21_p53_BLA_p5_ratio,TOX21_p53_BLA_p5_ratio,Cell-based,Genotoxicity / DNA Damage
+AP_1_CIS,ATG_AP_1_CIS,Cell-based,Hepatotoxicity — General Stress Response
+MRE_CIS,ATG_MRE_CIS,Cell-based,Hepatotoxicity — General Stress Response
+NRF2_ARE_CIS,ATG_NRF2_ARE_CIS,Cell-based,Hepatotoxicity — General Stress Response
+Oct_MLP_CIS,ATG_Oct_MLP_CIS,Cell-based,Hepatotoxicity — General Stress Response
+PBREM_CIS,ATG_PBREM_CIS,Cell-based,Hepatotoxicity — General Stress Response
+SREBP_CIS,ATG_SREBP_CIS,Cell-based,Hepatotoxicity — General Stress Response
+TCF_b_cat_CIS,ATG_TCF_b_cat_CIS,Cell-based,Hepatotoxicity — General Stress Response
+LTEA_HepaRG_ALPP,LTEA_HepaRG_ALPP,Cell-based,Hepatotoxicity — General Stress Response
+LTEA_HepaRG_PEG10,LTEA_HepaRG_PEG10,Cell-based,Hepatotoxicity — General Stress Response
+TOX21_AP1_BLA_Agonist_ratio,TOX21_AP1_BLA_Agonist_ratio,Cell-based,Hepatotoxicity — General Stress Response
+TOX21_ARE_BLA_Agonist_ratio,TOX21_ARE_BLA_Agonist_ratio,Cell-based,Hepatotoxicity — General Stress Response
+LTEA_HepaRG_ABCB11,LTEA_HepaRG_ABCB11,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+LTEA_HepaRG_ABCB1,LTEA_HepaRG_ABCB1,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+LTEA_HepaRG_ABCG2,LTEA_HepaRG_ABCG2,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+LTEA_HepaRG_FABP1,LTEA_HepaRG_FABP1,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+LTEA_HepaRG_HMGCS2,LTEA_HepaRG_HMGCS2,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+LTEA_HepaRG_THRSP,LTEA_HepaRG_THRSP,Cell-based,Hepatotoxicity — Lipid Metabolism & Transport
+Ahr_CIS,ATG_Ahr_CIS,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP1A1,LTEA_HepaRG_CYP1A1,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP1A2,LTEA_HepaRG_CYP1A2,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP2B6,LTEA_HepaRG_CYP2B6,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP2C19,LTEA_HepaRG_CYP2C19,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP2C8,LTEA_HepaRG_CYP2C8,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP2E1,LTEA_HepaRG_CYP2E1,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP3A7,LTEA_HepaRG_CYP3A7,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP4A11,LTEA_HepaRG_CYP4A11,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_CYP4A22,LTEA_HepaRG_CYP4A22,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+LTEA_HepaRG_UGT1A1,LTEA_HepaRG_UGT1A1,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+TOX21_AhR_LUC_Agonist,TOX21_AhR_LUC_Agonist,Cell-based,Hepatotoxicity — Xenobiotic Metabolism
+TOX21_MMP_ratio,TOX21_MMP_ratio,Cell-based,Mitochondrial Toxicity
+cell_type__HepG2,cell_type__HepG2,Cytotoxic,
+LDH,LDH,Hit calls,
+MT,MT,Hit calls,
