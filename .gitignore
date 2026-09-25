@@ -247,3 +247,6 @@ legacy
 # Forget files
 modules/09_downstream_analysis/notebook_manuscript/1_analysis_formated_data.marimo.py
 modules/09_downstream_analysis/notebook_manuscript/3E_analysis_evaluation_data.marimo.py
+
+# RAW BSC data
+data/
