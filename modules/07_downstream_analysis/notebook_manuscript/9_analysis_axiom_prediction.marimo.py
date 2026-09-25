@@ -395,6 +395,85 @@ def _(
     return pred_matrix_class_filtered, pred_matrix_probability_filtered
 
 
+@app.cell
+def _(df_ttest_results_significant):
+    df_ttest_results_significant
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Load prediction tables""")
+    return
+
+
+@app.cell
+def _(pd):
+    df_axiom_hits_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_axiom_hits_predictions.parquet")
+    df_axiom_cellbased_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellbased_binary_predictions.parquet")
+    df_axiom_cellfree_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cellfree_binary_predictions.parquet")
+    df_axiom_cytotox_binary_prediction = pd.read_parquet("modules/06_classification/outputs/axiom_toxcast_cytotox_binary_predictions.parquet")
+    print(f"Axiom cytotoxicity predictions: {df_axiom_hits_prediction.shape}")
+    print(f"ToxCast cell-based predictions: {df_axiom_cellbased_binary_prediction.shape}")
+    print(f"ToxCast cell-free predictions: {df_axiom_cellfree_binary_prediction.shape}")
+    print(f"ToxCast cytotox predictions: {df_axiom_cytotox_binary_prediction.shape}")
+    return (
+        df_axiom_cellbased_binary_prediction,
+        df_axiom_cellfree_binary_prediction,
+        df_axiom_cytotox_binary_prediction,
+        df_axiom_hits_prediction,
+    )
+
+
+@app.cell
+def _(df_axiom_hits_prediction):
+    df_axiom_hits_prediction
+    return
+
+
+@app.cell
+def _(
+    df_axiom_cellbased_binary_prediction,
+    df_axiom_cellfree_binary_prediction,
+    df_axiom_cytotox_binary_prediction,
+    df_axiom_hits_prediction,
+    df_ttest_results_significant,
+):
+    significant_labels = set(df_ttest_results_significant["Metadata_Label"].dropna())
+
+    # Filter predictions to significant compounds
+    _df_axiom_hits_prediction_filtered = df_axiom_hits_prediction[
+        df_axiom_hits_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cellbased_binary_prediction_filtered = df_axiom_cellbased_binary_prediction[
+        df_axiom_cellbased_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cellfree_binary_prediction_filtered = df_axiom_cellfree_binary_prediction[
+        df_axiom_cellfree_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    _df_axiom_cytotox_binary_prediction = df_axiom_cytotox_binary_prediction[
+        df_axiom_cytotox_binary_prediction["Metadata_Label"].isin(significant_labels)
+    ].copy()
+
+    # Get unique compounds present in at least one filtered prediction dataframe
+    all_compounds_train = (
+        set(df_axiom_cellbased_binary_prediction["Metadata_compound"].dropna())
+        | set(df_axiom_cellfree_binary_prediction["Metadata_compound"].dropna())
+        | set(df_axiom_cytotox_binary_prediction["Metadata_compound"].dropna())
+    )
+
+    print(f"Number of compounds present in at least one dataset: {len(all_compounds_train)}")
+    return (all_compounds_train,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Prepare Assay Annotations""")
@@ -471,16 +550,41 @@ def _(assign_assay_groups, np, pd):
 
         _annotation_table = assign_assay_groups(assays)
 
-        if {
-            "assay_component_endpoint_name",
-            "claudeai_color",
-            "claudeai_label",
-        }.issubset(category_df.columns):
+        _category_color_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_color",
+                    "chatgpt_color",
+                    "claudeai_color",
+                ]
+                if _column in category_df.columns
+            ),
+            None,
+        )
+        _category_label_col = next(
+            (
+                _column
+                for _column in [
+                    "chagpt_label",
+                    "chatgpt_label",
+                    "claudeai_label",
+                ]
+                if _column in category_df.columns
+            ),
+            None,
+        )
+
+        if (
+            "assay_component_endpoint_name" in category_df.columns
+            and _category_color_col is not None
+            and _category_label_col is not None
+        ):
             _cat_lookup = (
                 category_df
                 .drop_duplicates("assay_component_endpoint_name")
                 .set_index("assay_component_endpoint_name")[
-                    ["claudeai_color", "claudeai_label"]
+                    [_category_color_col, _category_label_col]
                 ]
                 .to_dict(orient="index")
             )
@@ -500,11 +604,11 @@ def _(assign_assay_groups, np, pd):
             _annotation_table["group"].map(_group_display)
         )
         _annotation_table["category_color"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_color", "#dddddd")
+            _cat_lookup.get(_assay, {}).get(_category_color_col, "#dddddd")
             for _assay in _annotation_table["assay"]
         ]
         _annotation_table["category_label"] = [
-            _cat_lookup.get(_assay, {}).get("claudeai_label", None)
+            _cat_lookup.get(_assay, {}).get(_category_label_col, None)
             for _assay in _annotation_table["assay"]
         ]
         _annotation_table["AUROC_mean_Actual"] = [
@@ -532,20 +636,44 @@ def _(mo):
 
 @app.cell
 def _(
+    all_compounds_train,
+    pred_matrix_class_filtered,
+    pred_matrix_probability_filtered,
+):
+    # Filter compounds not in training set
+
+    pred_matrix_probability_test_compounds = pred_matrix_probability_filtered[
+        ~pred_matrix_probability_filtered["Metadata_compound"].isin(all_compounds_train)
+    ].copy()
+
+    pred_matrix_class_test_compounds = pred_matrix_class_filtered[
+        ~pred_matrix_class_filtered["Metadata_compound"].isin(all_compounds_train)
+    ].copy()
+
+    print(f"Probability matrix - other compounds: {pred_matrix_probability_test_compounds.shape}")
+    print(f"Class matrix - other compounds: {pred_matrix_class_test_compounds.shape}")
+    return (
+        pred_matrix_class_test_compounds,
+        pred_matrix_probability_test_compounds,
+    )
+
+
+@app.cell
+def _(
     build_assay_annotations,
     correlation_method,
     df_toxcast_cellbased_assay_info_significant,
     df_ttest_results_significant,
-    pred_matrix_class_filtered,
-    pred_matrix_probability_filtered,
+    pred_matrix_class_test_compounds,
+    pred_matrix_probability_test_compounds,
 ):
     df_probability_for_correlation = (
-        pred_matrix_probability_filtered
+        pred_matrix_probability_test_compounds
         .set_index("Metadata_compound")
         .astype(float)
     )
     df_binary_for_correlation = (
-        pred_matrix_class_filtered
+        pred_matrix_class_test_compounds
         .set_index("Metadata_compound")
         .astype(float)
     )
@@ -624,6 +752,12 @@ def _(mo):
 
 
 @app.cell
+def _(df_correlation_assay_annotations):
+    df_correlation_assay_annotations
+    return
+
+
+@app.cell
 def _(
     correlation_matrix,
     df_correlation_assay_annotations,
@@ -651,7 +785,20 @@ def _(
         ["group_color", "category_color"]
     ]
 
-    if len(_plot_matrix) > 1:
+    if _plot_matrix.empty:
+        _fig, _ax = plt.subplots(figsize=(6, 5))
+        _ax.text(
+            0.5,
+            0.5,
+            "No non-constant assays to correlate",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+        _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+        _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+    elif len(_plot_matrix) > 1:
         _fig_size = min(max(10, len(_plot_matrix) * 0.24), 34)
         _label_fontsize = max(10, min(9, 180 / len(_plot_matrix)))
         _clustermap = sns.clustermap(
@@ -692,33 +839,69 @@ def _(
             "Hit calls",
             "Other",
         ]
-        _legend_patches = []
+
+        _group_legend_patches = []
         for _group in _legend_group_order:
             _group_rows = df_correlation_assay_annotations[
                 df_correlation_assay_annotations["group"] == _group
             ]
             if _group_rows.empty:
                 continue
-            _legend_patches.append(
+
+            _group_legend_patches.append(
                 mpatches.Patch(
                     facecolor=_group_rows["group_color"].iloc[0],
                     label=_group_rows["group_display"].iloc[0],
                 )
             )
 
-        _clustermap.ax_heatmap.legend(
-            handles=_legend_patches,
+        _group_legend = _clustermap.ax_heatmap.legend(
+            handles=_group_legend_patches,
             loc="upper left",
-            bbox_to_anchor=(1.02, 1.2),
+            bbox_to_anchor=(0.88, 1.21),
             frameon=True,
             facecolor="white",
             edgecolor="lightgrey",
             framealpha=0.95,
             fontsize=9,
             borderpad=0.6,
-            title="Assays",
+            title="Assay groups",
             title_fontsize=10,
-        ).get_title().set_fontweight("bold")
+        )
+        _group_legend.get_title().set_fontweight("bold")
+        _clustermap.ax_heatmap.add_artist(_group_legend)
+
+        _category_legend_patches = []
+        for _category, _category_rows in (
+            df_correlation_assay_annotations
+            .dropna(subset=["category_color"])
+            .groupby("category_label", sort=True)
+        ):
+            _category_legend_patches.append(
+                mpatches.Patch(
+                    facecolor=_category_rows["category_color"].iloc[0],
+                    label=(
+                        _category_rows["category_display"].iloc[0]
+                        if "category_display" in _category_rows.columns
+                        else _category
+                    ),
+                )
+            )
+
+        _category_legend = _clustermap.ax_heatmap.legend(
+            handles=_category_legend_patches,
+            loc="upper left",
+            bbox_to_anchor=(1.0, 1.21),
+            frameon=True,
+            facecolor="white",
+            edgecolor="lightgrey",
+            framealpha=0.95,
+            fontsize=9,
+            borderpad=0.6,
+            title="Assay categories",
+            title_fontsize=10,
+        )
+        _category_legend.get_title().set_fontweight("bold")
 
         _clustermap.fig.suptitle(
             "Predicted Activity Correlation Across Significant Assays",
@@ -749,6 +932,219 @@ def _(
 
     print(f"Saved manuscript heatmap: {_figure_path}")
     print(f"Saved Downloads heatmap: {_download_path}")
+
+    _fig
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Active Predictions Compared With Training Set""")
+    return
+
+
+@app.cell
+def _(df_ttest_results_significant, pd, pred_matrix_class_test_compounds):
+    _training_counts = (
+        df_ttest_results_significant[
+            [
+                "Metadata_Label",
+                "Metadata_Count_0",
+                "Metadata_Count_1",
+            ]
+        ]
+        .drop_duplicates()
+        .groupby("Metadata_Label", as_index=False)
+        .sum()
+    )
+    _training_counts["training_total_count"] = (
+        _training_counts["Metadata_Count_0"]
+        + _training_counts["Metadata_Count_1"]
+    )
+    _training_counts["training_pct_active"] = (
+        _training_counts["Metadata_Count_1"]
+        / _training_counts["training_total_count"]
+        * 100
+    )
+
+    _prediction_cols = [
+        _column
+        for _column in pred_matrix_class_test_compounds.columns
+        if _column != "Metadata_compound"
+    ]
+    _prediction_values = pred_matrix_class_test_compounds[_prediction_cols].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+
+    _predicted_active_rate = pd.DataFrame(
+        {
+            "Metadata_Label": _prediction_cols,
+            "predicted_active_count": (
+                _prediction_values.eq(1).sum(axis=0).to_numpy()
+            ),
+            "predicted_total_count": (
+                _prediction_values.notna().sum(axis=0).to_numpy()
+            ),
+            "predicted_pct_active": (
+                _prediction_values.mean(axis=0).mul(100).to_numpy()
+            ),
+        }
+    )
+
+    df_axiom_active_rate_comparison = (
+        _predicted_active_rate
+        .merge(
+            _training_counts[
+                [
+                    "Metadata_Label",
+                    "Metadata_Count_0",
+                    "Metadata_Count_1",
+                    "training_total_count",
+                    "training_pct_active",
+                ]
+            ],
+            on="Metadata_Label",
+            how="inner",
+        )
+        .assign(
+            difference_pct_points=lambda _df: (
+                _df["predicted_pct_active"] - _df["training_pct_active"]
+            )
+        )
+        .sort_values("difference_pct_points", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print(
+        "Axiom non-training assays compared to training active rate:",
+        len(df_axiom_active_rate_comparison),
+    )
+    df_axiom_active_rate_comparison
+    return (df_axiom_active_rate_comparison,)
+
+
+@app.cell
+def _(
+    df_axiom_active_rate_comparison,
+    downloads_dir,
+    figure_output_dir,
+    np,
+    plt,
+):
+    _figure_path = (
+        figure_output_dir / "axiom_prediction_active_rate_vs_training.png"
+    )
+    _download_path = (
+        downloads_dir / "axiom_prediction_active_rate_vs_training.png"
+    )
+
+    figure_output_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    _plot_df = df_axiom_active_rate_comparison.dropna(
+        subset=["training_pct_active", "predicted_pct_active"]
+    ).copy()
+
+    _fig, _ax = plt.subplots(figsize=(7, 6))
+    if _plot_df.empty:
+        _ax.text(
+            0.5,
+            0.5,
+            "No overlapping assays to compare",
+            ha="center",
+            va="center",
+            transform=_ax.transAxes,
+        )
+        _ax.set_axis_off()
+    else:
+        _max_value = np.nanmax(
+            _plot_df[["training_pct_active", "predicted_pct_active"]].to_numpy()
+        )
+        _axis_limit = min(100, max(5, _max_value * 1.08))
+
+        _ax.scatter(
+            _plot_df["training_pct_active"],
+            _plot_df["predicted_pct_active"],
+            s=48,
+            alpha=0.78,
+            color="#55A868",
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        _ax.plot(
+            [0, _axis_limit],
+            [0, _axis_limit],
+            color="#555555",
+            linestyle="--",
+            linewidth=1,
+            label="Equal active rate",
+        )
+
+        _label_df = _plot_df.reindex(
+            _plot_df["difference_pct_points"].abs()
+            .sort_values(ascending=False)
+            .head(8)
+            .index
+        )
+        for _, _row in _label_df.iterrows():
+            _ax.annotate(
+                _row["Metadata_Label"],
+                (
+                    _row["training_pct_active"],
+                    _row["predicted_pct_active"],
+                ),
+                xytext=(4, 3),
+                textcoords="offset points",
+                fontsize=7,
+                alpha=0.85,
+            )
+
+        if len(_plot_df) > 1:
+            _pearson_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="pearson",
+            )
+            _spearman_r = _plot_df["training_pct_active"].corr(
+                _plot_df["predicted_pct_active"],
+                method="spearman",
+            )
+            _ax.text(
+                0.03,
+                0.97,
+                (
+                    f"Pearson r = {_pearson_r:.2f}\n"
+                    f"Spearman rho = {_spearman_r:.2f}\n"
+                    f"n assays = {len(_plot_df)}"
+                ),
+                transform=_ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=9,
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "white",
+                    "edgecolor": "#cccccc",
+                    "alpha": 0.9,
+                },
+            )
+
+        _ax.set_xlim(0, _axis_limit)
+        _ax.set_ylim(0, _axis_limit)
+        _ax.set_xlabel("Training set active compounds (%)")
+        _ax.set_ylabel("OASIS external test set predicted active compounds (%)")
+        _ax.set_title(
+            "Axiom External Test Set Predicted Active Rate vs Training Set"
+        )
+        _ax.grid(True, color="#e6e6e6", linewidth=0.7)
+        _ax.legend(loc="lower right", frameon=False)
+
+    _fig.tight_layout()
+    _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
+    _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
+
+    print(f"Saved Axiom active-rate plot: {_figure_path}")
+    print(f"Saved Downloads active-rate plot: {_download_path}")
 
     _fig
     return

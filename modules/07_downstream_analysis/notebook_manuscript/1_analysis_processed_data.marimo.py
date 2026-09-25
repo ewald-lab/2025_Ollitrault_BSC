@@ -417,7 +417,7 @@ def _(
     fig.tight_layout()
     fig.savefig("modules/07_downstream_analysis/figures/Figure_S2_A", dpi=300, bbox_inches="tight")
     fig
-    return (fig,)
+    return
 
 
 @app.cell
@@ -485,7 +485,7 @@ def _(mo):
 
 
 @app.cell
-def _(args, df_umap, fig, px):
+def _(args, df_umap, px):
     # --- 4. Create interactive Plotly scatter plot for Control
     df_umap_control = df_umap[df_umap["Metadata_compound"] == args.control]
     _fig = px.scatter(
@@ -506,7 +506,11 @@ def _(args, df_umap, fig, px):
         xaxis_title="UMAP 1",
         yaxis_title="UMAP 2"
     )
-    fig.savefig("modules/07_downstream_analysis/figures/Figure_S3_A", dpi=300, bbox_inches="tight")
+    _fig.write_image(
+        "modules/07_downstream_analysis/figures/Figure_S3_A.png",
+        scale=3
+    )
+
     _fig.show()
     return
 
