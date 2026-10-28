@@ -2591,13 +2591,34 @@ def _(
                 })
     _df_long = pd.DataFrame(_rows)
 
-    # ── 4. Order botanicals by median constituent PAC ─────────────────────────────
-    _order = (
-        _df_long.groupby("Plant name")["PAC"]
-        .median()
-        .sort_values()
-        .index.tolist()
-    )
+    # ── 4. Order botanicals ────────────────────────────────────────────────────────
+    # Include EVERY botanical, not just the ones with an active constituent, so
+    # botanicals with zero active constituents still get a row in the plot
+    # (an empty box/dot area, with the dashed botanical-level POD line if the
+    # botanical itself is active).
+    _all_plants = {
+        dic_botanicals_scode_name[_s]: _s
+        for _s in list_botanicals
+        if _s in dic_botanicals_scode_name
+    }
+
+    _median_pac_by_plant = _df_long.groupby("Plant name")["PAC"].median()
+
+    def _order_key(_plant_name):
+        if _plant_name in _median_pac_by_plant.index:
+            # Primary: median PAC of the botanical's active constituents.
+            return (0, _median_pac_by_plant[_plant_name])
+        _scode = _all_plants[_plant_name]
+        _bot_pac = _botanical_pac_dict.get(_scode)
+        if _bot_pac is not None and pd.notna(_bot_pac):
+            # Fallback: no active constituents, but the botanical itself has
+            # an active CP POD -> order by that instead.
+            return (1, _bot_pac)
+        # Last resort: no constituent data and no botanical POD -> push to the
+        # bottom, alphabetically among themselves for a stable order.
+        return (2, _plant_name)
+
+    _order = sorted(_all_plants.keys(), key=_order_key)
 
     _total_known = (
         df_bsc_annotations[df_bsc_annotations["Plant scode"].isin(list_botanicals)]
@@ -2621,7 +2642,8 @@ def _(
         "active_counts": _active_counts,
     }
     print(f"Botanical-vs-constituent CP POD constituents: {_df_long['Metadata_compound'].nunique()}")
-    print(f"Botanical-vs-constituent CP POD botanicals: {len(_order)}")
+    print(f"Botanical-vs-constituent CP POD botanicals plotted: {len(_order)} "
+          f"(of which {_df_long['Plant name'].nunique()} have >=1 active constituent)")
     return (botanical_cp_constituent_plot_data,)
 
 
@@ -2647,18 +2669,31 @@ def _(
     _total_known = botanical_cp_constituent_plot_data["total_known"]
     _active_counts = botanical_cp_constituent_plot_data["active_counts"]
 
-    _data_ordered = [
+    _data_all = [
         _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
         for _plant in _order
     ]
+
+    # Only draw a box+whiskers for botanicals with >=2 constituent values.
+    # With exactly 1 value the box collapses to a flat line at that single
+    # x-position, so those (and 0-constituent) botanicals rely solely on the
+    # jittered dot / POD line below instead of a box.
+    _box_positions = [_i for _i, _y in enumerate(_data_all, start=1) if len(_y) >= 2]
+    _box_data = [_y for _y in _data_all if len(_y) >= 2]
+    # Botanicals with 0 constituent PAC values are simply absent from
+    # _box_positions/_box_data above -> ax.boxplot draws nothing for that row.
+    # Botanicals with exactly 1 value are also excluded here (handled by the
+    # dot loop instead). In both cases the CP POD dashed-line loop below still
+    # runs independently, so an "active" botanical (present in
+    # _botanical_pac_dict) still gets its line even with zero constituents.
 
     _fig, (_ax, _ax2) = plt.subplots(1, 2, figsize=(14, 8),
                                        sharey=True,
                                        gridspec_kw={"width_ratios": [3, 1]})
 
     _bp = _ax.boxplot(
-        _data_ordered,
-        positions=range(1, len(_order) + 1),
+        _box_data,
+        positions=_box_positions,
         patch_artist=True,
         vert=False,
         widths=0.5,
@@ -2669,11 +2704,13 @@ def _(
     )
 
     # Color boxes
-    for _patch, _plant in zip(_bp["boxes"], _order):
+    for _patch, _pos in zip(_bp["boxes"], _box_positions):
+        _plant = _order[_pos - 1]
         _patch.set_facecolor(_plant_colors[_plant])
         _patch.set_alpha(0.4)
 
-    # Jittered constituent dots
+    # Jittered constituent dots — covers every botanical, including the
+    # single-constituent ones that now have no accompanying box
     for _i, _plant in enumerate(_order, start=1):
         _y = _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
         if len(_y) == 0:
@@ -2685,6 +2722,9 @@ def _(
     _legend_mtt_added = False
     _legend_ldh_added = False
 
+    # Botanical-level CP POD line — independent of constituent data, so it's
+    # drawn for every botanical with a POD value regardless of how many (or
+    # whether any) active constituents it has.
     for _i, _plant in enumerate(_order, start=1):
         _scode = next((k for k, v in dic_botanicals_scode_name.items() if v == _plant), None)
         if _scode is None:
@@ -2758,7 +2798,7 @@ def _(
         _ax2.barh(_i, _total, color="lightgrey", height=0.5, zorder=2)
         _ax2.barh(_i, _active, color=_color, height=0.5, alpha=0.85, zorder=3)
         _ax2.tick_params(axis="x", labelsize=12)
-        _ax2.text(_total + 0.3, _i, f"{_active}/{_total}", va="center", fontsize=10)  # was 7
+        _ax2.text(_total + 0.3, _i, f"{_active}/{_total}", va="center", fontsize=10)
 
     _ax2.set_yticks(range(1, len(_order) + 1))
     _ax2.set_yticklabels([])
@@ -2776,7 +2816,7 @@ def _(
     _ax2.legend(
         handles=_legend_handles2,
         loc="lower right",
-        bbox_to_anchor=(1, 0.074),
+        bbox_to_anchor=(1, 0.06),
         frameon=True,
         facecolor="white",
         edgecolor="lightgrey",

@@ -2,6 +2,12 @@
 
 This repository contains the workflows and notebooks used to process the BSC and Axiom OASIS Cell Painting datasets.
 
+## Requirements
+
+- Python 3.11
+- R >= 4.5
+- [Nextflow](https://www.nextflow.io/)
+
 ## Download the data
 
 Axiom OASIS data can be downloaded from:
@@ -41,7 +47,16 @@ pip install -r requirements-dev.txt
 ```
 ## Set up the R environment
 
-The workflow use R. you should install these packages : ...
+The concentration-response step (`modules/04_concresponse/`) uses R (>= 4.5). Install the packages from an R session:
+
+```r
+install.packages(c(
+  "arrow", "data.table", "dplyr", "tidyr", "purrr", "reshape2",
+  "ggplot2", "ggforce", "scales", "foreach", "doParallel", "parallelly",
+  "remotes"
+))
+remotes::install_github("jessica-ewald/fastbmdR@v0.0.0.9000")
+```
 
 ## Run the analysis
 
@@ -71,3 +86,26 @@ Exported HTML files:
 ```text
 modules/07_downstream_analysis/notebook_manuscript/__marimo__/
 ```
+
+## Citation
+
+If you use this code or data, please cite:
+
+> Ollitrault G., Mitchell C.A., Ferguson S.S., Roe A.L., White B., Titterton K., Ewald J. (2026). Cell Painting and machine learning for mechanistic profiling of hepatotoxic botanicals and their constituents. *bioRxiv*. https://doi.org/10.64898/2026.10.05.756246
+
+```bibtex
+@article{Ollitrault2026.10.05.756246,
+  author = {Ollitrault, Guillaume and Mitchell, Constance A. and Ferguson, Stephen S. and Roe, Amy L. and White, Brandon and Titterton, Katherine and Ewald, Jessica},
+  title = {Cell Painting and machine learning for mechanistic profiling of hepatotoxic botanicals and their constituents},
+  elocation-id = {2026.10.05.756246},
+  year = {2026},
+  doi = {10.64898/2026.10.05.756246},
+  publisher = {Cold Spring Harbor Laboratory},
+  URL = {https://www.biorxiv.org/content/early/2026/10/12/2026.10.05.756246},
+  journal = {bioRxiv}
+}
+```
+
+## License
+
+This project is released under the [CC0 1.0 Universal](LICENSE) license.

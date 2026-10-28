@@ -787,7 +787,14 @@ def _(np):
             _y += 1.0
 
         return np.array(_y_positions), _y_positions[-1] + 1.0
+
     return (build_row_positions,)
+
+
+@app.cell
+def _():
+    from scipy.spatial.distance import pdist
+    return (pdist,)
 
 
 @app.cell
@@ -800,11 +807,15 @@ def _(
     df_heatmap_rows,
     downloads_dir,
     figure_output_dir,
+    leaves_list,
+    linkage,
     mpatches,
     np,
+    pdist,
     plt,
+    re,
 ):
-    _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap.png"
+    _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap_clustered.png"
     _download_path = (
         downloads_dir
         / "prediction_heatmap_botanical_constituents_batch_groups_chatgpt.png"
@@ -813,52 +824,64 @@ def _(
     figure_output_dir.mkdir(parents=True, exist_ok=True)
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
-    _n_rows = len(df_heatmap_data)
-    _n_cols = len(df_heatmap_data.columns)
+    _rename_map = {
+        "cell_type_HepG2": "ToxCast_cytotox_HepG2",
+    }
+
+    def _clean_assay_name(name):
+        # Apply explicit mapping if matched
+        if name in _rename_map:
+            name = _rename_map[name]
+        # Strip prefixes 'BSK_LPS_' and 'ATG_'
+        name = re.sub(r"^(BSK_LPS_|BSK_|ATG_|TOX21_|LTEA_)", "", name)
+        # Strip suffix '_R1881'
+        name = re.sub(r"_R1881$", "", name)
+        name = re.sub(r"_ratio$", "", name)
+        name = re.sub(r"_HepaRG", "HepaRG", name)
+        name = re.sub(r"cell_type__HepG2", "ToxCast_cytotox_HepG2", name)
+        return name
+
+    # Apply cleaning to data columns and heatmap metadata (local copy — don't
+    # mutate the shared df_heatmap_data defined in another cell)
+    _df_heatmap_data = df_heatmap_data.copy()
+    _df_heatmap_data.columns = [_clean_assay_name(col) for col in _df_heatmap_data.columns]
+    _df_heatmap_columns = df_heatmap_columns.copy()
+
+    # --- Cluster assay columns on their binary activity pattern across compounds ---
+    # Jaccard distance treats shared "active" calls as similarity and ignores
+    # shared "inactive" calls (which dominate sparse activity matrices and would
+    # otherwise swamp a Euclidean/Hamming distance). Average linkage doesn't
+    # assume Euclidean geometry, unlike Ward.
+    _col_dist = pdist(_df_heatmap_data.values.T, metric="jaccard")
+    _col_dist = np.nan_to_num(_col_dist, nan=1.0)  # all-zero columns -> treat as maximally dissimilar
+    _col_linkage = linkage(_col_dist, method="average")
+    _col_order = leaves_list(_col_linkage)
+
+    _df_heatmap_data = _df_heatmap_data.iloc[:, _col_order]
+    _df_heatmap_columns = _df_heatmap_columns.iloc[_col_order].reset_index(drop=True)
+    # --------------------------------------------------------------------------
+
+    _n_rows = len(_df_heatmap_data)
+    _n_cols = len(_df_heatmap_data.columns)
     _y_positions, _total_height = build_row_positions(df_heatmap_rows)
 
     _fig = plt.figure(
         figsize=(
-            max(14, _n_cols * 0.1),
-            max(10, _total_height * 0.16) + 2,
+            max(14, _n_cols * 0.2),
+            max(10, _total_height * 0.14) + 2,
         )
     )
     _gs = _fig.add_gridspec(
-        3,
+        2,
         1,
-        height_ratios=[0.01, 0.01, 1],
+        height_ratios=[0.01, 1],
         hspace=0.005,
     )
     _ax_cat_band = _fig.add_subplot(_gs[0])
-    _ax_band = _fig.add_subplot(_gs[1])
-    _ax = _fig.add_subplot(_gs[2])
-
-    # Assay group color band.
-    _group_colors = df_heatmap_columns["group_color"].tolist()
-    _ax_band.imshow(
-        [list(range(_n_cols))],
-        aspect="auto",
-        cmap=ListedColormap(_group_colors),
-        interpolation="none",
-    )
-    _ax_band.set_xlim(-0.5, _n_cols - 0.5)
-    _ax_band.set_yticks([])
-    _ax_band.set_xticks([])
-    _ax_band.spines[["left", "right", "bottom", "top"]].set_visible(False)
-
-    _prev_group = df_heatmap_columns["group"].iloc[0]
-    for _column_index, _group in enumerate(df_heatmap_columns["group"]):
-        if _group != _prev_group:
-            _ax_band.axvline(
-                _column_index - 0.5,
-                color="black",
-                linewidth=1.5,
-                zorder=5,
-            )
-            _prev_group = _group
+    _ax = _fig.add_subplot(_gs[1])
 
     # Cell-based category color band.
-    _category_colors = df_heatmap_columns["category_color"].tolist()
+    _category_colors = _df_heatmap_columns["category_color"].tolist()
     _ax_cat_band.imshow(
         [list(range(_n_cols))],
         aspect="auto",
@@ -870,9 +893,13 @@ def _(
     _ax_cat_band.set_xticks([])
     _ax_cat_band.spines[["left", "right", "bottom", "top"]].set_visible(False)
 
-    _prev_category = df_heatmap_columns["category_label"].iloc[0]
+    # NOTE: with clustered columns, "category" no longer forms contiguous
+    # blocks, so this will draw a divider almost everywhere category changes
+    # between adjacent columns. Consider removing this loop if it gets too busy —
+    # the color band alone still communicates category membership.
+    _prev_category = _df_heatmap_columns["category_label"].iloc[0]
     for _column_index, _category in enumerate(
-        df_heatmap_columns["category_label"]
+        _df_heatmap_columns["category_label"]
     ):
         if _category != _prev_category:
             _ax_cat_band.axvline(
@@ -887,14 +914,14 @@ def _(
     for _row_index, (_y, _is_botanical) in enumerate(
         zip(_y_positions, df_heatmap_rows["is_botanical"])
     ):
-        _row_values = df_heatmap_data.values[_row_index : _row_index + 1, :]
+        _row_values = _df_heatmap_data.values[_row_index : _row_index + 1, :]
         _ax.pcolormesh(
             np.arange(_n_cols + 1),
             np.array([_y, _y + 1.0]),
             _row_values,
             cmap=binary_cmap,
             edgecolors="white",
-            linewidth=0.3,
+            linewidth=0.1,
             vmin=0,
             vmax=1,
         )
@@ -919,13 +946,16 @@ def _(
     _ax.invert_yaxis()
 
     _ax.set_xticks(np.arange(_n_cols) + 0.5)
-    _ax.set_xticklabels(df_heatmap_data.columns, rotation=90, fontsize=8)
+    _ax.set_xticklabels(_df_heatmap_data.columns, rotation=90, fontsize=8)
     _ax.xaxis.set_label_position("top")
     _ax.xaxis.tick_top()
-    _ax.tick_params(axis="x", length=0, pad=30)
+    _ax.tick_params(axis="x", length=0, pad=15)
 
-    _prev_group = df_heatmap_columns["group"].iloc[0]
-    for _column_index, _group in enumerate(df_heatmap_columns["group"]):
+    # NOTE: same caveat as the category band above — "group" blocks are no
+    # longer contiguous after clustering, so this will draw many more lines
+    # than the original 3-4 group boundaries.
+    _prev_group = _df_heatmap_columns["group"].iloc[0]
+    for _column_index, _group in enumerate(_df_heatmap_columns["group"]):
         if _group != _prev_group:
             _ax.axvline(
                 _column_index,
@@ -939,7 +969,7 @@ def _(
     _legend_group_order = ["Cell-free", "Cell-based", "Cytotoxic", "Hit calls"]
     _legend_patches = []
     for _group in _legend_group_order:
-        _group_rows = df_heatmap_columns[df_heatmap_columns["group"] == _group]
+        _group_rows = _df_heatmap_columns[_df_heatmap_columns["group"] == _group]
         if _group_rows.empty:
             continue
         _legend_patches.append(
@@ -949,23 +979,8 @@ def _(
             )
         )
 
-    _ax.legend(
-        handles=_legend_patches,
-        loc="upper left",
-        bbox_to_anchor=(-0.005, 0),
-        ncol=2,
-        frameon=True,
-        facecolor="white",
-        edgecolor="lightgrey",
-        framealpha=0.95,
-        fontsize=9,
-        borderpad=0.6,
-        title="Assays",
-        title_fontsize=10,
-    ).get_title().set_fontweight("bold")
-
     _category_legend = (
-        df_heatmap_columns[["category_label", "category_color"]]
+        _df_heatmap_columns[["category_label", "category_color"]]
         .dropna()
         .drop_duplicates()
     )
@@ -976,21 +991,6 @@ def _(
         )
         for _, _row in _category_legend.iterrows()
     ]
-    if _category_patches:
-        _ax_cat_band.legend(
-            handles=_category_patches,
-            loc="upper left",
-            bbox_to_anchor=(0.3, -101.5),
-            ncol=2,
-            frameon=True,
-            facecolor="white",
-            edgecolor="lightgrey",
-            framealpha=0.95,
-            fontsize=8,
-            borderpad=0.6,
-            title="Cell-based categories",
-            title_fontsize=9,
-        ).get_title().set_fontweight("bold")
 
     _fig.savefig(_figure_path, bbox_inches="tight", dpi=300)
     _fig.savefig(_download_path, bbox_inches="tight", dpi=300)
@@ -1000,6 +1000,12 @@ def _(
 
     _fig
     return
+
+
+@app.cell
+def _():
+    import re
+    return (re,)
 
 
 @app.cell(hide_code=True)

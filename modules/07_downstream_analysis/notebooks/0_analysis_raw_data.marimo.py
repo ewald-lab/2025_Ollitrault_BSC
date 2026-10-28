@@ -36,7 +36,14 @@ def _(os):
 @app.cell
 def _(pd):
     # Load Data
-    df = pd.read_parquet("00_inputs/bsc_raw_dinov2_biochem.parquet")
+    dftest = pd.read_parquet("/Users/ollitrault/Documents/projects/2025_04_13_OASIS_CellPainting/data/external/annotations/rat_invivo/binary_rat_invivo_tox_noendpointnegatives_v2.parquet")
+    dftest
+    return
+
+
+@app.cell
+def _(pd):
+    df = pd.read_parquet("modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet")
     return (df,)
 
 
@@ -50,6 +57,18 @@ def _(mo):
 def _(df):
     # Column names
     df.columns
+    return
+
+
+@app.cell
+def _(df):
+    df["library"].value_counts()
+    return
+
+
+@app.cell
+def _(df):
+    df[df["library"] == "botanical"]['compound_concentration_um']
     return
 
 
