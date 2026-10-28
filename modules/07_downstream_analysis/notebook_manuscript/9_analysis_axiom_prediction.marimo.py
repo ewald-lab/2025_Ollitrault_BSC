@@ -769,7 +769,7 @@ def _(
 ):
     _figure_path = (
         figure_output_dir
-        / "Figure_9_axiom_prediction_assay_correlation_heatmap.png"
+        / "Figure_S8_B.png"
     )
     _download_path = (
         downloads_dir

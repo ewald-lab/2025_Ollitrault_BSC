@@ -1046,7 +1046,7 @@ def _(
     plt.tight_layout()
 
     plt.savefig(
-        "modules/07_downstream_analysis/figures/Figure_6.png",
+        "modules/07_downstream_analysis/figures/Figure_S10.png",
         dpi=300,
         bbox_inches="tight"
     )

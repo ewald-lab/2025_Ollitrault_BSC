@@ -20,7 +20,8 @@ def _():
     import pandas as pd
     import umap
     import plotly.express as px
-    return argparse, mo, pd, px, sys, umap
+    import plotly.graph_objects as go
+    return argparse, go, mo, pd, px, sys, umap
 
 
 @app.cell
@@ -449,6 +450,10 @@ def _(all_features, df_level4, pd, umap):
     df_umap["Metadata_plate"] = _plates
     df_umap["Metadata_concentration"] = _concentration
     df_umap["Metadata_log10conc"] = df_level4["Metadata_log10conc"].astype(float)
+    # Each plate holds three replicate blocks of 8 columns (0-7, 8-15, 16-23)
+    df_umap["Metadata_replicate"] = (
+        "Replicate " + (df_level4["Metadata_col"].astype(int) // 8 + 1).astype(str)
+    ).values
     return (df_umap,)
 
 
@@ -485,24 +490,49 @@ def _(mo):
 
 
 @app.cell
-def _(args, df_umap, px):
-    # --- 4. Create interactive Plotly scatter plot for Control
+def _(args, df_umap, go, px):
+    # --- 4. Create interactive Plotly scatter plot for Control (Figure S3A)
     df_umap_control = df_umap[df_umap["Metadata_compound"] == args.control]
+    _plate_order = sorted(df_umap_control["Metadata_plate"].unique())
+    _replicate_order = ["Replicate 1", "Replicate 2", "Replicate 3"]
+    _replicate_symbols = ["circle", "square", "diamond"]
     _fig = px.scatter(
         df_umap_control.sample(frac=1, random_state=42).reset_index(drop=True),
         x="UMAP_1",
         y="UMAP_2",
         color="Metadata_plate",
-        title="UMAP of Level 4b Cell Painting Profiles filtered oon control Colored by Plate",
+        symbol="Metadata_replicate",
+        symbol_sequence=_replicate_symbols,
+        category_orders={
+            "Metadata_plate": _plate_order,
+            "Metadata_replicate": _replicate_order,
+        },
+        title="UMAP of Level 4b Cell Painting Profiles of DMSO Control Wells Colored by Plate and Replicate",
         opacity=0.8,
         width=850,
         height=650,
         color_discrete_sequence=px.colors.qualitative.Safe  # nice, distinct palette
     )
 
+    # Two separate legends: plate (colour) and replicate (marker shape)
+    _fig.for_each_trace(lambda _t: _t.update(showlegend=False))
+    for _i, _plate in enumerate(_plate_order):
+        _fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers", name=_plate,
+            marker=dict(symbol="circle", size=9,
+                        color=px.colors.qualitative.Safe[_i % len(px.colors.qualitative.Safe)]),
+            legendgroup="plate", legendgrouptitle_text="Plate ID",
+        ))
+    for _replicate, _symbol in zip(_replicate_order, _replicate_symbols):
+        _fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers", name=_replicate,
+            marker=dict(symbol=_symbol, size=9, color="#555555"),
+            legendgroup="replicate", legendgrouptitle_text="Replicate",
+        ))
+
     _fig.update_layout(
         template="plotly_white",
-        legend_title_text="Plate ID",
+        legend=dict(title_text="", groupclick="toggleitem", tracegroupgap=12),
         xaxis_title="UMAP 1",
         yaxis_title="UMAP 2"
     )

@@ -787,7 +787,6 @@ def _(np):
             _y += 1.0
 
         return np.array(_y_positions), _y_positions[-1] + 1.0
-
     return (build_row_positions,)
 
 
@@ -815,7 +814,7 @@ def _(
     plt,
     re,
 ):
-    _figure_path = figure_output_dir / "Figure_7_bsc_prediction_heatmap_clustered.png"
+    _figure_path = figure_output_dir / "Figure_4_C.png"
     _download_path = (
         downloads_dir
         / "prediction_heatmap_botanical_constituents_batch_groups_chatgpt.png"
@@ -852,13 +851,14 @@ def _(
     # shared "inactive" calls (which dominate sparse activity matrices and would
     # otherwise swamp a Euclidean/Hamming distance). Average linkage doesn't
     # assume Euclidean geometry, unlike Ward.
-    _col_dist = pdist(_df_heatmap_data.values.T, metric="jaccard")
-    _col_dist = np.nan_to_num(_col_dist, nan=1.0)  # all-zero columns -> treat as maximally dissimilar
-    _col_linkage = linkage(_col_dist, method="average")
-    _col_order = leaves_list(_col_linkage)
-
-    _df_heatmap_data = _df_heatmap_data.iloc[:, _col_order]
-    _df_heatmap_columns = _df_heatmap_columns.iloc[_col_order].reset_index(drop=True)
+    if False:
+        _col_dist = pdist(_df_heatmap_data.values.T, metric="jaccard")
+        _col_dist = np.nan_to_num(_col_dist, nan=1.0)  # all-zero columns -> treat as maximally dissimilar
+        _col_linkage = linkage(_col_dist, method="average")
+        _col_order = leaves_list(_col_linkage)
+    
+        _df_heatmap_data = _df_heatmap_data.iloc[:, _col_order]
+        _df_heatmap_columns = _df_heatmap_columns.iloc[_col_order].reset_index(drop=True)
     # --------------------------------------------------------------------------
 
     _n_rows = len(_df_heatmap_data)
@@ -1472,7 +1472,7 @@ def _(
 ):
     _figure_path = (
         figure_output_dir
-        / "Figure_9_bsc_prediction_assay_correlation_heatmap.png"
+        / "Figure_S8_A.png"
     )
     _download_path = (
         downloads_dir

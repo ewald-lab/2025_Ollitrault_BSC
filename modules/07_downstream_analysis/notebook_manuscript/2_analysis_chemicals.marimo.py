@@ -495,7 +495,6 @@ def _(
     )
 
     plt.tight_layout()
-    plt.savefig(f"modules/07_downstream_analysis/figures/Figure_S1_B.png", dpi=300, bbox_inches="tight")
     plt.show()
     return
 

@@ -415,8 +415,8 @@ def _(all_selected_features, df_level4_control, pd, umap):
 
 
 @app.cell
-def _(df_umap_level4_control, px):
-    # --- 4. Create interactive Plotly scatter plot
+def _(df_umap_level4_control, figure_dir, pio, px):
+    # --- 4. Create interactive Plotly scatter plot (Figure S6)
     _fig = px.scatter(
         df_umap_level4_control,
         x="UMAP_1",
@@ -436,6 +436,11 @@ def _(df_umap_level4_control, px):
         yaxis_title="UMAP 2"
     )
 
+    pio.write_image(
+        _fig,
+        str(figure_dir / "Figure_S6.png"),
+        width=850, height=650, scale=4
+    )
     _fig.show()
     return
 
@@ -882,7 +887,7 @@ def _(df_umap_level6, dic_botanicals_scode_name, go, px):
 
 @app.cell
 def _(mo):
-    mo.md(r"""### UMAP Cell Painting level 6 & level 5 (two panel plot)""")
+    mo.md(r"""### UMAP Cell Painting level 5 (Figure 4A) & level 6 (Figure S9)""")
     return
 
 
@@ -893,10 +898,9 @@ def _(
     dic_botanicals_scode_name,
     figure_dir,
     go,
+    mo,
     pio,
 ):
-    from plotly.subplots import make_subplots
-
     # ── Shared config ─────────────────────────────────────────────────────────────
     _botanical_scodes = set(dic_botanicals_scode_name.keys())
 
@@ -955,16 +959,10 @@ def _(
         for _i, _ds in enumerate(_all_datasets)
     }
 
-    # ── Build two-panel figure ────────────────────────────────────────────────────
-    _fig = make_subplots(
-        rows=1, cols=2,
-        #subplot_titles=["<b>A</b>  Profiles aggregated at the concentration level", "<b>B</b>  Profiles aggregated at the compound level"],
-        horizontal_spacing=0.08,
-    )
-
-    _legend_shown = set()  # track which (dataset, ptype) combos already have a legend entry
-
-    for _col_idx, (_df, _panel_title) in enumerate(_panels, start=1):
+    # ── Build one single-panel UMAP figure ────────────────────────────────────────
+    def _make_umap_panel(_df, _legend_inside):
+        _fig = go.Figure()
+        _legend_shown = set()  # one legend entry per (dataset, ptype) combo
 
         # ── Compound / Botanical / DMSO traces ───────────────────────────────────
         for _ptype in ["Compound", "Botanical", "DMSO"]:   # draw order: compounds first
@@ -982,8 +980,6 @@ def _(
                 if _show_legend:
                     _legend_shown.add(_legend_key)
 
-                _color = _dataset_colors[_dataset]
-
                 _fig.add_trace(go.Scatter(
                     x=_df_sub["UMAP_1"],
                     y=_df_sub["UMAP_2"],
@@ -995,7 +991,7 @@ def _(
                         symbol=_mconf["symbol"],
                         size=_mconf["size"],
                         opacity=_mconf["opacity"],
-                        color=_color,
+                        color=_dataset_colors[_dataset],
                         line=dict(width=_mconf["line_width"], color="#222222"),
                     ),
                     customdata=_df_sub[["Metadata_compound", "DisplayName", "Dataset"]].values,
@@ -1006,7 +1002,7 @@ def _(
                         "UMAP1: %{x:.2f} | UMAP2: %{y:.2f}"
                         "<extra></extra>"
                     ),
-                ), row=1, col=_col_idx)
+                ))
 
         # ── Botanical text labels ─────────────────────────────────────────────────
         _df_bot = _df[_df["PointType"] == "Botanical"].copy()
@@ -1022,50 +1018,27 @@ def _(
             textfont=dict(size=8, family="Arial", color="#111111"),
             showlegend=False,
             hoverinfo="skip",
-        ), row=1, col=_col_idx)
-
-    # ── Apply scientific axis style to both panels ────────────────────────────────
-    for _axis_prefix in ["xaxis", "yaxis", "xaxis2", "yaxis2"]:
-        _is_x = _axis_prefix.startswith("x")
-        _fig.update_layout(**{
-            _axis_prefix: dict(
-                **_scientific_axis,
-                title=dict(text="UMAP 1" if _is_x else "UMAP 2"),
-            )
-        })
-
-    # ── Legend: show point type via symbol in legend title ───────────────────────
-    # Add invisible dummy traces to show symbol legend
-    for _ptype, _symbol, _label in [
-        ("Compound",  "circle",  "Compound  ●"),
-        ("Botanical", "diamond", "Botanical  ◆"),
-        ("DMSO",      "star",    "DMSO  ★"),
-    ]:
-        _fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode="markers",
-            marker=dict(symbol=_symbol, size=9, color="#555555",
-                        line=dict(width=0.8, color="#222222")),
-            name=f"<i>{_label}</i>",
-            legendgroup="__type__",
-            showlegend=True,
         ))
 
-    # ── Layout ────────────────────────────────────────────────────────────────────
-    _fig.update_layout(
-        template="plotly_white",
-        title=dict(text=(
-                ""#"UMAP of Cell Painting Profiles<br>"
-                ""#"<sup>Morphological similarity of botanical extracts and pure constituents</sup>"
-            ),
-            font=dict(size=15, family="Arial", color="#111111"),
-            x=0.5, xanchor="center",
-        ),
-        width=1400,
-        height=650,
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        legend=dict(
+        # ── Legend: show point type via symbol ───────────────────────────────────
+        # Add invisible dummy traces to show symbol legend
+        for _ptype, _symbol, _label in [
+            ("Compound",  "circle",  "Compound  ●"),
+            ("Botanical", "diamond", "Botanical  ◆"),
+            ("DMSO",      "star",    "DMSO  ★"),
+        ]:
+            _fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(symbol=_symbol, size=9, color="#555555",
+                            line=dict(width=0.8, color="#222222")),
+                name=f"<i>{_label}</i>",
+                legendgroup="__type__",
+                showlegend=True,
+            ))
+
+        # ── Layout ────────────────────────────────────────────────────────────────
+        _legend = dict(
             title=dict(text="<b>Dataset / Type</b>", font=dict(size=11)),
             font=dict(size=10, family="Arial"),
             itemsizing="constant",
@@ -1073,21 +1046,44 @@ def _(
             borderwidth=1,
             bgcolor="rgba(255,255,255,0.9)",
             tracegroupgap=4,
-        ),
-        margin=dict(l=60, r=180, t=90, b=60),
-    )
+        )
+        if _legend_inside:
+            # Upper right corner, inside the plot area
+            _legend.update(x=0.99, y=0.99, xanchor="right", yanchor="top")
+            _width, _height, _margin_r = 650, 520, 40
+        else:
+            _width, _height, _margin_r = 1000, 650, 180
 
-    # ── Subplot title styling ─────────────────────────────────────────────────────
-    for _ann in _fig.layout.annotations:
-        _ann.update(font=dict(size=13, family="Arial", color="#111111"))
+        _fig.update_layout(
+            template="plotly_white",
+            xaxis=dict(**_scientific_axis, title=dict(text="UMAP 1")),
+            yaxis=dict(**_scientific_axis, title=dict(text="UMAP 2")),
+            width=_width,
+            height=_height,
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            legend=_legend,
+            margin=dict(l=60, r=_margin_r, t=40, b=60),
+        )
+        return _fig
 
-    # ── Export ────────────────────────────────────────────────────────────────────
+    # ── Figure 4A: profiles aggregated at the concentration level (Level 5) ──────
+    _fig_4a = _make_umap_panel(df_umap_level5, _legend_inside=True)
     pio.write_image(
-        _fig,
-        str(figure_dir / "Figure_5.png"),
-        width=1400, height=650, scale=4
+        _fig_4a,
+        str(figure_dir / "Figure_4_A.png"),
+        width=_fig_4a.layout.width, height=_fig_4a.layout.height, scale=4
     )
-    _fig.show()
+
+    # ── Figure S9: profiles aggregated at the compound level (Level 6) ───────────
+    _fig_s9 = _make_umap_panel(df_umap_level6, _legend_inside=False)
+    pio.write_image(
+        _fig_s9,
+        str(figure_dir / "Figure_S9.png"),
+        width=_fig_s9.layout.width, height=_fig_s9.layout.height, scale=4
+    )
+
+    mo.vstack([_fig_4a, _fig_s9])
     return
 
 

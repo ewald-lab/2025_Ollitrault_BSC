@@ -708,7 +708,7 @@ def _(df_umap_bsc_4, dic_botanicals_scode_name):
 
 @app.cell
 def _(botanical_colors, df_umap_bsc_4_plot, figure_dir, px):
-    # Render and export Figure 2B.
+    # Render and export Figure S1B.
     _botanical_colors = botanical_colors.copy()
     _botanical_colors["Constituents"] = "lightgrey"
     _fig = px.scatter(
@@ -738,7 +738,7 @@ def _(botanical_colors, df_umap_bsc_4_plot, figure_dir, px):
     _fig.update_xaxes(showgrid=False, zeroline=False)
     _fig.update_yaxes(showgrid=False, zeroline=False)
     _fig.write_image(
-        str(figure_dir / "Figure_2_B.png"),
+        str(figure_dir / "Figure_S1_B.png"),
         scale=4,
     )
     _fig.show()
@@ -960,6 +960,156 @@ def _(
     _ax.set_yticks(_x_pos_inter)
     _ax.set_yticklabels(_constituent_labels_inter, fontsize=9)
     plt.draw()
+    _fig
+    return
+
+
+@app.cell
+def _(
+    cp_channel_categories,
+    cp_channel_colors,
+    df_bsc_annotations,
+    df_bsc_cp_pod_all_featurewise,
+    dic_botanicals_scode_name,
+    feature_channel,
+    figure_dir,
+    list_botanicals,
+    np,
+    plt,
+):
+    # Render and export Figure S4: number of active Cell Painting features
+    # (feature-wise fits with all.pass == True) per channel, laid out like Figure 3B.
+    _categories = cp_channel_categories
+
+    # ── Active-feature count per compound per channel ────────────────────────────
+    _df_sel = df_bsc_cp_pod_all_featurewise[
+        df_bsc_cp_pod_all_featurewise["all.pass"] == True
+    ].copy()
+    _df_sel["category"] = _df_sel["gene.id"].apply(feature_channel)
+    _df_sel = _df_sel[_df_sel["category"].notna()]
+    _df_count_pivot = (
+        _df_sel.groupby(["Metadata_compound", "category"])
+        .size()
+        .unstack(fill_value=0)
+        .reindex(columns=_categories, fill_value=0)
+    )
+
+    # ── Row order: each botanical followed by its constituents ───────────────────
+    _rows_ordered = []
+    for _scode in list_botanicals:
+        _plant_name = dic_botanicals_scode_name.get(_scode, _scode)
+        _const_scodes = df_bsc_annotations[
+            df_bsc_annotations["Plant scode"] == _scode
+        ][["Metadata_compound", "Constituent"]].drop_duplicates()
+        _const_rows = [
+            (_crow["Metadata_compound"], f"  {_crow['Constituent']}")
+            for _, _crow in _const_scodes.iterrows()
+            if _crow["Metadata_compound"] in _df_count_pivot.index
+        ]
+        _has_botanical = _scode in _df_count_pivot.index
+        if not _has_botanical and not _const_rows:
+            continue
+        if _has_botanical:
+            _rows_ordered.append((_scode, _plant_name, True))
+        _rows_ordered.extend((_s, _lbl, False) for _s, _lbl in _const_rows)
+
+    _mat_ordered = np.array(
+        [_df_count_pivot.loc[_s].values for _s, _, _ in _rows_ordered], dtype=float
+    )
+
+    # ── Colour scale ──────────────────────────────────────────────────────────────
+    _vmax = np.nanpercentile(np.where(_mat_ordered == 0, np.nan, _mat_ordered), 95)
+    _norm = plt.Normalize(vmin=0, vmax=_vmax)
+    _cmap_feat = plt.cm.YlOrRd
+
+    # ── Split into two panels at the botanical boundary closest to the middle ────
+    _half_target = len(_rows_ordered) // 2
+    _bot_indices = [i for i, r in enumerate(_rows_ordered) if r[2]]
+    _split_idx = min(_bot_indices, key=lambda i: abs(i - _half_target))
+    _panels_rows = [_rows_ordered[:_split_idx], _rows_ordered[_split_idx:]]
+
+    _n_cols = len(_categories)
+    _half_n = max(len(_panels_rows[0]), len(_panels_rows[1]))
+    _fig, _axes = plt.subplots(1, 2, figsize=(10, max(8, _half_n * 0.1)), sharey=False)
+
+    for _pi, (_ax, _panel_rows) in enumerate(zip(_axes, _panels_rows)):
+        _p_labels = [r[1] for r in _panel_rows]
+        _p_is_bot = [r[2] for r in _panel_rows]
+        _p_start = 0 if _pi == 0 else _split_idx
+        _p_mat = _mat_ordered[_p_start: _p_start + len(_panel_rows)]
+
+        _p_y_pos = []
+        _gap = 0.8
+        _y = 0.0
+        for _i, _is_bot in enumerate(_p_is_bot):
+            if _is_bot and _i > 0:
+                _y += _gap
+            _p_y_pos.append(_y)
+            _y += 1.0
+        _p_y_pos = np.array(_p_y_pos)
+        _total_height = _p_y_pos[-1] + 1.0
+
+        for _ri, (_y, _is_bot) in enumerate(zip(_p_y_pos, _p_is_bot)):
+            _row_vals = np.where(_p_mat[_ri:_ri + 1, :] == 0, np.nan, _p_mat[_ri:_ri + 1, :])
+            _ax.pcolormesh(
+                np.arange(_n_cols + 1),
+                np.array([_y, _y + 1.0]),
+                _row_vals,
+                cmap=_cmap_feat, norm=_norm,
+                edgecolors="white", linewidth=0.4,
+            )
+            _ax.axhspan(_y, _y + 1.0,
+                        color="#d0d0d0" if _is_bot else "#f7f7f7",
+                        alpha=0.6 if _is_bot else 0.3, zorder=0)
+
+            for _ci in range(_n_cols):
+                _val = int(_p_mat[_ri, _ci])
+                if _val == 0:
+                    _ax.text(_ci + 0.5, _y + 0.5, "—",
+                             ha="center", va="center", fontsize=6, color="#bbbbbb")
+                    continue
+                _text_col = "white" if float(_norm(_val)) > 0.75 else "black"
+                _ax.text(_ci + 0.5, _y + 0.5, str(_val),
+                         ha="center", va="center", fontsize=6, color=_text_col)
+
+        # ── Botanical separator lines ─────────────────────────────────────────────
+        for _y, _is_bot in zip(_p_y_pos[1:], _p_is_bot[1:]):
+            if _is_bot:
+                _ax.axhline(_y - _gap / 2, color="#333333",
+                            linewidth=1.8, linestyle="-", zorder=6)
+
+        # ── Axes ──────────────────────────────────────────────────────────────────
+        _ax.set_yticks(_p_y_pos + 0.5)
+        _ax.set_yticklabels(_p_labels, fontsize=7)
+        for _tick, _is_bot in zip(_ax.get_yticklabels(), _p_is_bot):
+            if _is_bot:
+                _tick.set_fontweight("bold")
+                _tick.set_fontsize(8.5)
+                _tick.set_color("#111111")
+            else:
+                _tick.set_fontsize(6.5)
+                _tick.set_color("#555555")
+                _tick.set_fontstyle("italic")
+        _ax.set_ylim(0, _total_height)
+        _ax.invert_yaxis()
+
+        _ax.set_xticks(np.arange(_n_cols) + 0.5)
+        _ax.set_xticklabels(_categories, fontsize=8, fontweight="bold",
+                            rotation=45, ha="left")
+        for _tick, _cat in zip(_ax.get_xticklabels(), _categories):
+            _tick.set_color(cp_channel_colors[_cat])
+        _ax.xaxis.set_label_position("top")
+        _ax.xaxis.tick_top()
+        _ax.set_xlim(0, _n_cols)
+
+        if _pi == 1:
+            _sm = plt.cm.ScalarMappable(cmap=_cmap_feat, norm=_norm)
+            _cbar = _fig.colorbar(_sm, ax=_ax, shrink=0.3, pad=0.02, aspect=20)
+            _cbar.set_label("Number of active features", fontsize=8)
+            _cbar.ax.tick_params(labelsize=7)
+
+    plt.tight_layout()
+    _fig.savefig(figure_dir / "Figure_S4.png", dpi=300, bbox_inches="tight")
     _fig
     return
 
@@ -1739,7 +1889,7 @@ def _(
     np,
     wilcoxon,
 ):
-    # Prepare paired CP/MTT/LDH POD arrays for Figure 2D.
+    # Prepare paired CP/MTT/LDH POD arrays for Figure 1E.
     _df_cp_passed = df_bsc_cp_pod_all_featurewise[
         df_bsc_cp_pod_all_featurewise["all.pass"] == True
     ].copy()
@@ -1812,13 +1962,13 @@ def _(
         "pvals": _pvals,
     }
     for (_i, _j), _p in _pvals.items():
-        print(f"Figure 2D {_labels[_i]} vs {_labels[_j]}: p={_p:.4f}, n={len(_data[_i])}")
+        print(f"Figure 1E {_labels[_i]} vs {_labels[_j]}: p={_p:.4f}, n={len(_data[_i])}")
     return (pod_comparison_all,)
 
 
 @app.cell
 def _(figure_dir, mticker, np, plt, pod_comparison_all, significance_stars):
-    # Render and export Figure 2D.
+    # Render and export Figure 1E.
     _data = pod_comparison_all["data"]
     _labels = pod_comparison_all["labels"]
     _colors = pod_comparison_all["colors"]
@@ -1923,7 +2073,7 @@ def _(figure_dir, mticker, np, plt, pod_comparison_all, significance_stars):
     plt.tight_layout()
 
     plt.savefig(
-        str(figure_dir / "Figure_2_D.png"),
+        str(figure_dir / "Figure_1_E.png"),
         dpi=200,
         bbox_inches="tight"
     )
@@ -2342,7 +2492,7 @@ def _(
 
 @app.cell
 def _(Patch, figure_dir, np, plt, pod_comparison_breakdown):
-    # Figure 2C — Activity breakdown barplot only
+    # Figure 1D — Activity breakdown barplot only
     # (run in the same marimo notebook where pod_comparison_breakdown is defined)
 
     # Extract data
@@ -2469,7 +2619,7 @@ def _(Patch, figure_dir, np, plt, pod_comparison_breakdown):
 
     # Save figure
     plt.savefig(
-        figure_dir / "Figure_2_C.png",
+        figure_dir / "Figure_1_D.png",
         dpi=300,
         bbox_inches="tight",
     )
@@ -2844,7 +2994,7 @@ def _(
     _fig.subplots_adjust(wspace=0.05)
     # Save figure
     plt.savefig(
-        figure_dir / "Figure_3_B.png",
+        figure_dir / "Figure_2_B.png",
         dpi=300,
         bbox_inches="tight",
     )
@@ -3107,7 +3257,7 @@ def _(Line2D, figure_dir, mticker, np, pd, plt, tox_pod_plot_data):
 
     # Save figure
     plt.savefig(
-        figure_dir / "Figure_3_A.png",
+        figure_dir / "Figure_2_A.png",
         dpi=300,
         bbox_inches="tight",
     )
@@ -3917,7 +4067,7 @@ def _(
     plt.tight_layout()
     # Save figure
     plt.savefig(
-        figure_dir / "Figure_4_B.png",
+        figure_dir / "Figure_3_B.png",
         dpi=300,
         bbox_inches="tight",
     )
@@ -4327,7 +4477,7 @@ def _(
         index=_display_labels,
         columns=_display_labels,
     )
-    print(f"Figure 4A cosine similarity matrix: {df_cosine_similarity_bsc.shape}")
+    print(f"Figure 3A cosine similarity matrix: {df_cosine_similarity_bsc.shape}")
 
     # ── 3. Row color annotations ──────────────────────────────────────────────────
     _unique_plants = [
@@ -4466,7 +4616,7 @@ def _(
     ).get_title().set_fontweight("bold")
 
     plt.tight_layout()
-    _cg.fig.savefig(figure_dir / "Figure_4_A.png", format="png", bbox_inches="tight", dpi=300)
+    _cg.fig.savefig(figure_dir / "Figure_3_A.png", format="png", bbox_inches="tight", dpi=300)
     _cg.fig
     return
 
