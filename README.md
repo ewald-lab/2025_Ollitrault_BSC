@@ -58,6 +58,15 @@ install.packages(c(
 remotes::install_github("jessica-ewald/fastbmdR@v0.0.0.9000")
 ```
 
+## Adapt paths to your machine
+
+Some paths in the configs point to our cluster. Update them before running:
+
+- `configs/config_base_bsc.json` and `configs/config_base_axiom.json`: set `base_dir` to the absolute path of your clone of this repository.
+- `configs/config_base_bsc.json`: set `bsc_annotation` to the same file under your `base_dir` (`modules/01_preprocessing/inputs/Botanical_Constituents_and_Quantification_08192024/Quant Constituents-Table 1.tsv`).
+- `configs/config_base_axiom.json`: if the Axiom repository is not next to this one, update `input_path` and `metadata_path`.
+- `nextflow.config` (`slurm` profile only): the `module load` lines and `R_LIBS_USER` are specific to our cluster. Adapt or remove them.
+
 ## Run the analysis
 
 Launch the full workflow with `main.nf`:
