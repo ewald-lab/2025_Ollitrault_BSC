@@ -41,6 +41,7 @@ h11==0.16.0
 harmonypy==0.2.0
 identify==2.6.15
 idna==3.11
+imagecodecs==2026.3.6
 ids @ file:///Users/ollitrault/Documents/projects/2025_Ollitrault_BSC/modules/common/interdependence_scores
 iniconfig==2.3.0
 ipykernel==7.2.0

@@ -21,11 +21,6 @@ def _():
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
 def _(pd):
     # Load Data
     df_level3 = pd.read_parquet("modules/02_processing/outputs/level3_bsc.parquet")

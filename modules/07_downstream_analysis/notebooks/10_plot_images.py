@@ -12,6 +12,7 @@ def _():
     from functools import lru_cache
     from pathlib import Path
 
+    import imagecodecs
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
@@ -21,6 +22,7 @@ def _():
         Image,
         Path,
         ThreadPoolExecutor,
+        imagecodecs,
         lru_cache,
         mo,
         np,
@@ -37,9 +39,14 @@ def _(mo):
         r"""
     # Plot Cell Painting images of botanicals
 
-    Select treatments, dose levels and a channel. Only the TIFFs needed for the
-    current selection are downloaded (anonymously) from the public Cell Painting Gallery
-    (`cpg0048-bsc`) and cached locally, so switching back to a previous selection is instant.
+    Select treatments, dose levels and a channel, and where to read images from:
+
+    - **S3 TIFF**: only the TIFFs needed for the current selection are downloaded (anonymously) from the
+      public Cell Painting Gallery (`cpg0048-bsc`) and cached locally, so switching back to a previous
+      selection is instant.
+    - **Local JPEG XL**: lossy JPEG XL copies stored in `data/cpg0048-bsc/<plate>/`. They decode to 16-bit
+      on the same intensity scale as the TIFFs, so coloring and contrast are identical. Fields are only
+      sampled among those whose required channels are present locally.
 
     Each botanical plate holds one dose level, so DMSO images are taken from the same plate as the treatment.
     """
@@ -52,6 +59,7 @@ def _(Path, np):
     METADATA_PATH = "modules/01_preprocessing/inputs/bsc_raw_dinov2_biochem.parquet"
     S3_BASE = "s3://cellpainting-gallery/cpg0048-bsc/axiom/images/2024_09_20_BSC_Batch1/images"
     TIFF_DIR = Path("modules/07_downstream_analysis/outputs/images/tiff")
+    JXL_DIR = Path("data/cpg0048-bsc")
     PNG_DIR = Path("modules/07_downstream_analysis/outputs/images/png")
     TIFF_DIR.mkdir(parents=True, exist_ok=True)
     PNG_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,15 +80,22 @@ def _(Path, np):
         _ch["color"] = np.array(_ch["color"], dtype=np.float32)
     FLUO_CHANNELS = [c for c in CHANNELS if c != "Brightfield"]
     ALL_CHANNELS = "All channels"
+
+
+    def image_name(r, ch, ext):
+        """Image file name of one field/channel (metadata row, col and field are 0-based)."""
+        return f"r{r.row + 1:02d}c{r.col + 1:02d}f{r.field + 1:02d}p01-ch{CHANNELS[ch]['id']}sk1fk1fl1.{ext}"
     return (
         ALL_CHANNELS,
         CHANNELS,
         FLUO_CHANNELS,
+        JXL_DIR,
         METADATA_PATH,
         PNG_DIR,
         PUBLIC_PLATES,
         S3_BASE,
         TIFF_DIR,
+        image_name,
     )
 
 
@@ -122,10 +137,17 @@ def _(ALL_CHANNELS, CHANNELS, dose_level, meta, mo):
     )
     seed = mo.ui.number(start=0, stop=10_000, value=0, label="Random seed")
     shared_contrast = mo.ui.checkbox(value=True, label="Shared contrast (set on DMSO)")
+    source = mo.ui.radio(
+        options={"S3 TIFF (download)": "tiff", "Local JPEG XL": "jxl"},
+        value="Local JPEG XL",
+        label="Image source",
+        inline=True,
+    )
     download = mo.ui.run_button(label="Download missing images")
 
     mo.vstack(
         [
+            source,
             mo.hstack([treatments, channel], justify="start"),
             doses,
             mo.hstack([n_fields, crop, seed, shared_contrast], justify="start"),
@@ -139,18 +161,50 @@ def _(ALL_CHANNELS, CHANNELS, dose_level, meta, mo):
         n_fields,
         seed,
         shared_contrast,
+        source,
         treatments,
     )
 
 
 @app.cell
-def _(doses, meta, n_fields, np, pd, seed, treatments):
+def _(ALL_CHANNELS, CHANNELS, JXL_DIR, channel, source):
+    shown_channels = list(CHANNELS) if channel.value == ALL_CHANNELS else [channel.value]
+
+    # Local JPEG XL files as (plate number, file name); rescanned whenever the source is switched
+    local_jxl = {(_p.parent.name, _p.name) for _p in JXL_DIR.glob("*/*.jxl")} if source.value == "jxl" else set()
+    return local_jxl, shown_channels
+
+
+@app.cell
+def _(
+    doses,
+    image_name,
+    local_jxl,
+    meta,
+    mo,
+    n_fields,
+    np,
+    pd,
+    seed,
+    shown_channels,
+    source,
+    treatments,
+):
     # Randomly pick fields for each treatment x dose level (DMSO comes from the same plate)
     _parts = []
+    _unavailable = []
     for _t in treatments.value:
         for _d in sorted(doses.value):
             _pool = meta[(meta.compound_name == _t) & (meta.dose_level == _d)]
+            if source.value == "jxl":
+                _pool = _pool[
+                    [
+                        all((_r.plate_number, image_name(_r, _ch, "jxl")) in local_jxl for _ch in shown_channels)
+                        for _r in _pool.itertuples()
+                    ]
+                ]
             if _pool.empty:
+                _unavailable.append(f"{_t} D{_d}")
                 continue
             _pick = _pool.sample(min(n_fields.value, len(_pool)), random_state=seed.value)
             _parts.append(_pick.assign(treatment=_t, replicate=np.arange(len(_pick))))
@@ -159,36 +213,44 @@ def _(doses, meta, n_fields, np, pd, seed, treatments):
         if _parts
         else pd.DataFrame(columns=[*meta.columns, "treatment", "replicate"])
     )
-    selection[["treatment", "dose_level", "plate", "well", "field", "compound_concentration_um"]]
+
+    _table = selection[["treatment", "dose_level", "plate", "well", "field", "compound_concentration_um"]]
+    if _unavailable:
+        _warning = mo.callout(
+            mo.md(f"No local JPEG XL image with {', '.join(shown_channels)} for: " + ", ".join(_unavailable)),
+            kind="warn",
+        )
+        _table = mo.vstack([_warning, _table])
+    _table
     return (selection,)
 
 
 @app.cell
 def _(
-    ALL_CHANNELS,
-    CHANNELS,
+    JXL_DIR,
     S3_BASE,
     TIFF_DIR,
     ThreadPoolExecutor,
-    channel,
     download,
+    image_name,
     mo,
     selection,
+    shown_channels,
+    source,
     subprocess,
 ):
     mo.stop(selection.empty, mo.md("No image matches the current selection."))
 
-    shown_channels = list(CHANNELS) if channel.value == ALL_CHANNELS else [channel.value]
-
-    # (selection index, channel) -> local TIFF path
+    # (selection index, channel) -> local image path; JPEG XL files are local only, TIFFs are fetched from S3
+    _root = JXL_DIR if source.value == "jxl" else TIFF_DIR
     image_paths = {}
     _missing = []
     for _i, _r in selection.iterrows():
         for _ch in shown_channels:
-            _name = f"r{_r.row + 1:02d}c{_r.col + 1:02d}f{_r.field + 1:02d}p01-ch{CHANNELS[_ch]['id']}sk1fk1fl1.tiff"
-            _local = TIFF_DIR / _r.plate_number / _name
+            _name = image_name(_r, _ch, source.value)
+            _local = _root / _r.plate_number / _name
             image_paths[(_i, _ch)] = _local
-            if not _local.exists():
+            if source.value == "tiff" and not _local.exists():
                 _missing.append((f"{S3_BASE}/{_r.plate_number}/{_name}", _local))
 
     mo.stop(
@@ -210,18 +272,22 @@ def _(
         )
 
 
-    with ThreadPoolExecutor(max_workers=8) as _pool:
-        for _ in mo.status.progress_bar(
-            _pool.map(_fetch, _missing), total=len(_missing), title="Downloading images"
-        ):
-            pass
-    return image_paths, shown_channels
+    if _missing:
+        with ThreadPoolExecutor(max_workers=8) as _pool:
+            for _ in mo.status.progress_bar(
+                _pool.map(_fetch, _missing), total=len(_missing), title="Downloading images"
+            ):
+                pass
+    return (image_paths,)
 
 
 @app.cell
-def _(Image, lru_cache, np):
+def _(Image, imagecodecs, lru_cache, np):
     @lru_cache(maxsize=64)
-    def load_tiff(path):
+    def load_image(path):
+        # JPEG XL decodes to uint16 on the same intensity scale as the TIFFs
+        if path.suffix == ".jxl":
+            return imagecodecs.imread(str(path))
         return np.asarray(Image.open(path))
 
 
@@ -239,7 +305,7 @@ def _(Image, lru_cache, np):
 
     def rescale(img, lo, hi):
         return np.clip((img - lo) / max(hi - lo, 1e-6), 0, 1)
-    return center_crop, contrast_limits, load_tiff, rescale
+    return center_crop, contrast_limits, load_image, rescale
 
 
 @app.cell
@@ -248,7 +314,7 @@ def _(
     contrast_limits,
     crop,
     image_paths,
-    load_tiff,
+    load_image,
     selection,
     shared_contrast,
     shown_channels,
@@ -259,7 +325,7 @@ def _(
         if _ref.empty:
             _ref = selection
         limits = {
-            _ch: contrast_limits([center_crop(load_tiff(image_paths[(_i, _ch)]), crop.value) for _i in _ref.index])
+            _ch: contrast_limits([center_crop(load_image(image_paths[(_i, _ch)]), crop.value) for _i in _ref.index])
             for _ch in shown_channels
         }
     else:
@@ -275,7 +341,7 @@ def _(
     contrast_limits,
     crop,
     image_paths,
-    load_tiff,
+    load_image,
     np,
     rescale,
 ):
@@ -283,7 +349,7 @@ def _(
         """Colorize and sum channels of one field into an RGB image."""
         rgb = None
         for ch in channels:
-            img = center_crop(load_tiff(image_paths[(idx, ch)]), crop.value)
+            img = center_crop(load_image(image_paths[(idx, ch)]), crop.value)
             lo, hi = limits[ch] if limits else contrast_limits([img])
             layer = rescale(img, lo, hi)[..., None] * CHANNELS[ch]["color"]
             rgb = layer if rgb is None else rgb + layer
@@ -309,10 +375,12 @@ def _(
     re,
     render,
     selection,
+    source,
     tile_channels,
     treatments,
 ):
-    _doses = sorted(doses.value)
+    # Skip dose levels without any image (e.g. plates not available locally as JPEG XL)
+    _doses = [_d for _d in sorted(doses.value) if _d in set(selection.dose_level)]
     _rows = [(_t, _k) for _t in treatments.value for _k in range(n_fields.value)]
     _lookup = {(_r.treatment, _r.dose_level, _r.replicate): _i for _i, _r in selection.iterrows()}
 
@@ -342,12 +410,15 @@ def _(
                 )
 
     _label = channel.value if channel.value in CHANNELS else "Merged"
-    fig_grid.suptitle(f"{_label} ({CHANNELS[_label]['dye']})" if _label in CHANNELS else "Merged fluorescent channels")
+    _title = f"{_label} ({CHANNELS[_label]['dye']})" if _label in CHANNELS else "Merged fluorescent channels"
+    fig_grid.suptitle(f"{_title} - {source.value.upper()}")
     fig_grid.tight_layout()
 
     _slug = "_".join(re.sub(r"\W+", "", _t.split()[0]) for _t in treatments.value)
     fig_grid.savefig(
-        PNG_DIR / f"grid_{_label}_{_slug}_crop{crop.value}_n{n_fields.value}.png", dpi=300, bbox_inches="tight"
+        PNG_DIR / f"grid_{_label}_{_slug}_crop{crop.value}_n{n_fields.value}_{source.value}.png",
+        dpi=300,
+        bbox_inches="tight",
     )
     fig_grid
     return
@@ -355,7 +426,7 @@ def _(
 
 @app.cell
 def _(ALL_CHANNELS, channel, mo, selection):
-    mo.stop(channel.value != ALL_CHANNELS)
+    mo.stop(channel.value != ALL_CHANNELS or selection.empty)
     _options = {
         f"{_r.treatment} | D{_r.dose_level} | {_r.well} f{_r.field + 1}": _i for _i, _r in selection.iterrows()
     }
@@ -376,6 +447,7 @@ def _(
     re,
     render,
     selection,
+    source,
 ):
     # Each channel on its own plus the merge, as in the training notebook
     _idx = detail_image.value
@@ -389,12 +461,14 @@ def _(
     _axes[len(CHANNELS)].set_title("Merged", fontsize=9)
     for _ax in _axes:
         _ax.axis("off")
-    fig_detail.suptitle(f"{_r.treatment} - D{_r.dose_level} ({_r.plate}) - {_r.well} field {_r.field + 1}")
+    fig_detail.suptitle(
+        f"{_r.treatment} - D{_r.dose_level} ({_r.plate}) - {_r.well} field {_r.field + 1} - {source.value.upper()}"
+    )
     fig_detail.tight_layout()
 
     _slug = re.sub(r"\W+", "", _r.treatment.split()[0])
     fig_detail.savefig(
-        PNG_DIR / f"channels_{_slug}_D{_r.dose_level}_{_r.well}_f{_r.field + 1}_crop{crop.value}.png",
+        PNG_DIR / f"channels_{_slug}_D{_r.dose_level}_{_r.well}_f{_r.field + 1}_crop{crop.value}_{source.value}.png",
         dpi=300,
         bbox_inches="tight",
     )
