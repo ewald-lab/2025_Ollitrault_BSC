@@ -39,31 +39,95 @@ def expand_features(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame:
     )
 
 # ── BSC concentration conversion: µg/mL → µM ────────────────────────────────
- 
+
+BSC_CONVERSION_MODES = ["none", "mw_mean", "mw_weighted"]
+
+
+def compute_botanical_mw(df_ann: pl.DataFrame, mode: str) -> pl.DataFrame:
+    """
+    Return one MW (g/mol) per plant scode, as columns [Metadata_compound, avg_mw].
+
+    - mw_mean:     unweighted mean MW of all quantified constituents.
+    - mw_weighted: content-weighted harmonic mean MW,
+                   MW_eff = Σ cᵢ / Σ (cᵢ / MWᵢ), with cᵢ the content in mg/g.
+                   Botanicals without usable content fall back to mw_mean.
+    """
+    # Header has a trailing space ("Concentration (mg/g) "); values look like
+    # "5.2 ± 0.8" → keep the mean, drop the SD.
+    content_col = next(
+        c for c in df_ann.columns if c.strip() == "Concentration (mg/g)"
+    )
+    df_ann = df_ann.with_columns(
+        pl.col(content_col)
+          .cast(pl.Utf8)
+          .str.extract(r"^\s*(\d*\.?\d+)", 1)
+          .cast(pl.Float64)
+          .alias("content_mg_g")
+    )
+
+    per_botanical = (
+        df_ann
+        .filter(pl.col("Plant scode").is_not_null())
+        .group_by("Plant scode")
+        .agg(
+            pl.col("MW (g/mol)").mean().alias("mw_mean"),
+            (pl.col("content_mg_g").sum()
+             / (pl.col("content_mg_g") / pl.col("MW (g/mol)")).sum()
+            ).alias("mw_weighted"),
+            pl.col("content_mg_g").is_null().sum().alias("n_missing_content"),
+        )
+        .sort("Plant scode")
+    )
+
+    if mode == "mw_weighted":
+        n_missing = per_botanical.filter(pl.col("n_missing_content") > 0)
+        if n_missing.height:
+            print(
+                "⚠️  Constituents without parsable content are ignored in "
+                f"mw_weighted for: {n_missing['Plant scode'].to_list()}"
+            )
+        fallback = per_botanical.filter(
+            ~pl.col("mw_weighted").is_finite() | pl.col("mw_weighted").is_null()
+        )
+        if fallback.height:
+            print(
+                "⚠️  No usable content, falling back to mw_mean for: "
+                f"{fallback['Plant scode'].to_list()}"
+            )
+        per_botanical = per_botanical.with_columns(
+            pl.when(pl.col("mw_weighted").is_finite())
+              .then(pl.col("mw_weighted"))
+              .otherwise(pl.col("mw_mean"))
+              .alias("mw_weighted")
+        )
+
+    print(f"🧪 Botanical MW used for conversion (mode = {mode}):")
+    with pl.Config(tbl_rows=-1):
+        print(per_botanical.select("Plant scode", "mw_mean", "mw_weighted"))
+
+    return per_botanical.select(
+        pl.col("Plant scode").alias("Metadata_compound"),
+        pl.col(mode).alias("avg_mw"),
+    )
+
+
 def convert_bsc_concentrations(
     df: pl.DataFrame,
     bsc_annotation_path: str,
+    mode: str = "mw_mean",
 ) -> pl.DataFrame:
     """
     For every row whose Metadata_compound is a botanical plant scode,
     convert Metadata_concentration from µg/mL to µM.
- 
+
     Formula: µM = (µg/mL × 1000) / MW (g/mol)
-    MW is the average across all constituents for that plant scode.
+    MW per plant scode is chosen by `mode` (see compute_botanical_mw).
     """
     print(f"📂 Loading BSC annotation from {bsc_annotation_path}")
- 
-    # Read annotation with Polars; fall back gracefully on missing file.
     df_ann = pl.read_csv(bsc_annotation_path, separator="\t")
- 
-    # Compute per-plant-scode average MW
-    avg_mw = (
-        df_ann
-        .group_by("Plant scode")
-        .agg(pl.col("MW (g/mol)").mean().alias("avg_mw"))
-        .rename({"Plant scode": "Metadata_compound"})
-    )
- 
+
+    avg_mw = compute_botanical_mw(df_ann, mode)
+
     botanical_scodes = avg_mw["Metadata_compound"].to_list()
  
     # Attach avg_mw; left join keeps all rows in df
@@ -107,6 +171,18 @@ def main():
             "(Quant Constituents-Table 1.tsv). "
             "When provided, botanical concentrations are converted "
             "from µg/mL to µM before writing output."
+        ),
+    )
+    parser.add_argument(
+        "--bsc_conversion_mode",
+        choices=BSC_CONVERSION_MODES,
+        default="mw_mean",
+        help=(
+            "How to get the botanical MW for the µg/mL → µM conversion: "
+            "'mw_mean' = unweighted mean MW of constituents (default); "
+            "'mw_weighted' = content-weighted harmonic mean MW, "
+            "Σcᵢ / Σ(cᵢ/MWᵢ); "
+            "'none' = keep botanicals in µg/mL."
         ),
     )
     args = parser.parse_args()
@@ -189,9 +265,16 @@ def main():
         ).alias("Metadata_perturbation")
     )
     # ── Optional BSC unit conversion ──────────────────────────────────────────
-    if args.bsc_annotation:
-        print("🔬 Applying BSC botanical concentration conversion (µg/mL → µM)")
-        df = convert_bsc_concentrations(df, args.bsc_annotation)
+    if args.bsc_conversion_mode == "none":
+        print("ℹ️  bsc_conversion_mode = none; keeping botanicals in µg/mL")
+    elif args.bsc_annotation:
+        print(
+            "🔬 Applying BSC botanical concentration conversion (µg/mL → µM), "
+            f"mode = {args.bsc_conversion_mode}"
+        )
+        df = convert_bsc_concentrations(
+            df, args.bsc_annotation, args.bsc_conversion_mode
+        )
     else:
         print("ℹ️  No --bsc_annotation provided; skipping concentration conversion")
 

@@ -136,6 +136,9 @@ process format_dino {
             if (params.bsc_annotation) {
                 bsc_annot_arg = "--bsc_annotation '${params.bsc_annotation}'"
             }
+            if (params.bsc_conversion_mode) {
+                bsc_annot_arg += " --bsc_conversion_mode ${params.bsc_conversion_mode}"
+            }
         }
         else if (params.input_name == 'axiom') {
             script_path = "${params.base_dir}/modules/01_preprocessing/scripts/format_axiom_oasis_dino.py"
