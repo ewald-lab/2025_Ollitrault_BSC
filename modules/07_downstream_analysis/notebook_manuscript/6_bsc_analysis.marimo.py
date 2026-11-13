@@ -481,7 +481,7 @@ def _(mo):
 
 
 @app.cell
-def _(df_level5_bsc, dic_botanicals_scode_name):
+def _(df_bsc_annotations, df_level5_bsc, dic_botanicals_scode_name):
     # Build the concentration summary used in Figure 1A.
     _conc_stats = (
         df_level5_bsc
@@ -517,9 +517,33 @@ def _(df_level5_bsc, dic_botanicals_scode_name):
         "Comfrey": "Evidence"
     }
 
+    # Share of the botanical's mass covered by the tested constituents.
+    # Content is mg per g of extract, so mg/g / 10 = % of the total mass.
+    # Values such as "5.2 ± 0.8" are read as the mean, dropping the SD.
+    _content_col = next(
+        c for c in df_bsc_annotations.columns if c.strip() == "Concentration (mg/g)"
+    )
+    _mass_covered_pct = (
+        df_bsc_annotations
+        .assign(
+            _content_mg_g=lambda d: (
+                d[_content_col]
+                .astype(str)
+                .str.extract(r"^\s*(\d*\.?\d+)")[0]
+                .astype(float)
+            )
+        )
+        .groupby("Plant name")["_content_mg_g"]
+        .sum()
+        / 10
+    )
+
     df_bsc_concentration_summary = _conc_stats[["Plant name", "Min (µM)", "Max (µM)"]].copy()
     df_bsc_concentration_summary["N tested constituents"] = (
         df_bsc_concentration_summary["Plant name"].map(_n_constituents)
+    )
+    df_bsc_concentration_summary["Mass covered by constituents (%)"] = (
+        df_bsc_concentration_summary["Plant name"].map(_mass_covered_pct)
     )
     df_bsc_concentration_summary["Hepatotoxicity (literature)"] = (
         df_bsc_concentration_summary["Plant name"].map(_hepatotox)
@@ -568,7 +592,8 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
     _df_plants["Concentration range (µM)"] = _df_plants.apply(_range_bar, axis=1)
 
     _df_display = _df_plants[
-        ["Plant name", "Hepatotoxicity (literature)", "N tested constituents", "Concentration range (µM)"]
+        ["Plant name", "Hepatotoxicity (literature)", "N tested constituents",
+         "Mass covered by constituents (%)", "Concentration range (µM)"]
     ].copy()
 
     def _hep_color(val):
@@ -588,6 +613,12 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
             cmap="YlGn",
             vmin=0,
             vmax=_df_plants["N tested constituents"].max()
+        )
+        .background_gradient(
+            subset=["Mass covered by constituents (%)"],
+            cmap="Blues",
+            vmin=0,
+            vmax=_df_plants["Mass covered by constituents (%)"].max()
         )
         .applymap(_hep_color, subset=["Hepatotoxicity (literature)"])
         .set_properties(**{
@@ -609,13 +640,22 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
             "min-width": "90px",
             "max-width": "120px",
         })
+        .set_properties(subset=["Mass covered by constituents (%)"], **{
+            "width": "110px",
+            "min-width": "90px",
+            "max-width": "120px",
+            "white-space": "normal",
+        })
         .set_properties(subset=["Hepatotoxicity (literature)"], **{
             "width": "110px",
             "min-width": "90px",
             "max-width": "120px",
             "white-space": "normal",   # allows wrapping
         })
-        .format({"Concentration range (µM)": lambda _x: _x})
+        .format({
+            "Concentration range (µM)": lambda _x: _x,
+            "Mass covered by constituents (%)": "{:.1f}",
+        })
         .set_table_styles([
             {"selector": "thead th", "props": [
                 ("background-color", "#2c6e49"),
