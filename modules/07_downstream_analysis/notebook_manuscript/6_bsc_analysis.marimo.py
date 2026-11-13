@@ -570,7 +570,18 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
     _global_log_min = np.log10(_df_plants["Min (µM)"].min())
     _global_log_max = np.log10(_df_plants["Max (µM)"].max())
 
+    def _conc_label(_value):
+        """Readable concentration: no scientific notation, few decimals."""
+        if _value >= 100:
+            return f"{_value:.0f}"
+        if _value >= 10:
+            return f"{_value:.0f}"
+        if _value >= 1:
+            return f"{_value:.1f}"
+        return f"{_value:.2g}"
+
     def _range_bar(_row):
+        # Bar on the left, the values printed beside it so they stay legible.
         _log_min = np.log10(_row["Min (µM)"])
         _log_max = np.log10(_row["Max (µM)"])
 
@@ -578,14 +589,18 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
         _width = (_log_max - _log_min)        / (_global_log_max - _global_log_min) * 100
 
         return (
-            f'<div style="position:relative; height:16px; background:#f0f0f0; '
-            f'border-radius:4px; width:100%;">'
+            # The bar flexes and the label has a fixed width, so the contents
+            # always fit the cell and every bar is the same length.
+            f'<div style="display:flex; align-items:center; gap:12px;">'
+            f'<div style="position:relative; height:16px; flex:1 1 auto; min-width:40px; '
+            f'background:#ececec; border-radius:4px;">'
             f'<div style="position:absolute; left:{_left:.1f}%; width:{_width:.1f}%; '
             f'height:100%; background:linear-gradient(90deg,#52b788,#1a6b3c); '
-            f'border-radius:4px; opacity:0.85;"></div>'
-            f'<span style="position:absolute; left:50%; transform:translateX(-50%); '
-            f'font-size:10px; line-height:16px; color:#333; white-space:nowrap;">'
-            f'{_row["Min (µM)"]:.3g} – {_row["Max (µM)"]:.3g} µM</span>'
+            f'border-radius:4px;"></div>'
+            f'</div>'
+            f'<span style="flex:0 0 150px; font-size:18px; white-space:nowrap; color:#222; '
+            f'text-align:right;">'
+            f'{_conc_label(_row["Min (µM)"])} – {_conc_label(_row["Max (µM)"])} µM</span>'
             f'</div>'
         )
 
@@ -606,6 +621,23 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
         else:
             return "background-color: #e2e3e5; color: #383d41;"
 
+    # ── Layout ────────────────────────────────────────────────────────────
+    # Column widths in px, in display order. The table uses a fixed layout, so
+    # these are honoured exactly (the browser reads them from the header row).
+    _column_widths = {
+        "Plant name": 155,
+        "Hepatotoxicity (literature)": 150,
+        "N tested constituents": 108,
+        "Mass covered by constituents (%)": 125,
+        "Concentration range (µM)": 340,
+    }
+    _numeric_columns = ["N tested constituents", "Mass covered by constituents (%)"]
+
+    _header_width_rules = [
+        {"selector": f"thead th:nth-child({_i})", "props": [("width", f"{_w}px")]}
+        for _i, _w in enumerate(_column_widths.values(), start=1)
+    ]
+
     _styled = (
         _df_display.style
         .background_gradient(
@@ -621,61 +653,58 @@ def _(df_bsc_concentration_summary, dfi, figure_dir, np):
             vmax=_df_plants["Mass covered by constituents (%)"].max()
         )
         .applymap(_hep_color, subset=["Hepatotoxicity (literature)"])
+        # Body cells
         .set_properties(**{
-            "font-size": "16px",   # ↑ from 12px
+            "font-size": "18px",
             "text-align": "center",
             "border": "1px solid #e0e0e0",
-            "padding": "4px 7px",  # slightly more spacing
+            "padding": "10px 8px",
+            "white-space": "nowrap",
         })
         .set_properties(subset=["Plant name"], **{
             "text-align": "left",
-            "font-weight": "bold"
+            "font-weight": "bold",
+        })
+        .set_properties(subset=_numeric_columns, **{
+            "font-size": "20px",
+            "font-weight": "bold",
         })
         .set_properties(subset=["Concentration range (µM)"], **{
-            "min-width": "220px",
-            "padding": "4px 8px"
-        })
-        .set_properties(subset=["N tested constituents"], **{
-            "width": "110px",
-            "min-width": "90px",
-            "max-width": "120px",
-        })
-        .set_properties(subset=["Mass covered by constituents (%)"], **{
-            "width": "110px",
-            "min-width": "90px",
-            "max-width": "120px",
-            "white-space": "normal",
-        })
-        .set_properties(subset=["Hepatotoxicity (literature)"], **{
-            "width": "110px",
-            "min-width": "90px",
-            "max-width": "120px",
-            "white-space": "normal",   # allows wrapping
+            "padding": "10px 12px",
         })
         .format({
             "Concentration range (µM)": lambda _x: _x,
             "Mass covered by constituents (%)": "{:.1f}",
         })
         .set_table_styles([
+            # Header cells
             {"selector": "thead th", "props": [
                 ("background-color", "#2c6e49"),
                 ("color", "white"),
-                ("font-size", "16px"),
+                ("font-size", "20px"),
                 ("font-weight", "bold"),
                 ("text-align", "center"),
-                ("padding", "8px 12px"),
+                ("padding", "12px 8px"),
                 ("border-bottom", "2px solid #1a4731"),
-                ("white-space", "normal"),  # allows header wrapping
+                ("white-space", "normal"),   # long titles wrap
+                ("line-height", "1.2"),
             ]},
+            # The two narrow numeric columns: slightly smaller titles so the
+            # word "constituents" fits their width.
+            {"selector": "thead th:nth-child(3), thead th:nth-child(4)", "props": [
+                ("font-size", "17px"),
+                ("padding", "12px 4px"),
+            ]},
+            *_header_width_rules,
             {"selector": "tbody tr:nth-child(even)", "props": [
                 ("background-color", "#f7f7f7"),
             ]},
-            {"selector": "tbody tr:hover", "props": [
-                ("background-color", "#d4edda"),
-            ]},
-            {"selector": "table", "props": [
+            # Empty selector = the <table> itself (pandas puts its id on the
+            # table, so a "table" selector would match nothing).
+            {"selector": "", "props": [
                 ("border-collapse", "collapse"),
-                ("width", "70%"),
+                ("table-layout", "fixed"),
+                ("width", f"{sum(_column_widths.values())}px"),
                 ("margin", "auto"),
             ]},
         ])
@@ -2767,6 +2796,22 @@ def _(
     # ── 3. Map constituents to their botanicals ───────────────────────────────────
     _constituent_to_plants = _annot.groupby("Metadata_compound")["Plant scode"].apply(list).to_dict()
 
+    # Content of each constituent in its botanical, in mg per g of extract,
+    # as reported by the chemical analysis ("5.2 ± 0.8" -> 5.2).
+    _content_col = next(
+        c for c in _annot.columns if c.strip() == "Concentration (mg/g)"
+    )
+    _content_lookup = (
+        _annot
+        .assign(_content_mg_g=lambda d: (
+            d[_content_col].astype(str)
+            .str.extract(r"^\s*(\d*\.?\d+)")[0]
+            .astype(float)
+        ))
+        .set_index(["Metadata_compound", "Plant scode"])["_content_mg_g"]
+        .to_dict()
+    )
+
     _rows = []
     for _compound, _plants in _constituent_to_plants.items():
         if _compound not in _pac_lookup:
@@ -2777,7 +2822,8 @@ def _(
                     "Metadata_compound": _compound,
                     "Plant name": dic_botanicals_scode_name[_plant],
                     "Plant scode": _plant,
-                    "PAC": _pac_lookup[_compound]
+                    "PAC": _pac_lookup[_compound],
+                    "Content (mg/g)": _content_lookup.get((_compound, _plant)),
                 })
     _df_long = pd.DataFrame(_rows)
 
@@ -2899,14 +2945,41 @@ def _(
         _patch.set_facecolor(_plant_colors[_plant])
         _patch.set_alpha(0.4)
 
-    # Jittered constituent dots — covers every botanical, including the
-    # single-constituent ones that now have no accompanying box
+    # Circle size = the constituent's content in the botanical (mg/g). Contents
+    # span about 0.02 to 240 mg/g, so the size follows log10(content), squared
+    # so that rare constituents shrink to small dots and abundant ones stand out.
+    _content_ticks = [0.1, 1, 10, 100]             # shown in the size legend
+    _log_lo, _log_hi = np.log10(0.05), np.log10(300)
+    _area_lo, _area_hi = 4, 800                    # marker area (pt²)
+
+    def _content_to_area(_content_mg_g):
+        _log_content = np.log10(np.clip(_content_mg_g, 10**_log_lo, 10**_log_hi))
+        _t = (_log_content - _log_lo) / (_log_hi - _log_lo)
+        return _area_lo + _t**2 * (_area_hi - _area_lo)
+
+    # Jittered constituent circles — covers every botanical, including the
+    # single-constituent ones that have no box. Fixed seed so the jitter (and
+    # the saved figure) is the same on every run.
+    _rng = np.random.default_rng(0)
     for _i, _plant in enumerate(_order, start=1):
-        _y = _df_long.loc[_df_long["Plant name"] == _plant, "PAC"].dropna().values
-        if len(_y) == 0:
+        _df_plant = (
+            _df_long.loc[_df_long["Plant name"] == _plant]
+            .dropna(subset=["PAC"])
+            # Largest first, so small circles are drawn on top and stay visible
+            .sort_values("Content (mg/g)", ascending=False)
+        )
+        if _df_plant.empty:
             continue
-        _x = np.random.normal(_i, 0.08, size=len(_y))
-        _ax.plot(_y, _x, "o", alpha=0.55, markersize=5, color=_plant_colors[_plant])
+        _ax.scatter(
+            _df_plant["PAC"],
+            _rng.normal(_i, 0.08, size=len(_df_plant)),
+            s=_content_to_area(_df_plant["Content (mg/g)"].fillna(10**_log_lo)),
+            color=_plant_colors[_plant],
+            alpha=0.65,
+            edgecolor="black",
+            linewidth=0.5,
+            zorder=3,
+        )
 
     _legend_cp_added = False
     _legend_mtt_added = False
@@ -2962,10 +3035,11 @@ def _(
         Line2D([0], [0], color="steelblue",        linewidth=2, linestyle="--", label="Botanical CP POD"),
         #Line2D([0], [0], color="darkorange", linewidth=2, linestyle="--", label="MT POD"),
         #Line2D([0], [0], color="green",      linewidth=2, linestyle="--", label="LDH POD"),
-        Line2D([0], [0], marker="o", color="grey", markersize=6,
+        Line2D([0], [0], marker="o", color="grey", markersize=7,
+               markeredgecolor="black", markeredgewidth=0.5,
                linestyle="none", label="Constituent CP POD"),
     ]
-    _ax.legend(
+    _main_legend = _ax.legend(
         handles=_legend_handles,
         loc="lower right",
         frameon=True,
@@ -2975,6 +3049,35 @@ def _(
         fontsize=12,
         borderpad=0.8,
     )
+    # An axes keeps only its last legend; add_artist keeps this one when the
+    # size legend below is created.
+    _ax.add_artist(_main_legend)
+
+    # Second legend: what the circle sizes mean
+    _size_handles = [
+        Line2D([0], [0], marker="o", linestyle="none", color="grey", alpha=0.65,
+               markeredgecolor="black", markeredgewidth=0.5,
+               markersize=np.sqrt(_content_to_area(_c)), label=f"{_c:g}")
+        for _c in _content_ticks
+    ]
+    _size_legend = _ax.legend(
+        handles=_size_handles,
+        title="Constituent content in the botanical (mg/g)",
+        title_fontsize=11,
+        loc="lower right",
+        bbox_to_anchor=(1, 0.11),   # just above the main legend
+        frameon=True,
+        facecolor="white",
+        edgecolor="lightgrey",
+        framealpha=0.95,
+        fontsize=11,
+        borderpad=0.8,
+        ncol=len(_content_ticks),
+        columnspacing=1.5,
+        handletextpad=0.4,
+    )
+    # Room between the title and the circles, so the largest circle clears it
+    _size_legend._legend_box.sep = 14
 
     # ── ax2: active vs total constituents per botanical ───────────────────────────
     for _i, _plant in enumerate(_order, start=1):
